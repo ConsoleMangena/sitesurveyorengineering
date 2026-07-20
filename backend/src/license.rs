@@ -564,9 +564,28 @@ fn status_internal(app_data_dir: &Path) -> LicenseStatus {
 
 /// Accept a freshly issued/refreshed token from the server, verify it, bind it
 /// to this machine, and persist it. Returns the resulting status.
-fn install_token_internal(app_data_dir: &Path, token: &str) -> Result<LicenseStatus, String> {
+///
+/// If `expected_account_id` is supplied, the token's `account_id` field must
+/// match it. This prevents installing a token that belongs to another user on
+/// a shared or re-authenticated device.
+fn install_token_internal(
+    app_data_dir: &Path,
+    token: &str,
+    expected_account_id: Option<&str>,
+) -> Result<LicenseStatus, String> {
     // Cryptographically verify and confirm seat binding before trusting it.
     let payload = verify_token_for_this_machine(app_data_dir, token).map_err(|e| e.to_string())?;
+
+    // Bind the local cache to the currently signed-in account, not just the
+    // machine fingerprint. A token issued to a different account is unusable.
+    if let Some(expected) = expected_account_id {
+        if payload.account_id != expected {
+            return Err(
+                "License account mismatch: this key belongs to a different account."
+                    .to_string(),
+            );
+        }
+    }
 
     // Reject tokens that are already expired at install time when there is no
     // offline grace left. This prevents installing stale tokens that can never
@@ -613,8 +632,16 @@ pub fn license_fingerprint(app_handle: tauri::AppHandle) -> Result<String, Strin
 }
 
 /// Returns the current license status for this machine (validated offline).
+///
+/// If `expected_account_id` is provided and the cached token belongs to a
+/// different account, the status is reported as unlicensed. This prevents a
+/// seat-bound token for account A from being reused after a different user B
+/// signs in on the same machine.
 #[tauri::command]
-pub fn license_status(app_handle: tauri::AppHandle) -> LicenseStatus {
+pub fn license_status(
+    app_handle: tauri::AppHandle,
+    expected_account_id: Option<String>,
+) -> LicenseStatus {
     use tauri::Manager;
     let dir = match app_handle.path().app_data_dir() {
         Ok(d) => d,
@@ -625,22 +652,38 @@ pub fn license_status(app_handle: tauri::AppHandle) -> LicenseStatus {
             )
         }
     };
-    status_internal(&dir)
+    let status = status_internal(&dir);
+    if let Some(expected) = expected_account_id {
+        if let Some(ref actual) = status.account_id {
+            if actual != &expected {
+                return LicenseStatus::unlicensed(
+                    status.fingerprint,
+                    Some("This device is activated for a different account.".to_string()),
+                );
+            }
+        }
+    }
+    status
 }
 
 /// Install a signed token returned by the activation/refresh Edge Function.
 /// Used for both first-time activation and periodic online refresh.
+///
+/// When `expected_account_id` is provided, tokens issued to a different account
+/// are rejected. This binds the local cache to the currently signed-in user,
+/// not just to the machine fingerprint.
 #[tauri::command]
 pub fn license_activate(
     app_handle: tauri::AppHandle,
     token: String,
+    expected_account_id: Option<String>,
 ) -> Result<LicenseStatus, String> {
     use tauri::Manager;
     let dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Could not resolve app data dir: {e}"))?;
-    install_token_internal(&dir, &token)
+    install_token_internal(&dir, &token, expected_account_id.as_deref())
 }
 
 /// Convenience alias for periodic refresh; identical verification path.
@@ -648,8 +691,9 @@ pub fn license_activate(
 pub fn license_refresh(
     app_handle: tauri::AppHandle,
     token: String,
+    expected_account_id: Option<String>,
 ) -> Result<LicenseStatus, String> {
-    license_activate(app_handle, token)
+    license_activate(app_handle, token, expected_account_id)
 }
 
 /// Remove the local license (e.g. on explicit deactivation / sign-out of a
@@ -669,10 +713,14 @@ pub fn license_deactivate(app_handle: tauri::AppHandle) -> Result<(), String> {
 }
 
 /// Hard gate used before privileged operations (e.g. enabling cloud sync in
-/// the UI). Returns true only when the license is Active or in Grace.
+/// the UI). Returns true only when the license is Active or in Grace for the
+/// expected account (if one is supplied).
 #[tauri::command]
-pub fn license_is_valid(app_handle: tauri::AppHandle) -> bool {
-    let status = license_status(app_handle);
+pub fn license_is_valid(
+    app_handle: tauri::AppHandle,
+    expected_account_id: Option<String>,
+) -> bool {
+    let status = license_status(app_handle, expected_account_id);
     status.state == LicenseState::Active.as_str() || status.state == LicenseState::Grace.as_str()
 }
 
@@ -907,4 +955,5 @@ mod tests {
         assert_ne!(tag, compute_tag(dir, token, 1235));
         assert_ne!(tag, compute_tag(dir, "abc.xyz", 1234));
     }
+
 }

@@ -29,8 +29,12 @@ import {
 } from "../repositories/embeddedWallets";
 import { getConnection, sendTokens } from "../payments/solanaPay";
 import { saveWalletActivity } from "./walletHistory";
-import { SOLANA_CLUSTER } from "./config";
-import { SOLANA_USDC_MINT, USDC_DECIMALS } from "./config";
+import {
+  SOLANA_CLUSTER,
+  SOLANA_RPC_URL,
+  SOLANA_USDC_MINT,
+  USDC_DECIMALS,
+} from "./config";
 
 const TOKEN_PROGRAM_ID = new PublicKey(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
@@ -135,6 +139,7 @@ export interface UseEmbeddedSolanaWalletResult {
   lockoutSeconds: number;
   balances: EmbeddedWalletBalances;
   error: string | null;
+  balanceError: string | null;
   createWallet: (pin: string) => Promise<void>;
   importWallet: (mnemonic: string, pin: string) => Promise<void>;
   changePin: (oldPin: string, newPin: string) => Promise<void>;
@@ -169,6 +174,7 @@ export function useEmbeddedSolanaWallet(): UseEmbeddedSolanaWalletResult {
     usdc: 0,
     usdcLoading: false,
   });
+  const [balanceError, setBalanceError] = useState<string | null>(null);
 
   useEffect(() => {
     setSupported(isEmbeddedWalletSupported());
@@ -210,12 +216,24 @@ export function useEmbeddedSolanaWallet(): UseEmbeddedSolanaWalletResult {
     const address = unlockedWallet?.walletAddress ?? walletAddress;
     if (!address) {
       setBalances({ sol: 0, solLoading: false, usdc: 0, usdcLoading: false });
+      setBalanceError(null);
       return;
     }
 
     setBalances((b) => ({ ...b, solLoading: true, usdcLoading: true }));
+    setBalanceError(null);
+
     const owner = new PublicKey(address);
-    const conn: Connection = getConnection();
+    let conn: Connection;
+    try {
+      conn = getConnection();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[embedded-wallet] Failed to create Solana connection:", msg, { rpcUrl: SOLANA_RPC_URL });
+      setBalanceError(`Solana connection failed: ${msg}`);
+      setBalances((b) => ({ ...b, solLoading: false, usdcLoading: false }));
+      return;
+    }
 
     try {
       const lamports = await conn.getBalance(owner, "confirmed");
@@ -232,10 +250,23 @@ export function useEmbeddedSolanaWallet(): UseEmbeddedSolanaWalletResult {
         const tokenBalance = await conn.getTokenAccountBalance(ata, "confirmed");
         const usdc = Number(tokenBalance.value.amount) / 10 ** USDC_DECIMALS;
         setBalances({ sol, solLoading: false, usdc, usdcLoading: false });
-      } catch {
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[embedded-wallet] Failed to fetch USDC balance:", msg, {
+          address,
+          mint: SOLANA_USDC_MINT,
+          rpcUrl: SOLANA_RPC_URL,
+        });
+        setBalanceError(`USDC balance unavailable: ${msg}`);
         setBalances({ sol, solLoading: false, usdc: 0, usdcLoading: false });
       }
-    } catch {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[embedded-wallet] Failed to fetch SOL balance:", msg, {
+        address,
+        rpcUrl: SOLANA_RPC_URL,
+      });
+      setBalanceError(`SOL balance unavailable: ${msg}`);
       setBalances((b) => ({
         ...b,
         solLoading: false,
@@ -547,6 +578,7 @@ export function useEmbeddedSolanaWallet(): UseEmbeddedSolanaWalletResult {
     lockoutSeconds,
     balances,
     error,
+    balanceError,
     createWallet,
     importWallet,
     changePin,

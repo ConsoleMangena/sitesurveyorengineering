@@ -92,6 +92,7 @@ their JWT reflects the new role.
    - `backend/supabase/sql/03_rls_storage.sql`
    - `backend/supabase/sql/04_seed.sql`
    - `backend/supabase/sql/06_licensing.sql`
+   - `backend/supabase/sql/07_licensing_enforcement.sql`
    - `backend/supabase/sql/99_admin_operations.sql` (cookbook/templates)
 2. Provision platform admin account(s).
 3. Deploy the Edge Functions:

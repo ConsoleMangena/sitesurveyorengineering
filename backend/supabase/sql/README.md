@@ -16,17 +16,24 @@ Open the **Supabase SQL editor** and paste/run these **in order**, one at a time
 | 2 | `02_functions_triggers.sql` | Functions / RPCs and triggers. |
 | 3 | `03_rls_storage.sql` | RLS policies and storage buckets/policies. |
 | 4 | `04_seed.sql` | Seeds (feature catalog, promo codes) and idempotent backfills. |
+| 5 | `05_blockchain_anchoring.sql` | On-chain anchoring columns and triggers for `attachments`. |
+| 6 | `06_licensing.sql` | Per-device licensing tables (`licenses`, `license_seats`) and helpers. |
+| 7 | `07_licensing_enforcement.sql` | RESTRICTIVE RLS policies that gate business-data INSERT/UPDATE by active license. |
+| 8 | `12_attachment_versions.sql` | Attachment versions / soft-delete support. |
 
 The order matters: tables -> functions -> policies (policies call the
-functions) -> seeds. Each file is its own transaction, so if one fails nothing
-from that file is half-applied.
+functions) -> seeds -> licensing -> licensing enforcement. Each file is its own
+transaction, so if one fails nothing from that file is half-applied.
 
-## Option B — one file
+## Option B — one file (currently incomplete)
 
-Prefer a single paste? Run `00_all_in_one.sql` instead. It contains the exact
-same SQL as files 01-04 combined, in the same order.
+`00_all_in_one.sql` is a legacy single-file convenience script. It currently
+contains only files `01-04` and does **not** include the licensing tables,
+licensing enforcement, attachment versions, or several later schema additions.
 
-> Use **either** Option A **or** Option B, not both. They do the same thing.
+> For new projects, use **Option A (split files)** and run them in order.
+> Only use `00_all_in_one.sql` if you know it matches the numbered files in
+> your branch.
 
 ## After running
 

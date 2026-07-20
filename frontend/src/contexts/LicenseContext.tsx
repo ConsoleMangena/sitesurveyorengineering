@@ -33,6 +33,7 @@ import {
   type LicenseStateName,
   type Edition,
 } from '@/services/license';
+import { useAuthStore } from '@/lib/auth/auth-store';
 import {
   meetsEntitlement,
   CAPABILITIES,
@@ -76,6 +77,7 @@ const REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 export function LicenseProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<LicenseStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const userId = useAuthStore((s) => s.user?.id);
 
   const statusRef = useRef<LicenseStatus | null>(null);
   useEffect(() => {
@@ -84,7 +86,7 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
 
   const load = useCallback(async () => {
     try {
-      const s = await getLicenseStatus();
+      const s = await getLicenseStatus(userId);
       setStatus(s);
     } catch (e) {
       // If the Rust bridge is unreachable, fail closed (locked) rather than
@@ -94,21 +96,21 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [userId]);
 
   const refresh = useCallback(async () => {
     try {
-      const s = await refreshLicense();
+      const s = await refreshLicense(userId);
       setStatus(s);
     } catch (e) {
       console.error('License refresh failed:', e);
     }
-  }, []);
+  }, [userId]);
 
   const activate = useCallback(async (licenseKey?: string) => {
-    const s = await activateLicenseSvc(licenseKey);
+    const s = await activateLicenseSvc(licenseKey, userId);
     setStatus(s);
-  }, []);
+  }, [userId]);
 
   const deactivate = useCallback(async () => {
     await deactivateLicenseSvc();

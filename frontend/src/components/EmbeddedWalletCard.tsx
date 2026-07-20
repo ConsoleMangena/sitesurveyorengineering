@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import {
+  AlertCircle,
   AlertTriangle,
   ArrowUpRight,
   Banknote,
@@ -21,7 +22,11 @@ import {
   X,
 } from "lucide-react";
 import { useEmbeddedWallet } from "../hooks/useEmbeddedWallet.ts";
-import { SOLANA_CLUSTER } from "../lib/solana/config.ts";
+import {
+  SOLANA_CLUSTER,
+  SOLANA_RPC_URL,
+  SOLANA_USDC_MINT,
+} from "../lib/solana/config.ts";
 import { validatePinStrength } from "../lib/solana/embeddedWallet.ts";
 import { getConnection } from "../lib/payments/solanaPay.ts";
 import {
@@ -85,6 +90,22 @@ function NetworkBadge() {
       <span className="wallet-network-dot" aria-hidden="true" />
       {NETWORK_LABELS[network] ?? network}
     </span>
+  );
+}
+
+function NetworkDetails() {
+  return (
+    <details className="wallet-network-details">
+      <summary>Network details</summary>
+      <dl>
+        <dt>Cluster</dt>
+        <dd>{SOLANA_CLUSTER}</dd>
+        <dt>RPC URL</dt>
+        <dd className="wallet-network-details-mono">{SOLANA_RPC_URL}</dd>
+        <dt>USDC mint</dt>
+        <dd className="wallet-network-details-mono">{SOLANA_USDC_MINT}</dd>
+      </dl>
+    </details>
   );
 }
 
@@ -354,6 +375,13 @@ export default function EmbeddedWalletCard() {
           </div>
         </div>
       </div>
+
+      {wallet.balanceError && (
+        <div className="wallet-balance-error" role="alert">
+          <AlertCircle size={16} />
+          <span>{wallet.balanceError}</span>
+        </div>
+      )}
 
       <div className="wallet-quick-actions">
         <button
@@ -909,6 +937,8 @@ export default function EmbeddedWalletCard() {
               : renderNoWallet()}
 
         {wallet.error && <div className="wallet-error">{wallet.error}</div>}
+
+        {wallet.walletAddress && <NetworkDetails />}
       </div>
 
       {showDeleteConfirm && (
