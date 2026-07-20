@@ -6,18 +6,34 @@ export type MarketplaceListingInsert = TablesInsert<'marketplace_listings'>
 export type MarketplaceListingUpdate = TablesUpdate<'marketplace_listings'>
 type MarketplaceListingCreateInput = Omit<MarketplaceListingInsert, 'workspace_id' | 'id' | 'created_at' | 'updated_at'>
 
-export async function listMarketplaceListings(workspaceId: string): Promise<MarketplaceListingRow[]> {
+export type MarketplaceListingWithAsset = MarketplaceListingRow & { assets?: { status: string } | null }
+
+export async function listMarketplaceListings(workspaceId: string): Promise<MarketplaceListingWithAsset[]> {
   const { data, error } = await supabase
     .from('marketplace_listings')
-    .select('*')
+    .select('*, assets:asset_id(status)')
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: false })
 
   if (error) {
     throw new Error(`Failed to list marketplace listings: ${error.message}`)
   }
-  return data ?? []
+  return (data as unknown) as MarketplaceListingWithAsset[] ?? []
 }
+
+export async function getMarketplaceListingByAssetId(assetId: string): Promise<MarketplaceListingRow | null> {
+  const { data, error } = await supabase
+    .from('marketplace_listings')
+    .select('*')
+    .eq('asset_id', assetId)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`Failed to get marketplace listing by asset ID: ${error.message}`)
+  }
+  return data
+}
+
 
 export async function createMarketplaceListing(workspaceId: string, payload: MarketplaceListingCreateInput): Promise<MarketplaceListingRow> {
   const { data, error } = await supabase

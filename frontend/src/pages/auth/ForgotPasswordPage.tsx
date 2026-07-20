@@ -1,15 +1,25 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { formatAuthUserFacingError } from "../../lib/auth/auth-errors.ts";
 import { requestPasswordReset } from "../../lib/auth/session.ts";
+import { useAuthStore } from "../../lib/auth/auth-store";
+import { Button } from "../../components/ui/button.tsx";
+import { Input } from "../../components/ui/input.tsx";
+import { Label } from "../../components/ui/label.tsx";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "../../components/ui/card.tsx";
+import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
 import "../../styles/auth.css";
 
-interface ForgotPasswordPageProps {
-  onGoToLogin: () => void;
-}
-
-export default function ForgotPasswordPage({
-  onGoToLogin,
-}: ForgotPasswordPageProps) {
+export default function ForgotPasswordPage() {
+  const navigate = useNavigate();
+  const setAuthLoading = useAuthStore((s) => s.setAuthLoading);
   const [email, setEmail] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -27,6 +37,7 @@ export default function ForgotPasswordPage({
 
     try {
       setIsSubmitting(true);
+      setAuthLoading(true);
       await requestPasswordReset(email.trim());
       setNotice(
         "Password reset link sent. Check your email and open the link to continue.",
@@ -40,52 +51,61 @@ export default function ForgotPasswordPage({
       );
     } finally {
       setIsSubmitting(false);
+      setAuthLoading(false);
     }
   };
 
   return (
-    <div className="auth-screen">
-      <div className="auth-card">
-        <div className="auth-header">
-          <img src="/logo.svg" alt="SiteSurveyor" className="auth-logo" />
-          <h1 className="auth-brand">Reset Password</h1>
-          <p className="auth-tagline">
+    <div className="auth-screen px-4 py-8">
+      <Card className="mx-auto w-full max-w-[380px] auth-animate-card">
+        <CardHeader className="text-center auth-animate-header">
+          <img
+            src="/logo.svg"
+            alt="SiteSurveyor"
+            className="mx-auto mb-2 h-16 w-auto object-contain"
+          />
+          <CardTitle>Reset Password</CardTitle>
+          <CardDescription>
             Enter your email and we will send a reset link.
-          </p>
-        </div>
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form className="space-y-4 auth-animate-stagger" onSubmit={handleSubmit}>
+            <div className="space-y-2">
+              <Label htmlFor="forgot-email">Email</Label>
+              <Input
+                id="forgot-email"
+                type="email"
+                placeholder="you@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                autoFocus
+              />
+            </div>
 
-        <form className="auth-form" onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label">Email</label>
-            <input
-              className="form-input"
-              type="email"
-              placeholder="you@company.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-              autoFocus
-            />
-          </div>
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            {notice && (
+              <Alert variant="success">
+                <AlertDescription>{notice}</AlertDescription>
+              </Alert>
+            )}
 
-          {error && <p className="form-error">{error}</p>}
-          {notice && <p className="form-success">{notice}</p>}
-
-          <button
-            type="submit"
-            className="auth-btn auth-btn-primary"
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? "Sending..." : "Send Reset Link"}
-          </button>
-        </form>
-
-        <div className="auth-footer">
-          <button className="auth-footer-link" onClick={onGoToLogin}>
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting ? "Sending..." : "Send Reset Link"}
+            </Button>
+          </form>
+        </CardContent>
+        <CardFooter className="justify-center text-sm text-muted-foreground">
+          <Button variant="link" className="h-auto p-0" onClick={() => navigate("/login")}>
             Back to login
-          </button>
-        </div>
-      </div>
+          </Button>
+        </CardFooter>
+      </Card>
     </div>
   );
 }

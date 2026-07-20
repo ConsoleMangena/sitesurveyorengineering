@@ -1,8 +1,19 @@
-import React from 'react';
+import * as React from 'react';
+import { Loader2, Trash2 } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { MetricStrip } from '../../../components/dashboard/MetricStrip.tsx';
+import { DashboardCard } from '../../../components/dashboard/DashboardCard.tsx';
+
 import type { ProjectActivity } from '../../../lib/repositories/projects.ts';
+import type { ProjectTool } from '../tools/toolRegistry.ts';
+import type { AssetRow } from '../../../lib/repositories/assets.ts';
 
 interface ProjectDashboardProps {
-  kpiData: Array<{ label: string; value: string; sub: string }>;
+  kpiData: Array<{ label: string; value: string; sub: string; icon?: React.ReactNode; accentColor: string }>;
   activities: ProjectActivity[];
   timelineSummary: { notes: number; actions: number; system: number };
   recentActivities: ProjectActivity[];
@@ -13,9 +24,26 @@ interface ProjectDashboardProps {
   setNewActivityText: React.Dispatch<React.SetStateAction<string>>;
   submittingActivity: boolean;
   deletingActivityId: string | null;
+  deployedAssets: AssetRow[];
   handleAddActivity: (e: React.FormEvent) => Promise<void>;
   handleQuickAction: (action: string) => Promise<void>;
   handleDeleteActivity: (id: string) => Promise<void>;
+  onUndeployAsset?: (assetId: string) => Promise<void>;
+  pinnedTools?: ProjectTool[];
+  comingSoonTools?: ProjectTool[];
+  cadEntitled?: boolean;
+  onOpenTool?: (toolId: string) => void;
+}
+
+function activityBadgeVariant(type: string) {
+  switch (type) {
+    case 'system':
+      return 'default' as const;
+    case 'action':
+      return 'secondary' as const;
+    default:
+      return 'outline' as const;
+  }
 }
 
 export function ProjectDashboard({
@@ -30,140 +58,270 @@ export function ProjectDashboard({
   setNewActivityText,
   submittingActivity,
   deletingActivityId,
+  deployedAssets,
   handleAddActivity,
   handleQuickAction,
   handleDeleteActivity,
+  onUndeployAsset,
+  pinnedTools = [],
+  comingSoonTools = [],
+  cadEntitled = false,
+  onOpenTool,
 }: ProjectDashboardProps) {
   return (
-    <div className="pd-unified-col">
-      <div className="project-dashboard-kpi-grid">
-        {kpiData.map(kpi => (
-          <article key={kpi.label} className="project-dashboard-kpi-card">
-            <span className="project-dashboard-kpi-label">{kpi.label}</span>
-            <strong className="project-dashboard-kpi-value">{kpi.value}</strong>
-            <span className="project-dashboard-kpi-sub">{kpi.sub}</span>
-          </article>
-        ))}
-      </div>
+    <div className="flex flex-col gap-5 min-w-0">
+      <MetricStrip
+        metrics={kpiData.map(kpi => ({
+          label: kpi.label,
+          value: kpi.value,
+          subtext: kpi.sub,
+          icon: kpi.icon,
+          accentColor: kpi.accentColor,
+        }))}
+      />
 
-      <section className="project-dashboard-card" style={{ marginTop: '16px' }}>
-        <h3 className="project-dashboard-card-title">Quick Actions</h3>
-        <div className="project-dashboard-actions" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 200px), 1fr))', gap: '12px' }}>
-          <button className="btn btn-primary btn-sm" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} onClick={() => handleQuickAction('New Field Session')}>
+      <DashboardCard title="Quick Actions">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          <Button onClick={() => handleQuickAction('New Field Session')}>
             <span>New Field Session</span>
-            <span style={{ fontSize: '10px', background: 'rgba(255,255,255,0.2)', padding: '2px 6px', borderRadius: '4px' }}>
+            <Badge variant="secondary" className="ml-auto text-[10px] px-1.5 py-0">
               {activities.find(a => a.content.includes('Field Session')) ? 'Running' : 'Start'}
-            </span>
-          </button>
-          <button className="btn btn-outline btn-sm" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} onClick={() => handleQuickAction('Run Transformation')}>
+            </Badge>
+          </Button>
+          <Button variant="outline" onClick={() => handleQuickAction('Run Transformation')}>
             <span>Run Transformation</span>
-            <span style={{ fontSize: '10px', background: '#dcfce7', color: '#166534', padding: '2px 6px', borderRadius: '4px' }}>
+            <Badge variant="secondary" className="ml-auto text-[10px] px-1.5 py-0">
               {activities.filter(a => a.content.includes('Transformation')).length} runs
-            </span>
-          </button>
-          <button className="btn btn-outline btn-sm" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} onClick={() => handleQuickAction('Validate QA')}>
+            </Badge>
+          </Button>
+          <Button variant="outline" onClick={() => handleQuickAction('Validate QA')}>
             <span>Validate QA</span>
-            <span style={{ fontSize: '10px', background: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: '4px' }}>
+            <Badge variant="secondary" className="ml-auto text-[10px] px-1.5 py-0">
               {Math.max(0, 12 - activities.filter(a => a.content.includes('Validate')).length)} left
-            </span>
-          </button>
-          <button className="btn btn-outline btn-sm" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} onClick={() => handleQuickAction('Prepare Deliverable')}>
+            </Badge>
+          </Button>
+          <Button variant="outline" onClick={() => handleQuickAction('Prepare Deliverable')}>
             <span>Prepare Deliverable</span>
-            <span style={{ fontSize: '10px', background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: '4px' }}>
+            <Badge variant="secondary" className="ml-auto text-[10px] px-1.5 py-0">
               v1.{activities.filter(a => a.content.includes('Deliverable')).length}
-            </span>
-          </button>
+            </Badge>
+          </Button>
         </div>
-      </section>
+      </DashboardCard>
 
-      <section className="project-dashboard-card" style={{ marginTop: '16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', gap: '12px', flexWrap: 'wrap' }}>
-          <h3 className="project-dashboard-card-title" style={{ margin: 0 }}>Activity Feed</h3>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <span className="badge badge-blue">Notes {timelineSummary.notes}</span>
-            <span className="badge badge-green">Actions {timelineSummary.actions}</span>
-            <span className="badge badge-gray">System {timelineSummary.system}</span>
+      {pinnedTools.length > 0 && (
+        <DashboardCard
+          title="Pinned Tools"
+          titleAction={<Badge variant="default">Quick access</Badge>}
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            {pinnedTools.map(tool => {
+              const Icon = tool.icon;
+              const locked = tool.tier === 'paid' && !cadEntitled;
+              const disabled = tool.behavior.kind === 'soon';
+              return (
+                <Button
+                  key={tool.id}
+                  variant="outline"
+                  disabled={disabled}
+                  className="justify-start h-auto py-3 px-3 text-left"
+                  onClick={() => { if (!disabled && onOpenTool) onOpenTool(tool.id); }}
+                >
+                  <span className="inline-flex shrink-0 text-muted-foreground">
+                    <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
+                  </span>
+                  <span className="flex-1 truncate">
+                    {tool.label}
+                  </span>
+                  {locked && <Badge variant="secondary" className="text-[10px]">CAD</Badge>}
+                </Button>
+              );
+            })}
           </div>
-        </div>
-        <div className="project-dashboard-timeline">
-          <form onSubmit={handleAddActivity} style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
-            <input className="input-field" placeholder="Add a short update..." style={{ height: '36px', fontSize: '13px' }} value={newActivityText} onChange={e => setNewActivityText(e.target.value)} />
-            <button type="submit" className="btn btn-primary btn-sm" disabled={submittingActivity || !newActivityText.trim()}>Add</button>
-          </form>
-          {recentActivities.length > 0 ? (
-            <div style={{ display: 'grid', gap: '12px' }}>
-              {recentActivitySections[overviewActivitySectionIndex] && (
-                <section style={{ border: '1px solid var(--border)', borderRadius: '10px', padding: '10px', background: 'var(--surface)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                    <span className="badge badge-blue">Section {overviewActivitySectionIndex + 1}</span>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                      {recentActivitySections[overviewActivitySectionIndex].length} items
-                    </span>
-                    <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text-muted)' }}>
-                      {overviewActivitySectionIndex + 1} / {recentActivitySections.length}
-                    </span>
-                  </div>
-                  <div style={{ display: 'grid', gap: '10px' }}>
-                    {recentActivitySections[overviewActivitySectionIndex].map(log => {
-                      const typeBadgeClass =
-                        log.activity_type === 'system'
-                          ? 'badge-blue'
-                          : log.activity_type === 'action'
-                            ? 'badge-green'
-                            : 'badge-gray'
-                      return (
-                        <article key={log.id} className="project-feed-item">
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                            <span className={`badge ${typeBadgeClass}`}>{log.activity_type}</span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                                {new Date(log.created_at).toLocaleDateString()} {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                              <button
-                                type="button"
-                                className="btn btn-outline btn-sm"
-                                onClick={() => handleDeleteActivity(log.id)}
-                                disabled={deletingActivityId === log.id}
-                                style={{ padding: '2px 8px', lineHeight: 1.2 }}
-                              >
-                                {deletingActivityId === log.id ? '...' : 'Delete'}
-                              </button>
-                            </div>
-                          </div>
-                          <p style={{ margin: '8px 0 4px', fontSize: '13px', color: 'var(--text-h)', lineHeight: 1.45 }}>{log.content}</p>
-                          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{log.user_name}</span>
-                        </article>
-                      )
-                    })}
-                  </div>
-                </section>
-              )}
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-                <button
-                  type="button"
-                  className="btn btn-outline btn-sm"
-                  onClick={() => setOverviewActivitySectionIndex(prev => Math.max(0, prev - 1))}
-                  disabled={overviewActivitySectionIndex <= 0}
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-outline btn-sm"
-                  onClick={() => setOverviewActivitySectionIndex(prev => Math.min(recentActivitySections.length - 1, prev + 1))}
-                  disabled={overviewActivitySectionIndex >= recentActivitySections.length - 1}
-                >
-                  Next
-                </button>
+        </DashboardCard>
+      )}
+
+      <DashboardCard
+        title="Activity Feed"
+        titleAction={
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="default">Notes {timelineSummary.notes}</Badge>
+            <Badge variant="secondary">Actions {timelineSummary.actions}</Badge>
+            <Badge variant="outline">System {timelineSummary.system}</Badge>
+          </div>
+        }
+      >
+        <form onSubmit={handleAddActivity} className="flex gap-2 mb-4">
+          <Input
+            placeholder="Add a short update..."
+            value={newActivityText}
+            onChange={e => setNewActivityText(e.target.value)}
+            className="h-9 text-sm"
+          />
+          <Button
+            type="submit"
+            size="sm"
+            disabled={submittingActivity || !newActivityText.trim()}
+          >
+            {submittingActivity ? <Loader2 size={14} className="animate-spin" /> : 'Add'}
+          </Button>
+        </form>
+
+        {recentActivities.length > 0 ? (
+          <div className="flex flex-col gap-4">
+            {recentActivitySections[overviewActivitySectionIndex] && (
+              <div className="rounded-xl border border-border/60 bg-card p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Badge variant="default">Section {overviewActivitySectionIndex + 1}</Badge>
+                  <span className="text-xs text-muted-foreground">
+                    {recentActivitySections[overviewActivitySectionIndex].length} items
+                  </span>
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {overviewActivitySectionIndex + 1} / {recentActivitySections.length}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-3">
+                  {recentActivitySections[overviewActivitySectionIndex].map(log => (
+                    <article
+                      key={log.id}
+                      className="rounded-lg border border-border/40 bg-muted/30 p-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <Badge variant={activityBadgeVariant(log.activity_type)}>
+                          {log.activity_type}
+                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-muted-foreground">
+                            {new Date(log.created_at).toLocaleDateString()} {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDeleteActivity(log.id)}
+                            disabled={deletingActivityId === log.id}
+                            className="h-7 px-2 text-xs"
+                          >
+                            {deletingActivityId === log.id ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Trash2 size={12} />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                      <p className="mt-2 text-sm text-foreground leading-relaxed">
+                        {log.content}
+                      </p>
+                      <span className="text-xs text-muted-foreground">{log.user_name}</span>
+                    </article>
+                  ))}
+                </div>
               </div>
+            )}
+            <div className="flex items-center justify-between gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setOverviewActivitySectionIndex(prev => Math.max(0, prev - 1))}
+                disabled={overviewActivitySectionIndex <= 0}
+              >
+                Previous
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setOverviewActivitySectionIndex(prev => Math.min(recentActivitySections.length - 1, prev + 1))}
+                disabled={overviewActivitySectionIndex >= recentActivitySections.length - 1}
+              >
+                Next
+              </Button>
             </div>
-          ) : (
-            <div style={{ padding: '24px', textAlign: 'center', background: 'var(--surface-muted)', borderRadius: '8px', border: '1px dashed var(--border)' }}>
-              <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>No activity yet. Add your first project update.</p>
-            </div>
-          )}
-        </div>
-      </section>
+          </div>
+        ) : (
+          <div className="py-8 text-center rounded-lg border border-dashed border-border/60 bg-muted/20">
+            <p className="text-sm text-muted-foreground">
+              No activity yet. Add your first project update.
+            </p>
+          </div>
+        )}
+      </DashboardCard>
+
+      {comingSoonTools.length > 0 && (
+        <DashboardCard
+          title="Coming Soon"
+          titleAction={<Badge variant="outline">Roadmap</Badge>}
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            {comingSoonTools.map(tool => {
+              const Icon = tool.icon;
+              return (
+                <div
+                  key={tool.id}
+                  className="flex items-center gap-3 rounded-lg border border-dashed border-border/60 bg-muted/30 p-3 opacity-75"
+                >
+                  <span className="inline-flex text-muted-foreground">
+                    <Icon size={18} strokeWidth={1.8} aria-hidden="true" />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-foreground truncate">
+                      {tool.label}
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate">
+                      {tool.description}
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="text-[10px]">Soon</Badge>
+                </div>
+              );
+            })}
+          </div>
+        </DashboardCard>
+      )}
+
+      <DashboardCard title="Deployed Instruments">
+        {deployedAssets && deployedAssets.length > 0 ? (
+          <div className="flex flex-col gap-3">
+            {deployedAssets.map(asset => (
+              <article
+                key={asset.id}
+                className="flex items-center justify-between gap-4 rounded-lg border border-border/40 bg-muted/30 p-3"
+              >
+                <div className="min-w-0">
+                  <strong className="block text-sm font-semibold text-foreground truncate">
+                    {asset.name}
+                  </strong>
+                  <span className="text-xs text-muted-foreground">
+                    {asset.category || asset.kind} &middot; <code className="font-mono text-xs bg-muted px-1 rounded">{asset.serial_number || 'N/A'}</code>
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Badge variant="default">Deployed</Badge>
+                  {onUndeployAsset && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onUndeployAsset(asset.id)}
+                      className="h-7 px-2 text-xs"
+                    >
+                      Check In
+                    </Button>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="py-8 text-center rounded-lg border border-dashed border-border/60 bg-muted/20">
+            <p className="text-sm text-muted-foreground">
+              No instruments currently deployed to this project.
+            </p>
+          </div>
+        )}
+      </DashboardCard>
     </div>
   );
 }

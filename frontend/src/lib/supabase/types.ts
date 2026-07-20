@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       asset_calibrations: {
@@ -229,47 +204,175 @@ export type Database = {
       }
       attachments: {
         Row: {
+          anchored_at: string | null
           bucket_name: string
+          chain_network: string | null
+          chain_program_address: string | null
+          chain_status: Database["public"]["Enums"]["attachment_chain_status"]
+          chain_tx_signature: string | null
+          content_hash: string | null
           created_at: string
+          deleted_at: string | null
+          deleted_by: string | null
           entity_id: string
           entity_table: string
+          folder_id: string | null
           id: string
           mime_type: string | null
           size_bytes: number | null
           storage_path: string
+          storage_tier: Database["public"]["Enums"]["attachment_storage_tier"]
+          updated_at: string
           uploaded_by: string | null
           visibility: Database["public"]["Enums"]["attachment_visibility"]
           workspace_id: string
         }
         Insert: {
+          anchored_at?: string | null
           bucket_name: string
+          chain_network?: string | null
+          chain_program_address?: string | null
+          chain_status?: Database["public"]["Enums"]["attachment_chain_status"]
+          chain_tx_signature?: string | null
+          content_hash?: string | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           entity_id: string
           entity_table: string
+          folder_id?: string | null
           id?: string
           mime_type?: string | null
           size_bytes?: number | null
           storage_path: string
+          storage_tier?: Database["public"]["Enums"]["attachment_storage_tier"]
+          updated_at?: string
           uploaded_by?: string | null
           visibility?: Database["public"]["Enums"]["attachment_visibility"]
           workspace_id: string
         }
         Update: {
+          anchored_at?: string | null
           bucket_name?: string
+          chain_network?: string | null
+          chain_program_address?: string | null
+          chain_status?: Database["public"]["Enums"]["attachment_chain_status"]
+          chain_tx_signature?: string | null
+          content_hash?: string | null
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
           entity_id?: string
           entity_table?: string
+          folder_id?: string | null
           id?: string
           mime_type?: string | null
           size_bytes?: number | null
           storage_path?: string
+          storage_tier?: Database["public"]["Enums"]["attachment_storage_tier"]
+          updated_at?: string
           uploaded_by?: string | null
           visibility?: Database["public"]["Enums"]["attachment_visibility"]
           workspace_id?: string
         }
         Relationships: [
           {
+            foreignKeyName: "attachments_deleted_by_fkey"
+            columns: ["deleted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attachments_folder_id_fkey"
+            columns: ["folder_id"]
+            isOneToOne: false
+            referencedRelation: "folders"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "attachments_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attachment_tags: {
+        Row: {
+          attachment_id: string
+          created_at: string
+          tag_id: string
+        }
+        Insert: {
+          attachment_id: string
+          created_at?: string
+          tag_id: string
+        }
+        Update: {
+          attachment_id?: string
+          created_at?: string
+          tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attachment_tags_attachment_id_fkey"
+            columns: ["attachment_id"]
+            isOneToOne: false
+            referencedRelation: "attachments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attachment_tags_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attachment_versions: {
+        Row: {
+          attachment_id: string
+          content_hash: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          size_bytes: number | null
+          storage_path: string
+          workspace_id: string
+        }
+        Insert: {
+          attachment_id: string
+          content_hash?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          size_bytes?: number | null
+          storage_path: string
+          workspace_id: string
+        }
+        Update: {
+          attachment_id?: string
+          content_hash?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          size_bytes?: number | null
+          storage_path?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attachment_versions_attachment_id_fkey"
+            columns: ["attachment_id"]
+            isOneToOne: false
+            referencedRelation: "attachments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attachment_versions_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -396,6 +499,61 @@ export type Database = {
           },
           {
             foreignKeyName: "expense_entries_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      folders: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          parent_id: string | null
+          path: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          parent_id?: string | null
+          path?: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          parent_id?: string | null
+          path?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "folders_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "folders_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "folders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "folders_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -890,12 +1048,14 @@ export type Database = {
       }
       marketplace_listings: {
         Row: {
+          asset_id: string | null
           condition: string
           created_at: string
           currency: string
           description: string | null
           id: string
           is_global: boolean
+          listing_type: string
           location: string
           name: string
           price: number
@@ -906,12 +1066,14 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          asset_id?: string | null
           condition: string
           created_at?: string
           currency: string
           description?: string | null
           id?: string
           is_global?: boolean
+          listing_type?: string
           location: string
           name: string
           price: number
@@ -922,12 +1084,14 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          asset_id?: string | null
           condition?: string
           created_at?: string
           currency?: string
           description?: string | null
           id?: string
           is_global?: boolean
+          listing_type?: string
           location?: string
           name?: string
           price?: number
@@ -941,6 +1105,60 @@ export type Database = {
           {
             foreignKeyName: "marketplace_listings_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      marketplace_requests: {
+        Row: {
+          id: string
+          listing_id: string
+          requester_workspace_id: string
+          requester_user_id: string
+          status: string
+          message: string | null
+          desired_start_date: string | null
+          desired_end_date: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          listing_id: string
+          requester_workspace_id: string
+          requester_user_id: string
+          status?: string
+          message?: string | null
+          desired_start_date?: string | null
+          desired_end_date?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          listing_id?: string
+          requester_workspace_id?: string
+          requester_user_id?: string
+          status?: string
+          message?: string | null
+          desired_start_date?: string | null
+          desired_end_date?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketplace_requests_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "marketplace_listings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_requests_requester_workspace_id_fkey"
+            columns: ["requester_workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
@@ -1173,6 +1391,7 @@ export type Database = {
       payments: {
         Row: {
           amount: number
+          chain: string | null
           created_at: string
           created_by: string | null
           id: string
@@ -1181,11 +1400,15 @@ export type Database = {
           paid_on: string
           payment_method: string | null
           reference: string | null
+          token_mint: string | null
+          tx_signature: string | null
           updated_at: string
+          wallet_address: string | null
           workspace_id: string
         }
         Insert: {
           amount: number
+          chain?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -1194,11 +1417,15 @@ export type Database = {
           paid_on?: string
           payment_method?: string | null
           reference?: string | null
+          token_mint?: string | null
+          tx_signature?: string | null
           updated_at?: string
+          wallet_address?: string | null
           workspace_id: string
         }
         Update: {
           amount?: number
+          chain?: string | null
           created_at?: string
           created_by?: string | null
           id?: string
@@ -1207,7 +1434,10 @@ export type Database = {
           paid_on?: string
           payment_method?: string | null
           reference?: string | null
+          token_mint?: string | null
+          tx_signature?: string | null
           updated_at?: string
+          wallet_address?: string | null
           workspace_id?: string
         }
         Relationships: [
@@ -1391,6 +1621,48 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_cad_drawings: {
+        Row: {
+          created_at: string
+          model: Json
+          project_id: string
+          updated_at: string
+          updated_by: string | null
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          model?: Json
+          project_id: string
+          updated_at?: string
+          updated_by?: string | null
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          model?: Json
+          project_id?: string
+          updated_at?: string
+          updated_by?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_cad_drawings_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_cad_drawings_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
         ]
@@ -1803,6 +2075,48 @@ export type Database = {
           },
         ]
       }
+      tags: {
+        Row: {
+          color: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          workspace_id: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          workspace_id: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tags_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tags_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workspace_invitations: {
         Row: {
           accepted_at: string | null
@@ -2128,6 +2442,33 @@ export type Database = {
         }
         Returns: boolean
       }
+      list_workspace_activity_log: {
+        Args: {
+          p_limit?: number
+          p_offset?: number
+          p_workspace_id?: string
+        }
+        Returns: {
+          action: string
+          actor_user_id: string
+          created_at: string
+          details: Json
+          entity_id: string
+          entity_table: string
+          id: number
+          workspace_id: string
+        }[]
+      }
+      log_activity: {
+        Args: {
+          p_action: string
+          p_details?: Json
+          p_entity_id?: string
+          p_entity_table?: string
+          p_workspace_id?: string
+        }
+        Returns: undefined
+      }
       is_business_workspace: {
         Args: { target_workspace_id: string }
         Returns: boolean
@@ -2180,6 +2521,8 @@ export type Database = {
         | "in_progress"
         | "completed"
         | "cancelled"
+      attachment_chain_status: "none" | "pending" | "anchored" | "failed"
+      attachment_storage_tier: "off_chain" | "on_chain"
       attachment_visibility: "private" | "workspace" | "public"
       calibration_status: "scheduled" | "passed" | "failed" | "expired"
       invoice_status: "draft" | "sent" | "paid" | "overdue" | "cancelled"
@@ -2341,9 +2684,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       asset_kind: ["instrument", "vehicle", "equipment", "other"],

@@ -1,6 +1,7 @@
 import { getCurrentUser } from "../auth/session.ts";
 import { supabase } from "../supabase/client.ts";
 import type { Tables, TablesInsert, TablesUpdate } from "../supabase/types.ts";
+import { notifyQuoteAccepted } from "./notificationEvents.ts";
 
 export type QuoteRow = Tables<"quotes">;
 export type QuoteInsert = TablesInsert<"quotes">;
@@ -109,10 +110,23 @@ export async function updateQuote(
     .from("quotes")
     .update(patch)
     .eq("id", id)
-    .select("*")
+    .select("*, organizations(name)")
     .single();
 
   if (error) throw error;
+
+  if (patch.status === "accepted") {
+    const org = (data as { organizations?: { name?: string } | null })
+      .organizations;
+    void notifyQuoteAccepted({
+      workspaceId: data.workspace_id,
+      ownerUserId: data.created_by,
+      quoteNumber: data.quote_number,
+      organizationName: org?.name ?? null,
+      quoteId: data.id,
+    });
+  }
+
   return data;
 }
 

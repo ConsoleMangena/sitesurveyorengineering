@@ -1,25 +1,69 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from "react";
 import {
   createProfessional,
   deleteProfessional,
   listProfessionals,
   updateProfessional,
-} from '../../lib/repositories/professionals.ts'
-import type { ProfessionalRow } from '../../lib/repositories/professionals.ts'
-import SelectDropdown from '../../components/SelectDropdown.tsx'
-import '../../styles/pages.css'
+} from "../../lib/repositories/professionals.ts";
+import type { ProfessionalRow } from "../../lib/repositories/professionals.ts";
+import PageLoader from "@/components/PageLoader.tsx";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { DashboardHeader, DashboardShell } from "@/components/dashboard/DashboardShell.tsx";
+import {
+  Plus,
+  MapPin,
+  Clock,
+  Star,
+  Search,
+  Pencil,
+  Trash2,
+  Loader2,
+  X,
+} from "lucide-react";
 
-/* ── Availability colours ── */
-const availabilityClass: Record<string, string> = {
-  Available: 'pro-avail-green',
-  Busy: 'pro-avail-red',
-  'Available Soon': 'pro-avail-yellow',
-}
+const availabilityVariant: Record<string, "success" | "warning" | "destructive" | "secondary"> = {
+  Available: "success",
+  Busy: "destructive",
+  "Available Soon": "warning",
+};
 
-/* ── Disciplines ── */
-type DisciplineFilter = 'all' | 'Land Surveying' | 'Geomatics' | 'Engineering Surveying' | 'Geodesy' | 'Hydrographic Surveying' | 'Mine Surveying'
+const DISCIPLINES = [
+  "Land Surveying",
+  "Geomatics",
+  "Engineering Surveying",
+  "Geodesy",
+  "Hydrographic Surveying",
+  "Mine Surveying",
+];
 
-/* ── Component ── */
+type DisciplineFilter =
+  | "all"
+  | "Land Surveying"
+  | "Geomatics"
+  | "Engineering Surveying"
+  | "Geodesy"
+  | "Hydrographic Surveying"
+  | "Mine Surveying";
+
 interface ProfessionalsPageProps {
   workspaceId: string;
   isPlatformAdmin?: boolean;
@@ -29,105 +73,105 @@ export default function ProfessionalsPage({
   workspaceId,
   isPlatformAdmin = false,
 }: ProfessionalsPageProps) {
-  const [search, setSearch] = useState('')
-  const [discFilter, setDiscFilter] = useState<DisciplineFilter>('all')
-  const [selectedPro, setSelectedPro] = useState<ProfessionalRow | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [fetchError, setFetchError] = useState<string | null>(null)
-  const [professionals, setProfessionals] = useState<ProfessionalRow[]>([])
-  const [page, setPage] = useState(1)
-  const [editorOpen, setEditorOpen] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [savingPro, setSavingPro] = useState(false)
-  const [pName, setPName] = useState('')
-  const [pTitle, setPTitle] = useState('')
-  const [pDiscipline, setPDiscipline] = useState('Land Surveying')
-  const [pExperience, setPExperience] = useState('')
-  const [pLocation, setPLocation] = useState('')
-  const [pRate, setPRate] = useState('')
-  const [pRatePer, setPRatePer] = useState('hour')
-  const [pCurrency, setPCurrency] = useState('USD')
-  const [pAvailability, setPAvailability] = useState('Available')
-  const [pRating, setPRating] = useState('0')
-  const [pReviews, setPReviews] = useState('0')
-  const [pBio, setPBio] = useState('')
-  const [pSkills, setPSkills] = useState('')
-  const [pCerts, setPCerts] = useState('')
-  const [pIsGlobal, setPIsGlobal] = useState(false)
+  const [search, setSearch] = useState("");
+  const [discFilter, setDiscFilter] = useState<DisciplineFilter>("all");
+  const [selectedPro, setSelectedPro] = useState<ProfessionalRow | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [professionals, setProfessionals] = useState<ProfessionalRow[]>([]);
+  const [page, setPage] = useState(1);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [savingPro, setSavingPro] = useState(false);
+  const [pName, setPName] = useState("");
+  const [pTitle, setPTitle] = useState("");
+  const [pDiscipline, setPDiscipline] = useState("Land Surveying");
+  const [pExperience, setPExperience] = useState("");
+  const [pLocation, setPLocation] = useState("");
+  const [pRate, setPRate] = useState("");
+  const [pRatePer, setPRatePer] = useState("hour");
+  const [pCurrency, setPCurrency] = useState("USD");
+  const [pAvailability, setPAvailability] = useState("Available");
+  const [pRating, setPRating] = useState("0");
+  const [pReviews, setPReviews] = useState("0");
+  const [pBio, setPBio] = useState("");
+  const [pSkills, setPSkills] = useState("");
+  const [pCerts, setPCerts] = useState("");
+  const [pIsGlobal, setPIsGlobal] = useState(false);
 
   const fetchPros = useCallback(async () => {
     try {
-      setFetchError(null)
-      const data = await listProfessionals(workspaceId)
-      setProfessionals(data)
+      setFetchError(null);
+      const data = await listProfessionals(workspaceId);
+      setProfessionals(data);
     } catch (err: unknown) {
-      setFetchError(err instanceof Error ? err.message : 'Failed to load professionals')
+      setFetchError(err instanceof Error ? err.message : "Failed to load professionals");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [workspaceId])
+  }, [workspaceId]);
 
   useEffect(() => {
-    fetchPros()
-  }, [fetchPros])
+    void fetchPros();
+  }, [fetchPros]);
 
   const openCreatePro = () => {
-    setEditingId(null)
-    setPName('')
-    setPTitle('')
-    setPDiscipline('Land Surveying')
-    setPExperience('')
-    setPLocation('')
-    setPRate('')
-    setPRatePer('hour')
-    setPCurrency('USD')
-    setPAvailability('Available')
-    setPRating('0')
-    setPReviews('0')
-    setPBio('')
-    setPSkills('')
-    setPCerts('')
-    setPIsGlobal(false)
-    setEditorOpen(true)
-  }
+    setEditingId(null);
+    setPName("");
+    setPTitle("");
+    setPDiscipline("Land Surveying");
+    setPExperience("");
+    setPLocation("");
+    setPRate("");
+    setPRatePer("hour");
+    setPCurrency("USD");
+    setPAvailability("Available");
+    setPRating("0");
+    setPReviews("0");
+    setPBio("");
+    setPSkills("");
+    setPCerts("");
+    setPIsGlobal(false);
+    setEditorOpen(true);
+  };
 
   const openEditPro = (p: ProfessionalRow) => {
-    setEditingId(p.id)
-    setPName(p.name)
-    setPTitle(p.title)
-    setPDiscipline(p.discipline)
-    setPExperience(p.experience)
-    setPLocation(p.location)
-    setPRate(String(p.rate))
-    setPRatePer(p.rate_per)
-    setPCurrency(p.currency)
-    setPAvailability(p.availability)
-    setPRating(String(p.rating ?? 0))
-    setPReviews(String(p.reviews ?? 0))
-    setPBio(p.bio ?? '')
-    setPSkills((p.skills ?? []).join(', '))
-    setPCerts((p.certifications ?? []).join(', '))
-    setPIsGlobal(p.is_global ?? false)
-    setEditorOpen(true)
-    setSelectedPro(null)
-  }
+    setEditingId(p.id);
+    setPName(p.name);
+    setPTitle(p.title);
+    setPDiscipline(p.discipline);
+    setPExperience(p.experience);
+    setPLocation(p.location);
+    setPRate(String(p.rate));
+    setPRatePer(p.rate_per);
+    setPCurrency(p.currency);
+    setPAvailability(p.availability);
+    setPRating(String(p.rating ?? 0));
+    setPReviews(String(p.reviews ?? 0));
+    setPBio(p.bio ?? "");
+    setPSkills((p.skills ?? []).join(", "));
+    setPCerts((p.certifications ?? []).join(", "));
+    setPIsGlobal(p.is_global ?? false);
+    setEditorOpen(true);
+    setSelectedPro(null);
+  };
 
   const savePro = async () => {
     if (!pName.trim() || !pTitle.trim() || !pLocation.trim() || !pExperience.trim()) {
-      setFetchError('Name, title, location, and experience are required.')
-      return
+      setFetchError("Name, title, location, and experience are required.");
+      return;
     }
-    const rateNum = Number(pRate)
+    const rateNum = Number(pRate);
     if (!Number.isFinite(rateNum) || rateNum < 0) {
-      setFetchError('Enter a valid rate.')
-      return
+      setFetchError("Enter a valid rate.");
+      return;
     }
-    const ratingNum = Number(pRating)
-    const reviewsNum = Number(pReviews)
-    const skillsArr = pSkills.split(',').map((s) => s.trim()).filter(Boolean)
-    const certsArr = pCerts.split(',').map((s) => s.trim()).filter(Boolean)
-    setSavingPro(true)
-    setFetchError(null)
+    const ratingNum = Number(pRating);
+    const reviewsNum = Number(pReviews);
+    const skillsArr = pSkills.split(",").map((s) => s.trim()).filter(Boolean);
+    const certsArr = pCerts.split(",").map((s) => s.trim()).filter(Boolean);
+    setSavingPro(true);
+    setFetchError(null);
     try {
       const payload = {
         name: pName.trim(),
@@ -136,8 +180,8 @@ export default function ProfessionalsPage({
         experience: pExperience.trim(),
         location: pLocation.trim(),
         rate: rateNum,
-        rate_per: pRatePer.trim() || 'hour',
-        currency: pCurrency.trim() || 'USD',
+        rate_per: pRatePer.trim() || "hour",
+        currency: pCurrency.trim() || "USD",
         availability: pAvailability,
         rating: Number.isFinite(ratingNum) ? ratingNum : 0,
         reviews: Number.isFinite(reviewsNum) ? Math.round(reviewsNum) : 0,
@@ -145,368 +189,522 @@ export default function ProfessionalsPage({
         skills: skillsArr.length ? skillsArr : null,
         certifications: certsArr.length ? certsArr : null,
         is_global: isPlatformAdmin ? pIsGlobal : false,
-      }
+      };
       if (editingId) {
-        await updateProfessional(editingId, payload)
+        await updateProfessional(editingId, payload);
       } else {
-        await createProfessional(workspaceId, payload)
+        await createProfessional(workspaceId, payload);
       }
-      setEditorOpen(false)
-      await fetchPros()
+      setEditorOpen(false);
+      await fetchPros();
     } catch (e) {
-      setFetchError(e instanceof Error ? e.message : 'Failed to save.')
+      setFetchError(e instanceof Error ? e.message : "Failed to save.");
     } finally {
-      setSavingPro(false)
+      setSavingPro(false);
     }
-  }
+  };
 
   const removePro = async (id: string) => {
-    if (!window.confirm('Remove this professional from the directory?')) return
-    setFetchError(null)
+    if (!window.confirm("Remove this professional from the directory?")) return;
+    setFetchError(null);
     try {
-      await deleteProfessional(id)
-      setSelectedPro(null)
-      await fetchPros()
+      await deleteProfessional(id);
+      setSelectedPro(null);
+      await fetchPros();
     } catch (e) {
-      setFetchError(e instanceof Error ? e.message : 'Failed to delete.')
+      setFetchError(e instanceof Error ? e.message : "Failed to delete.");
     }
-  }
+  };
 
   const getAvatarUrl = (name: string) =>
-    `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(name)}&radius=50&backgroundType=gradientLinear`
+    `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(name)}&radius=50&backgroundType=gradientLinear`;
 
   const filtered = professionals.filter((p) => {
-    if (discFilter !== 'all' && p.discipline !== discFilter) return false
+    if (discFilter !== "all" && p.discipline !== discFilter) return false;
     if (search.trim()) {
-      const q = search.toLowerCase()
-      const haystack = [p.name, p.title, p.discipline, p.location, p.bio || '']
+      const q = search.toLowerCase();
+      const haystack = [p.name, p.title, p.discipline, p.location, p.bio || ""]
         .concat(p.skills || [])
-        .join(' ')
-        .toLowerCase()
-      return haystack.includes(q)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
     }
-    return true
-  })
-  const pageSize = 10
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize)
+    return true;
+  });
+
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   useEffect(() => {
-    setPage(1)
-  }, [search, discFilter])
+    setPage(1);
+  }, [search, discFilter]);
 
   useEffect(() => {
-    if (page > totalPages) setPage(totalPages)
-  }, [page, totalPages])
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   if (loading) {
     return (
-      <div className="hub-body pro-body">
-        <p style={{ padding: '2rem' }}>Loading professionals...</p>
+      <div className="hub-body pro-body p-6">
+        <PageLoader />
       </div>
-    )
+    );
   }
 
   return (
-    <div className="hub-body pro-body">
+    <DashboardShell className="hub-body pro-body">
+      <DashboardHeader
+        title="Professionals Directory"
+        subtitle="Browse qualified surveyors and geomaticians across Zimbabwe"
+        description={
+          !isPlatformAdmin
+            ? "Directory entries are maintained by platform administrators."
+            : undefined
+        }
+        actions={
+          isPlatformAdmin && (
+            <Button onClick={openCreatePro} className="gap-2">
+              <Plus size={16} />
+              Add professional
+            </Button>
+          )
+        }
+      />
+
       {fetchError && (
-        <div style={{ background: '#fee', color: '#c00', padding: '0.75rem 1rem', borderRadius: '6px', marginBottom: '1rem' }}>
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {fetchError}
         </div>
       )}
-      <header className="page-header pro-page-header" style={{ flexWrap: 'wrap', gap: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <h1>Professionals Directory</h1>
-          <p className="page-subtitle">Browse qualified surveyors and geomaticians across Zimbabwe</p>
-          {!isPlatformAdmin && (
-            <p className="page-subtitle" style={{ fontSize: 13, marginTop: 8, opacity: 0.85 }}>
-              Directory entries are maintained by platform administrators.
-            </p>
-          )}
-        </div>
-        {isPlatformAdmin && (
-          <div className="header-actions">
-            <button type="button" className="btn btn-primary" onClick={openCreatePro}>
-              Add professional
-            </button>
-          </div>
-        )}
-      </header>
 
-      {/* Filter Bar */}
-      <div className="filter-bar">
-        <button className={`filter-chip ${discFilter === 'all' ? 'active' : ''}`} onClick={() => setDiscFilter('all')}>All</button>
-        <button className={`filter-chip ${discFilter === 'Land Surveying' ? 'active' : ''}`} onClick={() => setDiscFilter('Land Surveying')}>Land Surveying</button>
-        <button className={`filter-chip ${discFilter === 'Geomatics' ? 'active' : ''}`} onClick={() => setDiscFilter('Geomatics')}>Geomatics</button>
-        <button className={`filter-chip ${discFilter === 'Engineering Surveying' ? 'active' : ''}`} onClick={() => setDiscFilter('Engineering Surveying')}>Engineering</button>
-        <button className={`filter-chip ${discFilter === 'Geodesy' ? 'active' : ''}`} onClick={() => setDiscFilter('Geodesy')}>Geodesy</button>
-        <button className={`filter-chip ${discFilter === 'Hydrographic Surveying' ? 'active' : ''}`} onClick={() => setDiscFilter('Hydrographic Surveying')}>Hydrographic</button>
-        <button className={`filter-chip ${discFilter === 'Mine Surveying' ? 'active' : ''}`} onClick={() => setDiscFilter('Mine Surveying')}>Mine Surveying</button>
-        <div className="filter-spacer" />
-        <input
-          className="search-input"
-          placeholder="Search professionals..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      <div className="flex flex-wrap items-center gap-2">
+        {(["all", ...DISCIPLINES] as DisciplineFilter[]).map((d) => (
+          <Button
+            key={d}
+            variant={discFilter === d ? "default" : "outline"}
+            size="sm"
+            onClick={() => setDiscFilter(d)}
+            className="capitalize"
+          >
+            {d === "all" ? "All" : d.replace(" Surveying", "")}
+          </Button>
+        ))}
+        <div className="relative flex-1 min-w-[200px] max-w-sm ml-auto">
+          <Search
+            size={16}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            placeholder="Search professionals..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
       </div>
 
-      {/* Professional Detail Modal */}
-      {selectedPro && (
-        <div className="mkt-modal-overlay" onClick={() => setSelectedPro(null)}>
-          <div className="mkt-modal pro-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="pro-modal-header">
+      {/* Detail Dialog */}
+      <Dialog open={!!selectedPro} onOpenChange={(open) => !open && setSelectedPro(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <div className="flex items-start gap-4">
               <img
-                className="pro-avatar-lg"
-                src={getAvatarUrl(selectedPro.name)}
-                alt={`${selectedPro.name} avatar`}
+                className="h-16 w-16 rounded-full object-cover border"
+                src={selectedPro ? getAvatarUrl(selectedPro.name) : ""}
+                alt=""
                 onError={(e) => {
-                  e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedPro.name)}&background=6366f1&color=fff&size=128`
+                  e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                    selectedPro?.name ?? "",
+                  )}&background=6366f1&color=fff&size=128`;
                 }}
               />
-              <div className="pro-modal-info">
-                <h2 className="mkt-modal-title">{selectedPro.name}</h2>
-                <p className="mkt-modal-type">{selectedPro.title}</p>
-                <div className="pro-modal-meta">
-                  <span className={`pro-avail-badge ${availabilityClass[selectedPro.availability]}`}>{selectedPro.availability}</span>
-                  <span className="pro-rating-inline">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                    </svg>
-                    {selectedPro.rating} ({selectedPro.reviews})
+              <div className="flex-1 min-w-0">
+                <DialogTitle className="truncate">
+                  {selectedPro?.name}
+                </DialogTitle>
+                <DialogDescription>{selectedPro?.title}</DialogDescription>
+                <div className="flex items-center gap-3 mt-2">
+                  {selectedPro && (
+                    <Badge variant={availabilityVariant[selectedPro.availability] ?? "secondary"}>
+                      {selectedPro.availability}
+                    </Badge>
+                  )}
+                  {selectedPro && selectedPro.rating != null && selectedPro.rating > 0 && (
+                    <span className="flex items-center gap-1 text-sm text-amber-500">
+                      <Star size={14} fill="currentColor" />
+                      {selectedPro.rating} ({selectedPro.reviews})
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {selectedPro && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">{selectedPro.bio}</p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-xs text-muted-foreground">Rate</span>
+                  <p className="font-semibold">
+                    ${selectedPro.rate} / {selectedPro.rate_per}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">Discipline</span>
+                  <p className="font-semibold">{selectedPro.discipline}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">Experience</span>
+                  <p className="font-semibold">{selectedPro.experience}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">Location</span>
+                  <p className="font-semibold">{selectedPro.location}</p>
+                </div>
+              </div>
+
+              {selectedPro.skills && selectedPro.skills.length > 0 && (
+                <div>
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Skills
                   </span>
+                  <div className="flex flex-wrap gap-2 mt-1.5">
+                    {selectedPro.skills.map((s) => (
+                      <Badge key={s} variant="secondary">
+                        {s}
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <button className="mkt-modal-close" onClick={() => setSelectedPro(null)}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
+              )}
+
+              {selectedPro.certifications && selectedPro.certifications.length > 0 && (
+                <div>
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Certifications
+                  </span>
+                  <div className="flex flex-wrap gap-2 mt-1.5">
+                    {selectedPro.certifications.map((c) => (
+                      <Badge key={c} variant="outline">
+                        {c}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
+          )}
 
-            <div className="mkt-modal-price">${selectedPro.rate} <span className="mkt-modal-currency">/{selectedPro.rate_per}</span></div>
-
-            <p className="mkt-modal-desc">{selectedPro.bio}</p>
-
-            {selectedPro.skills && selectedPro.skills.length > 0 && (
-              <div>
-                <span className="pro-section-label">Skills</span>
-                <div className="mkt-modal-specs">
-                  {selectedPro.skills.map(s => (
-                    <span key={s} className="mkt-spec-chip">{s}</span>
-                  ))}
-                </div>
-              </div>
+          <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setSelectedPro(null)}>
+              Close
+            </Button>
+            {isPlatformAdmin && selectedPro && (
+              <>
+                <Button variant="outline" onClick={() => openEditPro(selectedPro)}>
+                  <Pencil size={14} className="mr-2" />
+                  Edit
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => void removePro(selectedPro.id)}
+                >
+                  <Trash2 size={14} className="mr-2" />
+                  Delete
+                </Button>
+              </>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-            {selectedPro.certifications && selectedPro.certifications.length > 0 && (
-              <div>
-                <span className="pro-section-label">Certifications</span>
-                <div className="mkt-modal-specs">
-                  {selectedPro.certifications.map(c => (
-                    <span key={c} className="mkt-spec-chip pro-cert-chip">{c}</span>
+      {/* Editor Dialog */}
+      <Dialog open={editorOpen} onOpenChange={(open) => !open && !savingPro && setEditorOpen(false)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingId ? "Edit professional" : "Add professional"}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="pro-editor-name">Name</Label>
+              <Input
+                id="pro-editor-name"
+                value={pName}
+                onChange={(e) => setPName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pro-editor-title">Title</Label>
+              <Input
+                id="pro-editor-title"
+                value={pTitle}
+                onChange={(e) => setPTitle(e.target.value)}
+                placeholder="e.g. Principal Surveyor"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Discipline</Label>
+              <Select value={pDiscipline} onValueChange={setPDiscipline}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DISCIPLINES.map((d) => (
+                    <SelectItem key={d} value={d}>
+                      {d}
+                    </SelectItem>
                   ))}
-                </div>
-              </div>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pro-editor-exp">Experience</Label>
+              <Input
+                id="pro-editor-exp"
+                value={pExperience}
+                onChange={(e) => setPExperience(e.target.value)}
+                placeholder="e.g. 12 years"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pro-editor-location">Location</Label>
+              <Input
+                id="pro-editor-location"
+                value={pLocation}
+                onChange={(e) => setPLocation(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pro-editor-rate">Rate</Label>
+              <Input
+                id="pro-editor-rate"
+                type="number"
+                min={0}
+                step={0.01}
+                value={pRate}
+                onChange={(e) => setPRate(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pro-editor-rate-per">Rate unit</Label>
+              <Input
+                id="pro-editor-rate-per"
+                value={pRatePer}
+                onChange={(e) => setPRatePer(e.target.value)}
+                placeholder="hour, day, project…"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pro-editor-currency">Currency</Label>
+              <Input
+                id="pro-editor-currency"
+                value={pCurrency}
+                onChange={(e) => setPCurrency(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Availability</Label>
+              <Select value={pAvailability} onValueChange={setPAvailability}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Available">Available</SelectItem>
+                  <SelectItem value="Busy">Busy</SelectItem>
+                  <SelectItem value="Available Soon">Available Soon</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pro-editor-rating">Rating (0–5)</Label>
+              <Input
+                id="pro-editor-rating"
+                type="number"
+                min={0}
+                max={5}
+                step={0.1}
+                value={pRating}
+                onChange={(e) => setPRating(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pro-editor-reviews">Review count</Label>
+              <Input
+                id="pro-editor-reviews"
+                type="number"
+                min={0}
+                step={1}
+                value={pReviews}
+                onChange={(e) => setPReviews(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="pro-editor-bio">Bio</Label>
+              <textarea
+                id="pro-editor-bio"
+                rows={3}
+                value={pBio}
+                onChange={(e) => setPBio(e.target.value)}
+                className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="pro-editor-skills">Skills (comma-separated)</Label>
+              <Input
+                id="pro-editor-skills"
+                value={pSkills}
+                onChange={(e) => setPSkills(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="pro-editor-certs">Certifications (comma-separated)</Label>
+              <Input
+                id="pro-editor-certs"
+                value={pCerts}
+                onChange={(e) => setPCerts(e.target.value)}
+              />
+            </div>
+            {isPlatformAdmin && (
+              <label className="flex items-center gap-2 text-sm sm:col-span-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={pIsGlobal}
+                  onChange={(e) => setPIsGlobal(e.target.checked)}
+                  className="h-4 w-4 rounded border-border text-primary accent-primary"
+                />
+                Visible to all accounts (global)
+              </label>
             )}
-
-            <div className="mkt-modal-seller">
-              <div className="mkt-seller-row">
-                <span className="mkt-seller-label">Discipline</span>
-                <span className="mkt-seller-value">{selectedPro.discipline}</span>
-              </div>
-              <div className="mkt-seller-row">
-                <span className="mkt-seller-label">Experience</span>
-                <span className="mkt-seller-value">{selectedPro.experience}</span>
-              </div>
-              <div className="mkt-seller-row">
-                <span className="mkt-seller-label">Location</span>
-                <span className="mkt-seller-value">{selectedPro.location}</span>
-              </div>
-            </div>
-
-            <div className="mkt-modal-actions">
-              <button className="btn btn-outline" onClick={() => setSelectedPro(null)}>Close</button>
-              {isPlatformAdmin && selectedPro ? (
-                <>
-                  <button type="button" className="btn btn-outline" onClick={() => openEditPro(selectedPro)}>Edit</button>
-                  <button type="button" className="btn btn-outline" onClick={() => void removePro(selectedPro.id)}>Delete</button>
-                </>
-              ) : null}
-            </div>
           </div>
-        </div>
-      )}
+          <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              disabled={savingPro}
+              onClick={() => setEditorOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button disabled={savingPro} onClick={() => void savePro()}>
+              {savingPro && <Loader2 size={14} className="animate-spin mr-2" />}
+              {savingPro ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      {editorOpen && (
-        <div
-          className="billing-modal-overlay"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => !savingPro && setEditorOpen(false)}
-        >
-          <div
-            className="billing-modal billing-modal--scrollable-form"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="billing-modal-header">
-              <h3>{editingId ? 'Edit professional' : 'Add professional'}</h3>
-              <button
-                type="button"
-                className="billing-modal-close"
-                disabled={savingPro}
-                onClick={() => setEditorOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-            <div className="billing-modal-body-scroll">
-              <div className="billing-modal-grid billing-modal-form-single">
-                <label className="form-label" htmlFor="pro-editor-name">Name</label>
-                <input id="pro-editor-name" className="input-field" value={pName} onChange={(e) => setPName(e.target.value)} />
-                <label className="form-label" htmlFor="pro-editor-title">Title</label>
-                <input id="pro-editor-title" className="input-field" value={pTitle} onChange={(e) => setPTitle(e.target.value)} placeholder="e.g. Principal Surveyor" />
-                <label className="form-label">Discipline</label>
-                <SelectDropdown
-                  className="input-field billing-history-select"
-                  value={pDiscipline}
-                  onChange={setPDiscipline}
-                  options={[
-                    { value: 'Land Surveying', label: 'Land Surveying' },
-                    { value: 'Geomatics', label: 'Geomatics' },
-                    { value: 'Engineering Surveying', label: 'Engineering Surveying' },
-                    { value: 'Geodesy', label: 'Geodesy' },
-                    { value: 'Hydrographic Surveying', label: 'Hydrographic Surveying' },
-                    { value: 'Mine Surveying', label: 'Mine Surveying' },
-                  ]}
-                />
-                <label className="form-label" htmlFor="pro-editor-exp">Experience</label>
-                <input id="pro-editor-exp" className="input-field" value={pExperience} onChange={(e) => setPExperience(e.target.value)} placeholder="e.g. 12 years" />
-                <label className="form-label" htmlFor="pro-editor-location">Location</label>
-                <input id="pro-editor-location" className="input-field" value={pLocation} onChange={(e) => setPLocation(e.target.value)} />
-                <label className="form-label" htmlFor="pro-editor-rate">Rate</label>
-                <input id="pro-editor-rate" className="input-field" type="number" min={0} step={0.01} value={pRate} onChange={(e) => setPRate(e.target.value)} />
-                <label className="form-label" htmlFor="pro-editor-rate-per">Rate unit</label>
-                <input id="pro-editor-rate-per" className="input-field" value={pRatePer} onChange={(e) => setPRatePer(e.target.value)} placeholder="hour, day, project…" />
-                <label className="form-label" htmlFor="pro-editor-currency">Currency</label>
-                <input id="pro-editor-currency" className="input-field" value={pCurrency} onChange={(e) => setPCurrency(e.target.value)} />
-                <label className="form-label">Availability</label>
-                <SelectDropdown
-                  className="input-field billing-history-select"
-                  value={pAvailability}
-                  onChange={setPAvailability}
-                  options={[
-                    { value: 'Available', label: 'Available' },
-                    { value: 'Busy', label: 'Busy' },
-                    { value: 'Available Soon', label: 'Available Soon' },
-                  ]}
-                />
-                <label className="form-label" htmlFor="pro-editor-rating">Rating (0–5)</label>
-                <input id="pro-editor-rating" className="input-field" type="number" min={0} max={5} step={0.1} value={pRating} onChange={(e) => setPRating(e.target.value)} />
-                <label className="form-label" htmlFor="pro-editor-reviews">Review count</label>
-                <input id="pro-editor-reviews" className="input-field" type="number" min={0} step={1} value={pReviews} onChange={(e) => setPReviews(e.target.value)} />
-                <label className="form-label" htmlFor="pro-editor-bio">Bio</label>
-                <textarea id="pro-editor-bio" className="input-field" rows={3} value={pBio} onChange={(e) => setPBio(e.target.value)} />
-                <label className="form-label" htmlFor="pro-editor-skills">Skills (comma-separated)</label>
-                <input id="pro-editor-skills" className="input-field" value={pSkills} onChange={(e) => setPSkills(e.target.value)} />
-                <label className="form-label" htmlFor="pro-editor-certs">Certifications (comma-separated)</label>
-                <input id="pro-editor-certs" className="input-field" value={pCerts} onChange={(e) => setPCerts(e.target.value)} />
-                {isPlatformAdmin && (
-                  <label className="form-label" style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12 }}>
-                    <input
-                      type="checkbox"
-                      checked={pIsGlobal}
-                      onChange={(e) => setPIsGlobal(e.target.checked)}
-                    />
-                    Visible to all accounts (global)
-                  </label>
-                )}
-              </div>
-            </div>
-            <div className="billing-modal-actions">
-              <button type="button" className="btn btn-outline" disabled={savingPro} onClick={() => setEditorOpen(false)}>Cancel</button>
-              <button type="button" className="btn btn-primary" disabled={savingPro} onClick={() => void savePro()}>{savingPro ? 'Saving…' : 'Save'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Professionals Table */}
-      <div className="card pro-table-card" style={{ overflowX: 'auto' }}>
-        <table className="invoice-table pro-table">
-          <thead>
-            <tr>
-              <th className="pro-col-person">PROFESSIONAL</th>
-              <th className="pro-col-spec">SPECIALIZATION</th>
-              <th className="pro-col-exp hide-on-mobile">EXPERIENCE</th>
-              <th className="pro-col-rate hide-on-mobile">RATE</th>
-              <th className="pro-col-avail">AVAILABILITY</th>
-              <th className="pro-col-menu"></th>
-            </tr>
-          </thead>
-          <tbody>
+      {filtered.length === 0 ? (
+        <Card className="border-border/60">
+          <CardContent className="py-10 text-center">
+            <h3 className="text-base font-semibold">No professionals found</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              Try adjusting your search or filter criteria.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {paginated.map((p) => (
-              <tr key={p.id} className="pro-row" onClick={() => setSelectedPro(p)}>
-                <td className="pro-cell-person">
-                  <div className="pro-row-person">
+              <Card
+                key={p.id}
+                className="border-border/60 overflow-hidden hover:shadow-sm transition-shadow cursor-pointer"
+                onClick={() => setSelectedPro(p)}
+                tabIndex={0}
+                role="button"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedPro(p);
+                  }
+                }}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-3 mb-3">
                     <img
-                      className="pro-row-avatar"
                       src={getAvatarUrl(p.name)}
-                      alt={`${p.name} avatar`}
+                      alt=""
+                      className="h-12 w-12 rounded-full object-cover border"
                       onError={(e) => {
-                        e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(p.name)}&background=6366f1&color=fff&size=64`
+                        e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                          p.name,
+                        )}&background=6366f1&color=fff&size=64`;
                       }}
                     />
-                    <div className="pro-row-person-text">
-                      <span className="pro-row-name">{p.name}</span>
-                      <span className="pro-row-title">{p.title}</span>
+                    <Badge variant={availabilityVariant[p.availability] ?? "secondary"}>
+                      {p.availability}
+                    </Badge>
+                  </div>
+                  <h3 className="text-sm font-semibold truncate">{p.name}</h3>
+                  <p className="text-xs text-muted-foreground truncate">{p.title}</p>
+                  <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <MapPin size={12} />
+                      {p.location}
                     </div>
+                    <div className="flex items-center gap-1.5 truncate">
+                      <Clock size={12} />
+                      {p.experience}
+                    </div>
+                    {p.rating != null && p.rating > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <Star size={12} fill="currentColor" className="text-amber-500" />
+                        {p.rating} ({p.reviews ?? 0} reviews)
+                      </div>
+                    )}
                   </div>
-                </td>
-                <td className="pro-cell-spec">
-                  <div className="pro-row-spec">
-                    <span className="pro-row-discipline">{p.discipline}</span>
-                    <span className="pro-row-location">{p.location}</span>
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="text-sm font-bold">
+                      ${p.rate}
+                      <span className="text-xs font-normal text-muted-foreground ml-1">
+                        /{p.rate_per}
+                      </span>
+                    </span>
+                    {isPlatformAdmin && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEditPro(p);
+                        }}
+                      >
+                        Edit
+                      </Button>
+                    )}
                   </div>
-                </td>
-                <td className="pro-cell-exp hide-on-mobile">{p.experience}</td>
-                <td className="pro-cell-rate hide-on-mobile">
-                  <div className="pro-row-rate">
-                    <span className="pro-row-rate-val">${p.rate}</span>
-                    <span className="pro-row-rate-per">per {p.rate_per}</span>
-                  </div>
-                </td>
-                <td className="pro-cell-avail">
-                  <span className={`pro-avail-badge ${availabilityClass[p.availability]}`}>{p.availability}</span>
-                </td>
-                <td className="pro-cell-menu" onClick={(e) => e.stopPropagation()}>
-                  {isPlatformAdmin ? (
-                    <button type="button" className="btn btn-outline btn-sm" onClick={() => openEditPro(p)}>Edit</button>
-                  ) : (
-                    <button type="button" className="pro-row-menu-btn" aria-hidden>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
-                    </button>
-                  )}
-                </td>
-              </tr>
+                </CardContent>
+              </Card>
             ))}
-          </tbody>
-        </table>
-        
-        {filtered.length === 0 && (
-          <div className="pro-empty">
-            <h3>No professionals found</h3>
-            <p>Try adjusting your search or filter criteria.</p>
           </div>
-        )}
-        {filtered.length > pageSize && (
-          <div className="list-pagination">
-            <button className="btn btn-outline btn-sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>Previous</button>
-            <span className="list-pagination-label">Page {page} / {totalPages}</span>
-            <button className="btn btn-outline btn-sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>Next</button>
-          </div>
-        )}
-      </div>
-    </div>
-  )
+
+          {filtered.length > pageSize && (
+            <div className="flex items-center justify-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+              >
+                Previous
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                Page {page} / {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+              >
+                Next
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+    </DashboardShell>
+  );
 }

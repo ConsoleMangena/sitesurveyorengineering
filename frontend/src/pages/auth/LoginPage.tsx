@@ -1,148 +1,222 @@
 import { useState } from "react";
-import { signInWithEmail } from "../../lib/auth/session.ts";
+import { Link, useNavigate } from "react-router-dom";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import PasswordField from "../../components/PasswordField";
+import GoogleSignInButton from "../../components/GoogleSignInButton";
+import {
+  formatAuthUserFacingError,
+  isEmailNotConfirmedError,
+} from "../../lib/auth/auth-errors.ts";
+import {
+  resendSignupConfirmation,
+  signInWithEmail,
+} from "../../lib/auth/session.ts";
+import { useAuthStore } from "../../lib/auth/auth-store";
 import "../../styles/auth.css";
 
-interface LoginPageProps {
-  onLoginSuccess: () => Promise<void> | void;
-  onGoToSignup: () => void;
-  onForgotPassword: () => void;
-}
+export default function LoginPage() {
+  const navigate = useNavigate();
+  const setAuthLoading = useAuthStore((s) => s.setAuthLoading);
 
-export default function LoginPage({
-  onLoginSuccess,
-  onGoToSignup,
-  onForgotPassword,
-}: LoginPageProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
+  const [localError, setLocalError] = useState("");
+  const [emailNotConfirmed, setEmailNotConfirmed] = useState(false);
+  const [resendState, setResendState] = useState<
+    { status: "idle" | "sending" } | { status: "sent" | "error"; message: string }
+  >({ status: "idle" });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
+    setLocalError("");
+    setEmailNotConfirmed(false);
+    setResendState({ status: "idle" });
 
-    if (!email || !password) {
-      setError("Please fill in all fields");
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !password) {
+      setLocalError("Please fill in all fields");
       return;
     }
 
     try {
       setIsSubmitting(true);
-      await signInWithEmail({ email, password });
-
-      await onLoginSuccess();
+      setAuthLoading(true);
+      // Do not navigate manually here. Signing in triggers the SIGNED_IN auth
+      // event in App, which loads the profile/workspace while the global loader
+      // stays visible, then routing redirects to "/" once the user is ready.
+      // Navigating early would land on a protected route before the user is
+      // populated and bounce back to /login, flashing the login screen.
+      await signInWithEmail({ email: trimmedEmail, password });
     } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Unable to sign in. Please try again.";
-      setError(message);
+      setAuthLoading(false);
+      if (isEmailNotConfirmedError(err)) {
+        setEmailNotConfirmed(true);
+        setLocalError(
+          "Your email address hasn't been confirmed yet. Check your inbox for the confirmation link, or resend it below.",
+        );
+      } else {
+        setLocalError(formatAuthUserFacingError(err, "Unable to sign in. Please try again."));
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const handleResendConfirmation = async () => {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setResendState({
+        status: "error",
+        message: "Enter your email address above first.",
+      });
+      return;
+    }
+
+    setResendState({ status: "sending" });
+    try {
+      await resendSignupConfirmation(trimmedEmail);
+      setResendState({
+        status: "sent",
+        message: "Confirmation email sent. Check your inbox (and spam folder).",
+      });
+    } catch (err) {
+      setResendState({
+        status: "error",
+        message: formatAuthUserFacingError(
+          err,
+          "Could not resend confirmation email. Please try again later.",
+        ),
+      });
+    }
+  };
+
   return (
     <div className="auth-screen">
-      <div className="auth-card">
-        <div className="auth-header">
-          <img src="/logo.svg" alt="SiteSurveyor" className="auth-logo" />
-          <h1 className="auth-brand">SiteSurveyor for Engineers</h1>
-          <p className="auth-tagline">Sign in to your engineering workspace</p>
-        </div>
+      <Card className="w-full max-w-[380px] mx-auto shadow-lg auth-animate-card">
+        <CardHeader className="text-center space-y-1 auth-animate-header">
+          <img
+            src="/logo.svg"
+            alt="SiteSurveyor"
+            className="mx-auto mb-2 h-16 w-auto object-contain"
+          />
+          <CardTitle className="text-lg font-bold">SiteSurveyor for Engineers</CardTitle>
+          <CardDescription>Sign in to your engineering workspace</CardDescription>
+        </CardHeader>
 
-        <form className="auth-form" onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label">Email</label>
-            <input
-              className="form-input"
-              type="email"
-              placeholder="you@company.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-              autoFocus
-            />
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Password</label>
-            <div className="password-wrapper">
-              <input
-                className="form-input"
-                type={showPassword ? "text" : "password"}
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
+        <CardContent>
+          <form className="space-y-4 auth-animate-stagger" onSubmit={handleSubmit}>
+            <div className="space-y-1.5">
+              <Label htmlFor="login-email">Email</Label>
+              <Input
+                id="login-email"
+                type="email"
+                placeholder="you@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                autoFocus
               />
-              <button
-                type="button"
-                className="password-toggle"
-                onClick={() => setShowPassword(!showPassword)}
-                tabIndex={-1}
-              >
-                {showPassword ? (
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-                    <line x1="1" y1="1" x2="23" y2="23" />
-                  </svg>
-                ) : (
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                )}
-              </button>
             </div>
-          </div>
 
-          <div className="forgot-link">
-            <button type="button" onClick={onForgotPassword}>
-              Forgot password?
-            </button>
-          </div>
+            <PasswordField
+              id="login-password"
+              label="Password"
+              value={password}
+              onChange={setPassword}
+              placeholder="Enter your password"
+              autoComplete="current-password"
+              showPassword={showPassword}
+              onToggleShowPassword={() => setShowPassword((v) => !v)}
+            />
 
-          {error && <p className="form-error">{error}</p>}
+            <div className="text-right">
+              <Button
+                type="button"
+                variant="link"
+                className="h-auto p-0 text-xs text-muted-foreground"
+                onClick={() => navigate("/forgot-password")}
+              >
+                Forgot password?
+              </Button>
+            </div>
 
-          <button
-            type="submit"
-            className="auth-btn auth-btn-primary"
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? "Signing In..." : "Log In"}
-          </button>
-        </form>
+            {localError && (
+              <Alert variant="destructive">
+                <AlertDescription>{localError}</AlertDescription>
+              </Alert>
+            )}
 
-        <div className="auth-footer">
+            {emailNotConfirmed && (
+              <div className="space-y-2">
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto p-0"
+                  onClick={handleResendConfirmation}
+                  disabled={resendState.status === "sending"}
+                >
+                  {resendState.status === "sending"
+                    ? "Resending..."
+                    : "Resend confirmation email"}
+                </Button>
+                {resendState.status === "sent" ? (
+                  <Alert variant="success">
+                    <AlertDescription>{resendState.message}</AlertDescription>
+                  </Alert>
+                ) : null}
+                {resendState.status === "error" ? (
+                  <Alert variant="destructive">
+                    <AlertDescription>{resendState.message}</AlertDescription>
+                  </Alert>
+                ) : null}
+              </div>
+            )}
+
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting ? "Signing In..." : "Log In"}
+            </Button>
+
+            <div className="relative flex items-center py-1">
+              <Separator className="flex-1" />
+              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-2 text-xs uppercase tracking-wide text-muted-foreground">
+                or
+              </span>
+            </div>
+
+            <GoogleSignInButton
+              onSuccess={() => navigate("/", { replace: true })}
+              onError={(err) => setLocalError(err.message)}
+            />
+          </form>
+        </CardContent>
+
+        <CardFooter className="justify-center text-sm text-muted-foreground">
           Don't have an account?{" "}
-          <button className="auth-footer-link" onClick={onGoToSignup}>
-            Sign up
-          </button>
-        </div>
-      </div>
+          <Button
+            variant="link"
+            className="h-auto p-0 ml-1"
+            onClick={() => navigate("/signup")}
+            asChild
+          >
+            <Link to="/signup">Sign up</Link>
+          </Button>
+        </CardFooter>
+      </Card>
     </div>
   );
 }

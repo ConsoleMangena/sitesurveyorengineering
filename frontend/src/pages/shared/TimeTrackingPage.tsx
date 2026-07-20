@@ -1,14 +1,43 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import "../../styles/pages.css";
+import { Clock, DollarSign, Plus, Search, Trash2 } from "lucide-react";
+import PageLoader from "../../components/PageLoader.tsx";
 import {
   createExpenseEntry,
   createTimeEntry,
+  deleteExpenseEntry,
+  deleteTimeEntry,
   listExpenseEntries,
   listTimeEntries,
   type ExpenseEntryRow,
   type TimeEntryRow,
 } from "../../lib/repositories/timeTracking.ts";
 import { listProjects, type ProjectWithOrg } from "../../lib/repositories/projects.ts";
+import { Button } from "../../components/ui/button.tsx";
+import { Input } from "../../components/ui/input.tsx";
+import { Label } from "../../components/ui/label.tsx";
+import { Badge } from "../../components/ui/badge.tsx";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog.tsx";
+import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
+import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx";
+import { Switch } from "../../components/ui/switch.tsx";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../../components/ui/table.tsx";
+import { ResponsiveTable } from "../../components/ui/responsive-table.tsx";
+import { cn } from "../../lib/utils.ts";
+import "../../styles/pages.css";
 
 interface TimeTrackingPageProps {
   workspaceId: string;
@@ -24,6 +53,23 @@ const expenseCategories = [
 ] as const;
 type ExpenseCategory = (typeof expenseCategories)[number];
 
+const startOfWeekMonday = (d: Date) => {
+  const copy = new Date(d);
+  const day = copy.getDay();
+  const diff = (day + 6) % 7;
+  copy.setHours(0, 0, 0, 0);
+  copy.setDate(copy.getDate() - diff);
+  return copy;
+};
+
+const addDays = (d: Date, days: number) => {
+  const copy = new Date(d);
+  copy.setDate(copy.getDate() + days);
+  return copy;
+};
+
+const toIsoDate = (d: Date) => d.toISOString().slice(0, 10);
+
 export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps) {
   const [timeEntries, setTimeEntries] = useState<TimeEntryRow[]>([]);
   const [expenseEntries, setExpenseEntries] = useState<ExpenseEntryRow[]>([]);
@@ -33,6 +79,8 @@ export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps)
   const [activeTab, setActiveTab] = useState<"time" | "expenses">("time");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [projectFilter, setProjectFilter] = useState<string>("all");
 
   const [timeForm, setTimeForm] = useState({
     entry_date: new Date().toISOString().slice(0, 10),
@@ -84,7 +132,38 @@ export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps)
     void loadData();
   }, [loadData]);
 
-  // Calculated Stats
+  useEffect(() => {
+    setSearchQuery("");
+    setProjectFilter("all");
+  }, [activeTab]);
+
+  const filteredTimeEntries = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return timeEntries.filter((entry) => {
+      if (projectFilter !== "all" && entry.project_id !== projectFilter) return false;
+      if (!q) return true;
+      return (
+        entry.task.toLowerCase().includes(q) ||
+        (entry.notes ?? "").toLowerCase().includes(q) ||
+        (entry.projects?.name ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [timeEntries, searchQuery, projectFilter]);
+
+  const filteredExpenseEntries = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return expenseEntries.filter((entry) => {
+      if (projectFilter !== "all" && entry.project_id !== projectFilter) return false;
+      if (!q) return true;
+      return (
+        entry.category.toLowerCase().includes(q) ||
+        (entry.vendor ?? "").toLowerCase().includes(q) ||
+        (entry.notes ?? "").toLowerCase().includes(q) ||
+        (entry.projects?.name ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [expenseEntries, searchQuery, projectFilter]);
+
   const totalHours = useMemo(
     () => timeEntries.reduce((sum, entry) => sum + Number(entry.hours || 0), 0),
     [timeEntries],
@@ -107,6 +186,40 @@ export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps)
         .reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
     [expenseEntries],
   );
+
+  const thisWeekHours = useMemo(() => {
+    const start = startOfWeekMonday(new Date());
+    const end = addDays(start, 7);
+    return timeEntries
+      .filter((e) => e.entry_date >= toIsoDate(start) && e.entry_date < toIsoDate(end))
+      .reduce((sum, e) => sum + Number(e.hours || 0), 0);
+  }, [timeEntries]);
+
+  const entryCount = activeTab === "time" ? filteredTimeEntries.length : filteredExpenseEntries.length;
+
+  const switchTab = (tab: "time" | "expenses") => {
+    setActiveTab(tab);
+    setSearchQuery("");
+    setProjectFilter("all");
+  };
+
+  const handleDelete = async (id: string, type: "time" | "expense") => {
+    const confirmed = window.confirm(
+      type === "time" ? "Delete this time entry?" : "Delete this expense entry?",
+    );
+    if (!confirmed) return;
+    try {
+      setError(null);
+      if (type === "time") {
+        await deleteTimeEntry(id);
+      } else {
+        await deleteExpenseEntry(id);
+      }
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete entry.");
+    }
+  };
 
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -145,151 +258,265 @@ export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps)
   if (loading) {
     return (
       <div className="hub-body">
-        <p style={{ padding: "2rem" }}>Loading time and expenses...</p>
+        <PageLoader />
       </div>
     );
   }
 
-  return (
-    <div className="hub-body">
-      {error && (
-        <div style={{ marginBottom: "16px", padding: "12px 16px", background: "#fef2f2", color: "#b91c1c", borderRadius: "8px" }}>
-          {error}
-        </div>
-      )}
-      <header className="page-header" style={{ padding: 0, marginBottom: '24px' }}>
-        <div>
-          <h1>Time & Expenses</h1>
-          <p className="page-subtitle">Log your hours and site costs against real projects</p>
-        </div>
-      </header>
+  const stats = [
+    {
+      label: "Total Hours",
+      sub: `${billableHours.toFixed(2)}h billable`,
+      value: `${totalHours.toFixed(2)}h`,
+      icon: Clock,
+      color: "text-emerald-600",
+    },
+    {
+      label: "This Week",
+      sub: "Mon–Sun",
+      value: `${thisWeekHours.toFixed(2)}h`,
+      icon: Clock,
+      color: "text-emerald-600",
+    },
+    {
+      label: "Total Expenses",
+      sub: `$${reimbursableExpenses.toLocaleString()} reimbursable`,
+      value: `$${totalExpenses.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+      icon: DollarSign,
+      color: "text-amber-600",
+    },
+    {
+      label: "Entries",
+      sub: activeTab,
+      value: entryCount.toString(),
+      icon: Clock,
+      color: "text-primary",
+    },
+  ];
 
-      {/* Unified Summary Cards */}
-      <div className="invoice-summary-row" style={{ marginBottom: '24px' }}>
-        <div className="invoice-summary-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span className="invoice-summary-label">Total Hours</span>
-            <span style={{ color: '#22c55e', fontSize: '12px', fontWeight: 600 }}>{billableHours}h billable</span>
-          </div>
-          <span className="invoice-summary-value">{totalHours.toFixed(2)}h</span>
-        </div>
-        <div className="invoice-summary-card" style={{ borderLeftColor: '#f59e0b' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span className="invoice-summary-label">Total Expenses</span>
-            <span style={{ color: '#1d4ed8', fontSize: '12px', fontWeight: 600 }}>${reimbursableExpenses.toLocaleString()} reimbursable</span>
-          </div>
-          <span className="invoice-summary-value">${totalExpenses.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', gap: '16px' }}>
-            <button 
-              onClick={() => setActiveTab('time')}
-              style={{ 
-                background: 'none', border: 'none', padding: '0 0 8px 0', fontSize: '16px', fontWeight: 600, cursor: 'pointer',
-                color: activeTab === 'time' ? 'var(--accent)' : 'var(--text)',
-                borderBottom: activeTab === 'time' ? '2px solid var(--accent)' : '2px solid transparent'
-              }}
-            >
-              Timesheet
-            </button>
-            <button 
-              onClick={() => setActiveTab('expenses')}
-              style={{ 
-                background: 'none', border: 'none', padding: '0 0 8px 0', fontSize: '16px', fontWeight: 600, cursor: 'pointer',
-                color: activeTab === 'expenses' ? 'var(--accent)' : 'var(--text)',
-                borderBottom: activeTab === 'expenses' ? '2px solid var(--accent)' : '2px solid transparent'
-              }}
-            >
-              Expenses
-            </button>
-          </div>
-          
-          <button className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '13px' }} onClick={() => setShowCreateModal(true)}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            {activeTab === 'time' ? 'Log Time' : 'Log Expense'}
+  const renderEmptyState = () => (
+    <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+      <Search className="h-12 w-12 text-muted-foreground/50" />
+      <div className="space-y-1">
+        <p className="font-medium text-foreground">
+          No {activeTab === "time" ? "time" : "expense"} entries match
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Try adjusting your search or project filters, or{" "}
+          <button
+            className="text-primary underline underline-offset-2 hover:no-underline"
+            onClick={() => setShowCreateModal(true)}
+          >
+            log your first {activeTab === "time" ? "time entry" : "expense"}
           </button>
-        </div>
+          .
+        </p>
+      </div>
+    </CardContent>
+  );
 
-        {activeTab === 'time' ? (
-          <div style={{ overflowX: 'auto' }}>
-          <table className="invoice-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Project</th>
-                <th className="hide-on-mobile">Task</th>
-                <th className="hide-on-mobile">Notes</th>
-                <th style={{ textAlign: 'center' }}>Billable</th>
-                <th style={{ textAlign: 'right' }}>Hours</th>
-              </tr>
-            </thead>
-            <tbody>
-              {timeEntries.map((e) => (
-                <tr key={e.id}>
-                  <td style={{ whiteSpace: 'nowrap' }}>{e.entry_date}</td>
-                  <td style={{ fontWeight: 500, color: 'var(--text-h)' }}>{e.projects?.name ?? "Internal"}</td>
-                  <td className="hide-on-mobile">{e.task}</td>
-                  <td className="hide-on-mobile" style={{ color: 'var(--text)', fontSize: '13px' }}>{e.notes ?? "—"}</td>
-                  <td style={{ textAlign: 'center' }}>
-                    {e.billable ? <span style={{ color: '#22c55e' }}>✓</span> : <span style={{ color: 'var(--border-heavy)' }}>—</span>}
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{Number(e.hours).toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-          <table className="invoice-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Project</th>
-                <th>Category</th>
-                <th className="hide-on-mobile">Vendor/Details</th>
-                <th style={{ textAlign: 'center' }}>Reimbursable</th>
-                <th style={{ textAlign: 'right' }}>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {expenseEntries.map((e) => (
-                <tr key={e.id}>
-                  <td style={{ whiteSpace: 'nowrap' }}>{e.entry_date}</td>
-                  <td style={{ fontWeight: 500, color: 'var(--text-h)' }}>{e.projects?.name ?? "Internal"}</td>
-                  <td>
-                    <span style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600, color: '#475569' }}>
-                      {e.category}
-                    </span>
-                  </td>
-                  <td className="hide-on-mobile">{e.vendor ?? "—"}</td>
-                  <td style={{ textAlign: 'center' }}>
-                    {e.reimbursable ? <span style={{ color: '#1d4ed8', fontWeight: 600, fontSize: '12px' }}>Yes</span> : <span style={{ color: 'var(--border-heavy)' }}>—</span>}
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-h)' }}>
-                    ${Number(e.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        )}
+  return (
+    <div className="hub-body mx-auto max-w-6xl space-y-6">
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <div>
+        <h1>Time & Expenses</h1>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Log your hours and site costs against real projects
+        </p>
       </div>
 
-      {showCreateModal && (
-        <div className="hub-modal-overlay" onClick={() => setShowCreateModal(false)}>
-          <div className="hub-modal" style={{ width: "560px", maxWidth: "94%" }} onClick={(e) => e.stopPropagation()}>
-            <h2 className="hub-modal-title">{activeTab === "time" ? "Log Time" : "Log Expense"}</h2>
-            <form className="hub-modal-form" onSubmit={handleCreate}>
-              <div className="form-group">
-                <label className="form-label">Date</label>
-                <input
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {stats.map((stat) => (
+          <Card key={stat.label}>
+            <CardContent className="py-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {stat.label}
+                </span>
+                <stat.icon className={cn("h-4 w-4", stat.color)} />
+              </div>
+              <div className="mt-1 text-2xl font-semibold text-foreground">{stat.value}</div>
+              <div className="text-xs text-muted-foreground">{stat.sub}</div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <Tabs value={activeTab} onValueChange={(value) => switchTab(value as typeof activeTab)}>
+            <TabsList className="flex-wrap h-auto">
+              <TabsTrigger value="time">Timesheet</TabsTrigger>
+              <TabsTrigger value="expenses">Expenses</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Button size="sm" onClick={() => setShowCreateModal(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            {activeTab === "time" ? "Log Time" : "Log Expense"}
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder={
+                  activeTab === "time" ? "Search task or notes..." : "Search vendor or notes..."
+                }
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <select
+              className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-[color,box-shadow]
+              focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-1 sm:w-[220px]"
+              value={projectFilter}
+              onChange={(e) => setProjectFilter(e.target.value)}
+            >
+              <option value="all">All projects</option>
+              <option value="">Internal / No project</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-muted-foreground sm:ml-auto">
+              {entryCount} {entryCount === 1 ? "entry" : "entries"} shown
+            </span>
+          </div>
+
+          {activeTab === "time" ? (
+            <ResponsiveTable>
+              {filteredTimeEntries.length === 0 ? (
+                renderEmptyState()
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Project</TableHead>
+                      <TableHead className="hidden md:table-cell">Task</TableHead>
+                      <TableHead className="hidden md:table-cell">Notes</TableHead>
+                      <TableHead className="text-center">Billable</TableHead>
+                      <TableHead className="text-right">Hours</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredTimeEntries.map((e) => (
+                      <TableRow key={e.id}>
+                        <TableCell className="whitespace-nowrap">{e.entry_date}</TableCell>
+                        <TableCell className="font-medium text-foreground">
+                          {e.projects?.name ?? "Internal"}
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">{e.task}</TableCell>
+                        <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
+                          {e.notes ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {e.billable ? (
+                            <span className="text-emerald-600">✓</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {Number(e.hours).toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-9 w-9"
+                            onClick={() => handleDelete(e.id, "time")}
+                            title="Delete time entry"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </ResponsiveTable>
+          ) : (
+            <ResponsiveTable>
+              {filteredExpenseEntries.length === 0 ? (
+                renderEmptyState()
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Project</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead className="hidden md:table-cell">Vendor/Details</TableHead>
+                      <TableHead className="text-center">Reimbursable</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredExpenseEntries.map((e) => (
+                      <TableRow key={e.id}>
+                        <TableCell className="whitespace-nowrap">{e.entry_date}</TableCell>
+                        <TableCell className="font-medium text-foreground">
+                          {e.projects?.name ?? "Internal"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">{e.category}</Badge>
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">{e.vendor ?? "—"}</TableCell>
+                        <TableCell className="text-center">
+                          {e.reimbursable ? (
+                            <span className="text-xs font-semibold text-primary">Yes</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold">
+                          ${Number(e.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-9 w-9"
+                            onClick={() => handleDelete(e.id, "expense")}
+                            title="Delete expense entry"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </ResponsiveTable>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>{activeTab === "time" ? "Log Time" : "Log Expense"}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleCreate} className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Date</Label>
+                <Input
                   type="date"
-                  className="input-field"
                   value={activeTab === "time" ? timeForm.entry_date : expenseForm.entry_date}
                   onChange={(e) =>
                     activeTab === "time"
@@ -299,10 +526,10 @@ export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps)
                   required
                 />
               </div>
-              <div className="form-group">
-                <label className="form-label">Project</label>
+              <div className="space-y-2">
+                <Label>Project</Label>
                 <select
-                  className="input-field"
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-[color,box-shadow] focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-1"
                   value={activeTab === "time" ? timeForm.project_id : expenseForm.project_id}
                   onChange={(e) =>
                     activeTab === "time"
@@ -318,125 +545,143 @@ export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps)
                   ))}
                 </select>
               </div>
+            </div>
 
-              {activeTab === "time" ? (
-                <>
-                  <div className="form-group">
-                    <label className="form-label">Task</label>
-                    <input
-                      className="input-field"
-                      value={timeForm.task}
-                      onChange={(e) => setTimeForm((prev) => ({ ...prev, task: e.target.value }))}
+            {activeTab === "time" ? (
+              <>
+                <div className="space-y-2">
+                  <Label>Task</Label>
+                  <Input
+                    value={timeForm.task}
+                    onChange={(e) =>
+                      setTimeForm((prev) => ({ ...prev, task: e.target.value }))
+                    }
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
+                  <div className="space-y-2">
+                    <Label>Hours</Label>
+                    <Input
+                      type="number"
+                      min="0.25"
+                      step="0.25"
+                      value={timeForm.hours}
+                      onChange={(e) =>
+                        setTimeForm((prev) => ({ ...prev, hours: e.target.value }))
+                      }
                       required
                     />
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "12px", alignItems: "end" }}>
-                    <div className="form-group">
-                      <label className="form-label">Hours</label>
-                      <input
-                        type="number"
-                        min="0.25"
-                        step="0.25"
-                        className="input-field"
-                        value={timeForm.hours}
-                        onChange={(e) => setTimeForm((prev) => ({ ...prev, hours: e.target.value }))}
-                        required
-                      />
-                    </div>
-                    <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", marginBottom: "10px" }}>
-                      <input
-                        type="checkbox"
+                  <div className="flex items-end pb-2">
+                    <label className="flex items-center gap-2 text-sm">
+                      <Switch
                         checked={timeForm.billable}
-                        onChange={(e) => setTimeForm((prev) => ({ ...prev, billable: e.target.checked }))}
+                        onCheckedChange={(checked) =>
+                          setTimeForm((prev) => ({ ...prev, billable: checked }))
+                        }
                       />
                       Billable
                     </label>
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Notes</label>
-                    <textarea
-                      className="input-field"
-                      value={timeForm.notes}
-                      onChange={(e) => setTimeForm((prev) => ({ ...prev, notes: e.target.value }))}
+                </div>
+                <div className="space-y-2">
+                  <Label>Notes</Label>
+                  <textarea
+                    className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1"
+                    value={timeForm.notes}
+                    onChange={(e) =>
+                      setTimeForm((prev) => ({ ...prev, notes: e.target.value }))
+                    }
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Category</Label>
+                    <select
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-[color,box-shadow] focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-1"
+                      value={expenseForm.category}
+                      onChange={(e) =>
+                        setExpenseForm((prev) => ({
+                          ...prev,
+                          category: e.target.value as ExpenseCategory,
+                        }))
+                      }
+                    >
+                      {expenseCategories.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Amount</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={expenseForm.amount}
+                      onChange={(e) =>
+                        setExpenseForm((prev) => ({ ...prev, amount: e.target.value }))
+                      }
+                      required
                     />
                   </div>
-                </>
-              ) : (
-                <>
-                  <div className="responsive-grid-2">
-                    <div className="form-group">
-                      <label className="form-label">Category</label>
-                      <select
-                        className="input-field"
-                        value={expenseForm.category}
-                        onChange={(e) =>
-                          setExpenseForm((prev) => ({
-                            ...prev,
-                            category: e.target.value as ExpenseCategory,
-                          }))
-                        }
-                      >
-                        {expenseCategories.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Amount</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="input-field"
-                        value={expenseForm.amount}
-                        onChange={(e) => setExpenseForm((prev) => ({ ...prev, amount: e.target.value }))}
-                        required
-                      />
-                    </div>
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
+                  <div className="space-y-2">
+                    <Label>Vendor</Label>
+                    <Input
+                      value={expenseForm.vendor}
+                      onChange={(e) =>
+                        setExpenseForm((prev) => ({ ...prev, vendor: e.target.value }))
+                      }
+                    />
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "12px", alignItems: "end" }}>
-                    <div className="form-group">
-                      <label className="form-label">Vendor</label>
-                      <input
-                        className="input-field"
-                        value={expenseForm.vendor}
-                        onChange={(e) => setExpenseForm((prev) => ({ ...prev, vendor: e.target.value }))}
-                      />
-                    </div>
-                    <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", marginBottom: "10px" }}>
-                      <input
-                        type="checkbox"
+                  <div className="flex items-end pb-2">
+                    <label className="flex items-center gap-2 text-sm">
+                      <Switch
                         checked={expenseForm.reimbursable}
-                        onChange={(e) => setExpenseForm((prev) => ({ ...prev, reimbursable: e.target.checked }))}
+                        onCheckedChange={(checked) =>
+                          setExpenseForm((prev) => ({ ...prev, reimbursable: checked }))
+                        }
                       />
                       Reimbursable
                     </label>
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Notes</label>
-                    <textarea
-                      className="input-field"
-                      value={expenseForm.notes}
-                      onChange={(e) => setExpenseForm((prev) => ({ ...prev, notes: e.target.value }))}
-                    />
-                  </div>
-                </>
-              )}
+                </div>
+                <div className="space-y-2">
+                  <Label>Notes</Label>
+                  <textarea
+                    className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1"
+                    value={expenseForm.notes}
+                    onChange={(e) =>
+                      setExpenseForm((prev) => ({ ...prev, notes: e.target.value }))
+                    }
+                  />
+                </div>
+              </>
+            )}
 
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "8px" }}>
-                <button type="button" className="btn btn-outline" onClick={() => setShowCreateModal(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary" disabled={submitting}>
-                  {submitting ? "Saving..." : "Save"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+            <DialogFooter className="gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowCreateModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={submitting}>
+                {submitting ? "Saving..." : "Save"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
-  )
+  );
 }

@@ -2,16 +2,10 @@ export type AccountType = "personal" | "business";
 
 /** Stored at signup (`profiles.auth_signup_account_type`); drives shell routing. */
 export type SignupAccountType = "personal" | "business" | "platform_admin";
-export type LicenseTier = "free" | "pro" | "enterprise";
-export type LicenseStatus =
-  | "trialing"
-  | "active"
-  | "past_due"
-  | "suspended"
-  | "cancelled";
 
 export const WORKSPACE_VIEWS = [
   "dashboard",
+  "notifications",
   "files",
   "quotes",
   "projects",
@@ -28,11 +22,12 @@ export const WORKSPACE_VIEWS = [
   "contacts",
   "timeTracking",
   "admin_overview",
-  "admin_licenses",
   "admin_activity",
   "admin_users",
   "admin_workspaces",
   "admin_audit",
+  "admin_feature_requests",
+  "admin_licenses",
 ] as const;
 
 export type WorkspaceView = (typeof WORKSPACE_VIEWS)[number];
@@ -44,14 +39,13 @@ export function isWorkspaceView(value: unknown): value is WorkspaceView {
 }
 
 export interface UiUser {
+  id: string;
   workspaceId: string;
   name: string;
   email: string;
   company: string;
   accountType: AccountType;
   signupAccountType: SignupAccountType | null;
-  licenseTier: LicenseTier;
-  licenseStatus: LicenseStatus;
   isPlatformAdmin: boolean;
 }
 

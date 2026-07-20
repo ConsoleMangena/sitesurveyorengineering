@@ -1,6 +1,28 @@
-import { useState, useEffect } from "react";
-import "../../styles/pages.css";
-import "../../styles/project-hub.css";
+import React, { useState, useEffect } from "react";
+import {
+  Briefcase,
+  CalendarDays,
+  FileText,
+  FileCheck,
+  Plus,
+  TrendingUp,
+  Users,
+  Gauge,
+  AlertTriangle,
+} from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { MetricStrip } from "@/components/dashboard/MetricStrip.tsx";
+import { DashboardCard } from "@/components/dashboard/DashboardCard.tsx";
+import {
+  DashboardColumn,
+  DashboardGrid,
+  DashboardHeader,
+  DashboardShell,
+} from "@/components/dashboard/DashboardShell.tsx";
+
 import { listProjects, type ProjectWithOrg } from "../../lib/repositories/projects.ts";
 import { listInvoices, type InvoiceWithDetails } from "../../lib/repositories/invoices.ts";
 import { listJobEvents, type JobEventRow } from "../../lib/repositories/jobEvents.ts";
@@ -16,7 +38,6 @@ interface BusinessDashboardPageProps {
 
 function getGreeting(): string {
   const hour = new Date().getHours();
-
   if (hour < 12) return "Good Morning";
   if (hour < 17) return "Good Afternoon";
   return "Good Evening";
@@ -24,7 +45,6 @@ function getGreeting(): string {
 
 function getFirstName(name?: string): string {
   if (!name) return "there";
-
   const firstName = name.trim().split(/\s+/)[0];
   return firstName || "there";
 }
@@ -40,10 +60,10 @@ export default function BusinessDashboardPage({
   const [assetsAvailableCount, setAssetsAvailableCount] = useState(0);
   const [quotesPendingCount, setQuotesPendingCount] = useState(0);
   const [calibrationsDueCount, setCalibrationsDueCount] = useState(0);
-  
+
   useEffect(() => {
     if (!workspaceId) return;
-    
+
     Promise.all([
       listProjects(workspaceId).catch(() => []),
       listInvoices(workspaceId).catch(() => []),
@@ -77,45 +97,23 @@ export default function BusinessDashboardPage({
     });
   }, [workspaceId]);
 
-  const activeProjectsCount = projects.filter(p => p.status === 'active').length;
-  const pendingInvoices = invoices.filter(i => i.status === 'draft' || i.status === 'sent' || i.status === 'overdue');
-  const pendingInvoicesTotal = pendingInvoices.reduce((sum, inv) => sum + Number(inv.total || 0), 0);
-  const allDispatchesToday = jobEvents.filter((event) => event.event_date === new Date().toISOString().slice(0, 10));
-  const dispatchBoard = allDispatchesToday
-    .slice(0, 6)
-    .map((event) => ({
-      time: event.start_time ? event.start_time.slice(0, 5) : "All day",
-      team: event.title,
-      task: event.event_type || "Field work",
-      location: event.location || "No location",
-    }));
-
-  const kpis = [
-    {
-      label: "Active Projects",
-      value: activeProjectsCount.toString(),
-      subtext: `${projects.length} total projects`,
-      accent: "var(--accent)",
-    },
-    {
-      label: "Dispatches Today",
-      value: allDispatchesToday.length.toString(),
-      subtext: `${allDispatchesToday.filter((item) => item.start_time).length} time-slotted events`,
-      accent: "#3b82f6",
-    },
-    {
-      label: "Outstanding Billing",
-      value: `$${pendingInvoicesTotal.toLocaleString()}`,
-      subtext: `${pendingInvoices.length} invoices overdue`,
-      accent: "#ef4444",
-    },
-    {
-      label: "Quotes Pipeline",
-      value: quotesPendingCount.toString(),
-      subtext: "awaiting approval",
-      accent: "#10b981",
-    },
-  ];
+  const activeProjectsCount = projects.filter((p) => p.status === "active").length;
+  const pendingInvoices = invoices.filter(
+    (i) => i.status === "draft" || i.status === "sent" || i.status === "overdue",
+  );
+  const pendingInvoicesTotal = pendingInvoices.reduce(
+    (sum, inv) => sum + Number(inv.total || 0),
+    0,
+  );
+  const allDispatchesToday = jobEvents.filter(
+    (event) => event.event_date === new Date().toISOString().slice(0, 10),
+  );
+  const dispatchBoard = allDispatchesToday.slice(0, 6).map((event) => ({
+    time: event.start_time ? event.start_time.slice(0, 5) : "All day",
+    team: event.title,
+    task: event.event_type || "Field work",
+    location: event.location || "No location",
+  }));
 
   const currentDate = new Date().toLocaleDateString("en-US", {
     weekday: "long",
@@ -125,405 +123,179 @@ export default function BusinessDashboardPage({
   });
 
   return (
-    <div className="hub-body">
-      <header
-        className="page-header"
-        style={{ padding: 0, marginBottom: "24px" }}
-      >
-        <div>
-          <span
-            className="hub-account-badge business"
-            style={{ marginBottom: "10px" }}
-          >
-            Business account
-          </span>
-          <h1 style={{ fontSize: "22px", letterSpacing: "-0.4px", margin: 0 }}>
-            {getGreeting()}, {getFirstName(userName)}
-          </h1>
-          <p className="page-subtitle" style={{ marginTop: "6px" }}>
-            {currentDate}
-          </p>
-          <p
-            style={{
-              margin: "8px 0 0 0",
-              fontSize: "13px",
-              color: "var(--text)",
-              maxWidth: "760px",
-              lineHeight: 1.5,
-            }}
-          >
-            Manage company operations from one place — dispatch crews, monitor
-            active projects, track billing, and coordinate assets across your
-            workspace.
-          </p>
-        </div>
+    <DashboardShell className="hub-body">
+      <DashboardHeader
+        badge={<Badge variant="secondary">Business account</Badge>}
+        title={`${getGreeting()}, ${getFirstName(userName)}`}
+        subtitle={currentDate}
+        description="Manage company operations from one place — dispatch crews, monitor active projects, track billing, and coordinate assets across your workspace."
+        actions={
+          <>
+            <Button variant="outline" className="gap-2">
+              <TrendingUp size={16} />
+              Weekly Report
+            </Button>
+            <Button className="gap-2">
+              <Plus size={16} />
+              New Dispatch
+            </Button>
+          </>
+        }
+      />
 
-        <div className="header-actions">
-          <button
-            className="btn btn-outline"
-            style={{ display: "flex", gap: "8px", alignItems: "center" }}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-            >
-              <path d="M3 3v18h18" />
-              <path d="M7 14l4-4 3 3 5-6" />
-            </svg>
-            Weekly Report
-          </button>
-          <button
-            className="btn btn-primary"
-            style={{ display: "flex", gap: "8px", alignItems: "center" }}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-            >
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            New Dispatch
-          </button>
-        </div>
-      </header>
+      <MetricStrip
+        metrics={[
+          {
+            label: "Active Projects",
+            value: activeProjectsCount.toString(),
+            subtext: `${projects.length} total projects`,
+            accentColor: "#8b5cf6",
+            icon: <Briefcase size={18} />,
+          },
+          {
+            label: "Dispatches Today",
+            value: allDispatchesToday.length.toString(),
+            subtext: `${allDispatchesToday.filter((item) => item.start_time).length} time-slotted events`,
+            accentColor: "#3b82f6",
+            icon: <CalendarDays size={18} />,
+          },
+          {
+            label: "Outstanding Billing",
+            value: `$${pendingInvoicesTotal.toLocaleString()}`,
+            subtext: `${pendingInvoices.length} invoices awaiting payment`,
+            accentColor: "#ef4444",
+            icon: <FileText size={18} />,
+          },
+          {
+            label: "Quotes Pipeline",
+            value: quotesPendingCount.toString(),
+            subtext: "awaiting approval",
+            accentColor: "#10b981",
+            icon: <FileCheck size={18} />,
+          },
+        ]}
+      />
 
-      <div className="invoice-summary-row" style={{ marginBottom: "32px" }}>
-        {kpis.map((kpi) => (
-          <div
-            key={kpi.label}
-            className="invoice-summary-card"
-            style={{ borderLeftColor: kpi.accent }}
+      <DashboardGrid>
+        <DashboardColumn>
+          <DashboardCard
+            title="Operations Overview"
+            icon={<Briefcase size={16} />}
           >
-            <span className="invoice-summary-label">{kpi.label}</span>
-            <span className="invoice-summary-value">{kpi.value}</span>
-            <p
-              style={{
-                margin: "4px 0 0 0",
-                fontSize: "12px",
-                color: "var(--text)",
-              }}
-            >
-              {kpi.subtext}
-            </p>
-          </div>
-        ))}
-      </div>
-
-      <div className="project-dashboard-unified-grid" style={{ marginTop: "24px" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: "24px", minWidth: 0 }}>
-          <div className="card">
-            <div
-              className="card-header"
-              style={{
-                paddingBottom: "16px",
-                borderBottom: "1px solid var(--border)",
-              }}
-            >
-              <h2 style={{ fontSize: "16px", margin: 0 }}>Operations Overview</h2>
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-              {projects.slice(0, 4).map((project, index) => (
-                <div
-                  key={project.id}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    padding: "16px",
-                    borderBottom:
-                      index === Math.min(projects.length, 4) - 1
-                        ? "none"
-                        : "1px solid var(--border)",
-                    alignItems: "center",
-                    gap: "12px",
-                  }}
-                >
-                  <div>
-                    <h3
-                      style={{
-                        fontSize: "15px",
-                        color: "var(--text-h)",
-                        margin: "0 0 4px 0",
-                      }}
+            <div className="flex flex-col">
+              {projects.slice(0, 4).map((project) => (
+                <React.Fragment key={project.id}>
+                  <button
+                    type="button"
+                    className="flex items-center justify-between gap-4 w-full text-left py-3 px-1 rounded-lg transition-colors hover:bg-muted/60"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">
+                        {project.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {project.organization_name || "Private Client"}
+                      </p>
+                    </div>
+                    <Badge
+                      variant={
+                        project.status === "completed" ? "default" : "secondary"
+                      }
                     >
-                      {project.name}
-                    </h3>
-                    <span style={{ fontSize: "13px", color: "var(--text)" }}>
-                      {project.organization_name || "Private Client"}
-                    </span>
-                  </div>
-
-                  <span className="status-badge" style={project.status === 'completed' ? { background: "#dcfce7", color: "#15803d" } : { background: "#dbeafe", color: "#1d4ed8" }}>
-                    {project.status === 'completed' ? 'Completed' : 'Active'}
-                  </span>
-                </div>
+                      {project.status === "completed" ? "Completed" : "Active"}
+                    </Badge>
+                  </button>
+                  <Separator />
+                </React.Fragment>
               ))}
               {projects.length === 0 && (
-                <div style={{ padding: "16px", color: "var(--text)", fontSize: "14px" }}>
+                <div className="py-6 text-center text-sm text-muted-foreground">
                   No recent operations found.
                 </div>
               )}
             </div>
+          </DashboardCard>
 
-            <button
-              style={{
-                width: "100%",
-                padding: "12px",
-                background: "var(--surface-muted)",
-                border: "none",
-                color: "var(--accent)",
-                fontWeight: 600,
-                cursor: "pointer",
-                borderTop: "1px solid var(--border)",
-                borderBottomLeftRadius: "12px",
-                borderBottomRightRadius: "12px",
-              }}
-            >
-              Open Operations Workspace
-            </button>
-          </div>
-
-          <div className="card">
-            <div
-              className="card-header"
-              style={{
-                paddingBottom: "16px",
-                borderBottom: "1px solid var(--border)",
-              }}
-            >
-              <h2 style={{ fontSize: "16px", margin: 0 }}>
-                Resource & Equipment
-              </h2>
-            </div>
-
-            <div
-              style={{
-                padding: "16px",
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-                gap: "12px",
-              }}
-            >
-              <div
-                style={{
-                  border: "1px solid var(--border)",
-                  borderRadius: "10px",
-                  padding: "12px",
-                  background: "var(--surface)",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: "11px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.4px",
-                    color: "var(--text)",
-                    fontWeight: 700,
-                    marginBottom: "6px",
-                  }}
-                >
-                  Team Capacity
-                </div>
-                <div
-                  style={{
-                    fontSize: "22px",
-                    fontWeight: 700,
-                    color: "var(--text-h)",
-                  }}
-                >
-                  {memberCount}
-                </div>
-                <div style={{ fontSize: "12px", color: "var(--text)" }}>
-                  active field staff
-                </div>
-              </div>
-
-              <div
-                style={{
-                  border: "1px solid var(--border)",
-                  borderRadius: "10px",
-                  padding: "12px",
-                  background: "var(--surface)",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: "11px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.4px",
-                    color: "var(--text)",
-                    fontWeight: 700,
-                    marginBottom: "6px",
-                  }}
-                >
-                  Ready Assets
-                </div>
-                <div
-                  style={{
-                    fontSize: "22px",
-                    fontWeight: 700,
-                    color: "var(--text-h)",
-                  }}
-                >
-                  {assetsAvailableCount}
-                </div>
-                <div style={{ fontSize: "12px", color: "var(--text)" }}>
-                  available for deployment
-                </div>
-              </div>
-
-              <div
-                style={{
-                  border: "1px solid var(--border)",
-                  borderRadius: "10px",
-                  padding: "12px",
-                  background: "var(--surface)",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: "11px",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.4px",
-                    color: "var(--text)",
-                    fontWeight: 700,
-                    marginBottom: "6px",
-                  }}
-                >
-                  SG Submissions
-                </div>
-                <div
-                  style={{
-                    fontSize: "22px",
-                    fontWeight: 700,
-                    color: "var(--text-h)",
-                  }}
-                >
-                  {calibrationsDueCount}
-                </div>
-                <div style={{ fontSize: "12px", color: "var(--text)" }}>
-                  due this week
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: "24px", minWidth: 0 }}>
-          <div
-            className="card"
-            style={{ background: "var(--surface-muted)", borderColor: "var(--accent-border)" }}
+          <DashboardCard
+            title="Resource & Equipment"
+            icon={<Gauge size={16} />}
           >
-            <div
-              className="card-header"
-              style={{
-                paddingBottom: "16px",
-                borderBottom: "1px solid var(--accent-border)",
-              }}
-            >
-              <h2
-                style={{ fontSize: "16px", margin: 0, color: "var(--accent)" }}
-              >
-                Dispatch Board
-              </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="flex flex-col gap-1 p-4 rounded-xl bg-muted/50 border">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Users size={14} />
+                  <span className="text-xs font-medium">Team Capacity</span>
+                </div>
+                <span className="text-2xl font-bold text-foreground">
+                  {memberCount}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  active field staff
+                </span>
+              </div>
+              <div className="flex flex-col gap-1 p-4 rounded-xl bg-muted/50 border">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Gauge size={14} />
+                  <span className="text-xs font-medium">Ready Assets</span>
+                </div>
+                <span className="text-2xl font-bold text-foreground">
+                  {assetsAvailableCount}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  available for deployment
+                </span>
+              </div>
+              <div className="flex flex-col gap-1 p-4 rounded-xl bg-muted/50 border">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <AlertTriangle size={14} />
+                  <span className="text-xs font-medium">Calibrations</span>
+                </div>
+                <span className="text-2xl font-bold text-foreground">
+                  {calibrationsDueCount}
+                </span>
+                <span className="text-xs text-muted-foreground">due this week</span>
+              </div>
             </div>
+          </DashboardCard>
+        </DashboardColumn>
 
-            <div
-              style={{
-                padding: "16px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "16px",
-              }}
-            >
+        <DashboardColumn>
+          <DashboardCard
+            title="Dispatch Board"
+            icon={<CalendarDays size={16} />}
+            accent
+          >
+            <div className="flex flex-col gap-3">
               {dispatchBoard.map((assignment, index) => (
-                <div key={`${assignment.team}-${index}`} style={{ display: "flex", gap: "12px" }}>
-                  <div
-                    style={{
-                      color: index === 0 ? "var(--accent)" : "var(--text)",
-                      fontWeight: index === 0 ? 700 : 600,
-                      fontSize: "13px",
-                      paddingTop: "2px",
-                      minWidth: "54px",
-                    }}
-                  >
+                <div
+                  key={`${assignment.team}-${index}`}
+                  className="flex gap-4 items-start"
+                >
+                  <div className="text-xs font-semibold text-muted-foreground w-16 shrink-0 pt-0.5">
                     {assignment.time}
                   </div>
-
-                  <div
-                    style={{
-                      background: "var(--surface)",
-                      border:
-                        index === 0
-                          ? "1px solid var(--accent-border)"
-                          : "1px solid var(--border)",
-                      padding: "12px",
-                      borderRadius: "8px",
-                      flex: 1,
-                      boxShadow:
-                        index === 0
-                          ? "0 1px 2px rgba(139, 92, 246, 0.05)"
-                          : "none",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontWeight: 600,
-                        color: "var(--text-h)",
-                        fontSize: "14px",
-                        marginBottom: "4px",
-                      }}
-                    >
+                  <div className="flex-1 rounded-lg bg-muted/60 p-3">
+                    <p className="text-sm font-medium text-foreground">
                       {assignment.team}
-                    </div>
-                    <div style={{ color: "var(--text)", fontSize: "12px" }}>
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       {assignment.task}
-                    </div>
-                    <div
-                      style={{
-                        color: "var(--text)",
-                        fontSize: "12px",
-                        marginTop: "4px",
-                      }}
-                    >
+                    </p>
+                    <p className="text-xs text-muted-foreground">
                       {assignment.location}
-                    </div>
+                    </p>
                   </div>
                 </div>
               ))}
               {dispatchBoard.length === 0 && (
-                <div style={{ color: "var(--text)", fontSize: "13px" }}>
+                <div className="py-6 text-center text-sm text-muted-foreground">
                   No dispatch events scheduled for today.
                 </div>
               )}
             </div>
-
-            <button
-              style={{
-                width: "100%",
-                padding: "12px",
-                background: "transparent",
-                border: "none",
-                color: "var(--accent)",
-                fontWeight: 600,
-                cursor: "pointer",
-                borderTop: "1px solid var(--accent-border)",
-              }}
-            >
-              Open Dispatch Planner
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+          </DashboardCard>
+        </DashboardColumn>
+      </DashboardGrid>
+    </DashboardShell>
   );
 }

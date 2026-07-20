@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatAuthRateLimitMessage,
   formatAuthUserFacingError,
+  isEmailNotConfirmedError,
 } from "./auth-errors.ts";
 
 describe("formatAuthRateLimitMessage", () => {
@@ -24,5 +25,31 @@ describe("formatAuthRateLimitMessage", () => {
 describe("formatAuthUserFacingError", () => {
   it("uses fallback for unknown errors", () => {
     expect(formatAuthUserFacingError(null, "Fallback.")).toBe("Fallback.");
+  });
+});
+
+describe("isEmailNotConfirmedError", () => {
+  it("detects Supabase error code", () => {
+    const err = Object.assign(new Error("anything"), {
+      code: "email_not_confirmed",
+    });
+    expect(isEmailNotConfirmedError(err)).toBe(true);
+  });
+
+  it("detects classic 'Email not confirmed' message", () => {
+    expect(isEmailNotConfirmedError(new Error("Email not confirmed"))).toBe(
+      true,
+    );
+  });
+
+  it("returns false for unrelated errors", () => {
+    expect(
+      isEmailNotConfirmedError(new Error("Invalid login credentials")),
+    ).toBe(false);
+  });
+
+  it("returns false for null/undefined", () => {
+    expect(isEmailNotConfirmedError(null)).toBe(false);
+    expect(isEmailNotConfirmedError(undefined)).toBe(false);
   });
 });

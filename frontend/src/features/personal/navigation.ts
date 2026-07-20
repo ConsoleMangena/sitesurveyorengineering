@@ -2,7 +2,10 @@ import type { WorkspaceNavGroup } from "../workspace/types";
 
 export const personalNavGroups: WorkspaceNavGroup[] = [
   {
-    items: [{ view: "dashboard", label: "Dashboard", icon: "dashboard" }],
+    items: [
+      { view: "dashboard", label: "Dashboard", icon: "dashboard" },
+      { view: "notifications", label: "Notifications", icon: "notifications" },
+    ],
   },
   {
     label: "WORK",
@@ -10,6 +13,7 @@ export const personalNavGroups: WorkspaceNavGroup[] = [
       { view: "schedule", label: "Schedule", icon: "calendar" },
       { view: "timeTracking", label: "Time & Expenses", icon: "clock" },
       { view: "projects", label: "Projects", icon: "folder" },
+      { view: "assets", label: "Asset Management", icon: "asset" },
       { view: "files", label: "File Manager", icon: "file-manager" },
       { view: "quotes", label: "Quotes", icon: "document" },
     ],
@@ -33,7 +37,6 @@ export const personalNavGroups: WorkspaceNavGroup[] = [
     label: "MARKETPLACE",
     items: [
       { view: "marketplace", label: "Marketplace", icon: "shopping" },
-      { view: "assets", label: "My Instruments", icon: "asset" },
     ],
   },
 ];

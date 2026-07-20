@@ -8,18 +8,23 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(
-    135deg,
-    color-mix(in oklab, var(--surface-muted) 88%, white) 0%,
-    color-mix(in oklab, var(--surface-muted) 70%, var(--accent-bg)) 50%,
-    color-mix(in oklab, var(--surface-muted) 75%, var(--accent-bg)) 100%
-  );
+  background:
+    radial-gradient(circle at 20% 20%, color-mix(in oklab, var(--accent) 12%, transparent), transparent 36rem),
+    radial-gradient(circle at 80% 80%, color-mix(in oklab, var(--accent-purple) 12%, transparent), transparent 34rem),
+    linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--surface-muted) 88%, white) 0%,
+      color-mix(in oklab, var(--surface-muted) 70%, var(--accent-bg)) 50%,
+      color-mix(in oklab, var(--surface-muted) 75%, var(--accent-bg)) 100%
+    );
+  background-size: 400% 400%;
   padding: max(24px, env(safe-area-inset-top, 0px) + 12px)
     max(20px, env(safe-area-inset-right, 0px))
     max(24px, env(safe-area-inset-bottom, 0px) + 12px)
     max(20px, env(safe-area-inset-left, 0px));
   position: relative;
   overflow: hidden;
+  animation: auth-bg-drift 22s ease-in-out infinite;
 }
 
 /* Subtle grid pattern */
@@ -28,10 +33,26 @@
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(37, 99, 235, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(37, 99, 235, 0.03) 1px, transparent 1px);
+    linear-gradient(color-mix(in oklab, var(--accent) 3%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in oklab, var(--accent) 3%, transparent) 1px, transparent 1px);
   background-size: 40px 40px;
   pointer-events: none;
+  animation: auth-grid-pulse 10s ease-in-out infinite;
+}
+
+/* Floating orbs behind the card */
+.auth-screen::after {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  background:
+    radial-gradient(circle at 30% 30%, color-mix(in oklab, var(--accent) 18%, transparent) 0%, transparent 38%),
+    radial-gradient(circle at 70% 70%, color-mix(in oklab, var(--accent-purple) 14%, transparent) 0%, transparent 36%);
+  filter: blur(40px);
+  pointer-events: none;
+  opacity: 0.75;
+  animation: auth-orb-float 18s ease-in-out infinite alternate;
+  z-index: 0;
 }
 
 /* ── Auth Card ── */
@@ -49,7 +70,7 @@
 }
 
 .auth-card-wide {
-  max-width: min(100%, 768px);
+  max-width: min(100%, 560px);
   width: 100%;
   box-sizing: border-box;
 }
@@ -57,16 +78,16 @@
 /* ── Account Type Selector ── */
 .account-type-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
   margin-top: 8px;
 }
 
 .account-type-card {
   background: var(--surface);
   border: 2px solid var(--border);
-  border-radius: 12px;
-  padding: 14px;
+  border-radius: 10px;
+  padding: 12px;
   text-align: left;
   cursor: pointer;
   transition:
@@ -76,7 +97,7 @@
     box-shadow var(--motion-base) var(--ease-standard);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .account-type-card:hover {
@@ -92,9 +113,9 @@
 }
 
 .account-type-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -102,13 +123,13 @@
 }
 
 .account-type-icon svg {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
 }
 
 .account-type-icon.personal {
   background: color-mix(in oklab, var(--accent-bg) 55%, var(--surface));
-  color: #1d4ed8;
+  color: var(--accent);
 }
 
 .account-type-icon.business {
@@ -117,8 +138,8 @@
 }
 
 .account-type-icon.platform-admin {
-  background: color-mix(in oklab, #7c3aed 16%, var(--surface));
-  color: #5b21b6;
+  background: color-mix(in oklab, var(--accent-purple-bg) 55%, var(--surface));
+  color: var(--accent-purple);
 }
 
 .auth-admin-signup-notice {
@@ -164,7 +185,7 @@
 
 .account-type-features li::before {
   content: '✓ ';
-  color: #22c55e;
+  color: var(--color-success);
   font-weight: 700;
 }
 
@@ -333,10 +354,10 @@
   transition: background 0.2s;
 }
 
-.strength-bar.filled.weak { background: #ea4335; }
-.strength-bar.filled.fair { background: #f59e0b; }
-.strength-bar.filled.good { background: #34a853; }
-.strength-bar.filled.strong { background: #1a7431; }
+.strength-bar.filled.weak { background: var(--color-error); }
+.strength-bar.filled.fair { background: var(--color-warning); }
+.strength-bar.filled.good { background: var(--color-success); }
+.strength-bar.filled.strong { background: #15803d; }
 
 .strength-text {
   font-size: 11px;
@@ -344,10 +365,10 @@
   font-weight: 500;
 }
 
-.strength-text.weak { color: #ea4335; }
-.strength-text.fair { color: #f59e0b; }
-.strength-text.good { color: #34a853; }
-.strength-text.strong { color: #1a7431; }
+.strength-text.weak { color: var(--color-error); }
+.strength-text.fair { color: var(--color-warning); }
+.strength-text.good { color: var(--color-success); }
+.strength-text.strong { color: #15803d; }
 
 /* ── Auth Button ── */
 .auth-btn {
@@ -403,6 +424,66 @@
 
 .auth-btn-google:active {
   transform: scale(0.98);
+}
+
+/* ── Solana Wallet Button ── */
+.auth-btn-solana {
+  background: var(--surface);
+  color: var(--text-h);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  position: relative;
+  overflow: hidden;
+}
+
+.auth-btn-solana::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    color-mix(in oklab, #9945ff 6%, transparent),
+    color-mix(in oklab, #14f195 6%, transparent)
+  );
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+}
+
+.auth-btn-solana:hover::before {
+  opacity: 1;
+}
+
+.auth-btn-solana:hover {
+  border-color: #9945ff55;
+  box-shadow: 0 0 0 3px color-mix(in oklab, #9945ff 12%, transparent), var(--shadow-sm);
+  transform: var(--lift-sm);
+}
+
+.auth-btn-solana:active {
+  transform: scale(0.98);
+}
+
+.auth-btn-solana:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.solana-btn-wrapper,
+.google-btn-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Stack the OAuth / wallet sign-in buttons consistently. */
+.auth-oauth-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 /* ── Divider ── */
@@ -473,14 +554,28 @@
 /* ── Error Message ── */
 .form-error {
   font-size: 12px;
-  color: #ea4335;
+  color: var(--color-error);
   margin-top: -2px;
 }
 
 .form-success {
   font-size: 12px;
-  color: #16a34a;
+  color: var(--color-success);
   margin-top: -2px;
+}
+
+/* ── Resend Confirmation ── */
+.auth-resend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  margin-top: -8px;
+}
+
+.auth-resend button {
+  font-family: var(--sans);
+  font-size: 13px;
 }
 
 /* ── Auth Features (side blurb on large screens) ── */
@@ -510,9 +605,9 @@
   font-size: 16px;
 }
 
-.auth-feature-icon-blue { background: color-mix(in oklab, #3b82f6 18%, var(--surface)); }
-.auth-feature-icon-green { background: color-mix(in oklab, #22c55e 18%, var(--surface)); }
-.auth-feature-icon-purple { background: var(--accent-bg); }
+.auth-feature-icon-blue { background: color-mix(in oklab, var(--accent) 18%, var(--surface)); }
+.auth-feature-icon-green { background: color-mix(in oklab, var(--color-success) 18%, var(--surface)); }
+.auth-feature-icon-purple { background: color-mix(in oklab, var(--accent-purple) 18%, var(--surface)); }
 
 .auth-feature-text {
   display: flex;
@@ -596,15 +691,17 @@
   .account-type-card {
     flex-direction: row;
     align-items: center;
-    padding: 12px 16px;
+    gap: 0;
+    padding: 10px 14px;
   }
 
   .account-type-icon {
     margin-bottom: 0;
     margin-right: 12px;
+    flex-shrink: 0;
   }
 
-  .account-type-features {
+  .account-type-card p {
     display: none;
   }
 }
@@ -620,13 +717,112 @@
 }
 
 [data-theme="dark"] .account-type-icon.personal {
-  color: #93c5fd;
+  color: var(--accent);
 }
 
 [data-theme="dark"] .form-error {
-  color: #fca5a5;
+  color: var(--color-error);
 }
 
 [data-theme="dark"] .form-success {
-  color: #86efac;
+  color: var(--color-success);
+}
+
+/* ════════════════════════════════════════════
+   Auth Animations
+   ════════════════════════════════════════════ */
+
+@keyframes auth-bg-drift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes auth-grid-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@keyframes auth-orb-float {
+  0% {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+  }
+  100% {
+    transform: translate(4%, -3%) rotate(6deg) scale(1.06);
+  }
+}
+
+@keyframes auth-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes auth-fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes auth-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-4px);
+  }
+  40%,
+  80% {
+    transform: translateX(4px);
+  }
+}
+
+.auth-animate-card {
+  animation: auth-card-enter 0.45s var(--ease-emphasized) both;
+  position: relative;
+  z-index: 1;
+}
+
+.auth-animate-stagger > * {
+  opacity: 0;
+  animation: auth-fade-in-up 0.35s var(--ease-standard) both;
+}
+
+.auth-animate-stagger > *:nth-child(1) { animation-delay: 0.05s; }
+.auth-animate-stagger > *:nth-child(2) { animation-delay: 0.1s; }
+.auth-animate-stagger > *:nth-child(3) { animation-delay: 0.15s; }
+.auth-animate-stagger > *:nth-child(4) { animation-delay: 0.2s; }
+.auth-animate-stagger > *:nth-child(5) { animation-delay: 0.25s; }
+.auth-animate-stagger > *:nth-child(6) { animation-delay: 0.3s; }
+.auth-animate-stagger > *:nth-child(7) { animation-delay: 0.35s; }
+.auth-animate-stagger > *:nth-child(8) { animation-delay: 0.4s; }
+
+.auth-animate-header {
+  opacity: 0;
+  animation: auth-fade-in-up 0.4s var(--ease-emphasized) 0.05s both;
+}
+
+.auth-shake {
+  animation: auth-shake 0.35s var(--ease-standard) both;
 }

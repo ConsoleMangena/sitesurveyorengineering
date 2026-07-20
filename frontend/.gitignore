@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Generated WebAssembly bundle (built by `npm run build:wasm`)
+src/features/projects/components/cad/survey/wasm/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

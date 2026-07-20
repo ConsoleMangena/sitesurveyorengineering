@@ -1,11 +1,34 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import "../../styles/pages.css";
+import { RefreshCw, Loader2, ChevronDown } from "lucide-react";
+
+import PageLoader from "@/components/PageLoader.tsx";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { ResponsiveTable } from "@/components/ui/responsive-table";
+import { DashboardHeader, DashboardShell } from "@/components/dashboard/DashboardShell.tsx";
+
 import {
   listAuditLogs,
-  listWorkspacesWithLicenses,
+  listWorkspaces,
   listProfilesSummary,
   type AuditLogEntry,
-  type WorkspaceRowWithLicense,
+  type WorkspaceRowAdmin,
 } from "../../lib/repositories/adminPlatform.ts";
 
 const PAGE_SIZE = 50;
@@ -25,16 +48,14 @@ function formatWhen(iso: string): string {
   }
 }
 
-export default function AdminAuditPage({
-  isPlatformAdmin,
-}: AdminAuditPageProps) {
+export default function AdminAuditPage({ isPlatformAdmin }: AdminAuditPageProps) {
   const [entries, setEntries] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [workspaces, setWorkspaces] = useState<WorkspaceRowWithLicense[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceRowAdmin[]>([]);
   const [actorLabels, setActorLabels] = useState<Map<string, string>>(new Map());
   const [wsLabels, setWsLabels] = useState<Map<string, string>>(new Map());
 
@@ -43,13 +64,13 @@ export default function AdminAuditPage({
 
   const loadWorkspaces = useCallback(async () => {
     try {
-      const ws = await listWorkspacesWithLicenses();
+      const ws = await listWorkspaces();
       setWorkspaces(ws);
       const map = new Map<string, string>();
       for (const w of ws) map.set(w.id, w.name);
       setWsLabels(map);
     } catch {
-      // non-critical — workspace labels just won't show
+      // non-critical
     }
   }, []);
 
@@ -110,146 +131,156 @@ export default function AdminAuditPage({
   if (!isPlatformAdmin) return null;
 
   return (
-    <div className="hub-body admin-console-page">
-      <header className="page-header">
-        <div>
-          <h1>Audit log</h1>
-          <p className="page-subtitle">
-            Cross-workspace activity trail — who did what, when
-          </p>
-        </div>
-        <div className="header-actions">
-          <button
-            type="button"
-            className="btn btn-outline btn-sm"
+    <DashboardShell className="hub-body admin-console-page">
+      <DashboardHeader
+        badge={<Badge variant="secondary">Platform admin</Badge>}
+        title="Audit log"
+        subtitle="Cross-workspace activity trail — who did what, when"
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => void loadPage(0, false)}
+            disabled={loading}
+            className="gap-2"
           >
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             Refresh
-          </button>
+          </Button>
+        }
+      />
+
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
         </div>
-      </header>
+      )}
 
-      {error && <div className="alert-bar alert-warning">{error}</div>}
-
-      <div className="admin-console-toolbar" style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-        <select
-          className="input-field"
-          style={{ maxWidth: "240px" }}
-          value={filterWsId}
-          onChange={(e) => setFilterWsId(e.target.value)}
-        >
-          <option value="">All workspaces</option>
-          {workspaces.map((ws) => (
-            <option key={ws.id} value={ws.id}>
-              {ws.name}
-            </option>
-          ))}
-        </select>
-        <select
-          className="input-field"
-          style={{ maxWidth: "180px" }}
-          value={filterAction}
-          onChange={(e) => setFilterAction(e.target.value)}
-        >
-          <option value="">All actions</option>
-          {actionOptions.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={filterWsId} onValueChange={(v) => setFilterWsId(v)}>
+          <SelectTrigger className="w-[240px]">
+            <SelectValue placeholder="All workspaces" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">All workspaces</SelectItem>
+            {workspaces.map((ws) => (
+              <SelectItem key={ws.id} value={ws.id}>
+                {ws.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={filterAction} onValueChange={(v) => setFilterAction(v)}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="All actions" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">All actions</SelectItem>
+            {actionOptions.map((a) => (
+              <SelectItem key={a} value={a}>
+                {a}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {loading ? (
-        <p className="admin-console-muted">Loading…</p>
+        <PageLoader compact />
       ) : entries.length === 0 ? (
-        <p className="admin-console-muted">No audit entries found.</p>
+        <p className="text-sm text-muted-foreground">No audit entries found.</p>
       ) : (
         <>
-          <div className="card admin-console-card admin-console-table-wrap">
-            <table className="invoice-table admin-console-table admin-console-table--stacked">
-              <thead>
-                <tr>
-                  <th>When</th>
-                  <th>Workspace</th>
-                  <th>Actor</th>
-                  <th>Table</th>
-                  <th>Action</th>
-                  <th>Entity ID</th>
-                  <th>Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map((ev) => (
-                  <tr key={ev.id}>
-                    <td data-label="When">{formatWhen(ev.created_at)}</td>
-                    <td data-label="Workspace">
-                      {ev.workspace_id
-                        ? wsLabels.get(ev.workspace_id) ?? ev.workspace_id.slice(0, 8) + "…"
-                        : <span className="admin-console-muted">—</span>}
-                    </td>
-                    <td data-label="Actor">
-                      {ev.actor_user_id
-                        ? actorLabels.get(ev.actor_user_id) ?? ev.actor_user_id.slice(0, 8) + "…"
-                        : <span className="admin-console-muted">system</span>}
-                    </td>
-                    <td data-label="Table">
-                      <code style={{ fontSize: "12px" }}>{ev.entity_table}</code>
-                    </td>
-                    <td data-label="Action">
-                      <span className="badge badge-gray">{ev.action}</span>
-                    </td>
-                    <td data-label="Entity ID">
-                      {ev.entity_id ? (
-                        <code style={{ fontSize: "11px" }}>{ev.entity_id.slice(0, 8)}…</code>
-                      ) : (
-                        <span className="admin-console-muted">—</span>
-                      )}
-                    </td>
-                    <td className="admin-console-notes-cell" data-label="Details">
-                      {Object.keys(ev.details).length > 0 ? (
-                        <details>
-                          <summary style={{ cursor: "pointer", fontSize: "12px" }}>
-                            {Object.keys(ev.details).length} field{Object.keys(ev.details).length === 1 ? "" : "s"}
-                          </summary>
-                          <pre
-                            style={{
-                              fontSize: "11px",
-                              maxHeight: "120px",
-                              overflow: "auto",
-                              marginTop: "4px",
-                              background: "var(--bg-card, #f5f5f5)",
-                              padding: "6px",
-                              borderRadius: "4px",
-                            }}
-                          >
-                            {JSON.stringify(ev.details, null, 2)}
-                          </pre>
-                        </details>
-                      ) : (
-                        <span className="admin-console-muted">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Card className="border-border/60 overflow-hidden">
+            <CardContent className="p-0">
+              <ResponsiveTable>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>When</TableHead>
+                      <TableHead>Workspace</TableHead>
+                      <TableHead>Actor</TableHead>
+                      <TableHead>Table</TableHead>
+                      <TableHead>Action</TableHead>
+                      <TableHead>Entity ID</TableHead>
+                      <TableHead>Details</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {entries.map((ev) => (
+                      <TableRow key={ev.id}>
+                        <TableCell className="text-muted-foreground whitespace-nowrap">
+                          {formatWhen(ev.created_at)}
+                        </TableCell>
+                        <TableCell>
+                          {ev.workspace_id ? (
+                            wsLabels.get(ev.workspace_id) ?? `${ev.workspace_id.slice(0, 8)}…`
+                          ) : (
+                            <span className="text-sm text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {ev.actor_user_id ? (
+                            actorLabels.get(ev.actor_user_id) ?? `${ev.actor_user_id.slice(0, 8)}…`
+                          ) : (
+                            <span className="text-sm text-muted-foreground">system</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <code className="text-xs">{ev.entity_table}</code>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{ev.action}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {ev.entity_id ? (
+                            <code className="text-[11px]">{ev.entity_id.slice(0, 8)}…</code>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {Object.keys(ev.details).length > 0 ? (
+                            <details>
+                              <summary className="cursor-pointer text-xs">
+                                {Object.keys(ev.details).length} field
+                                {Object.keys(ev.details).length === 1 ? "" : "s"}
+                              </summary>
+                              <pre className="text-[11px] max-h-32 overflow-auto mt-1 bg-muted p-1.5 rounded">
+                                {JSON.stringify(ev.details, null, 2)}
+                              </pre>
+                            </details>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ResponsiveTable>
+            </CardContent>
+          </Card>
 
           {hasMore && (
-            <div className="admin-console-load-more">
-              <button
-                type="button"
-                className="btn btn-outline"
+            <div className="flex justify-center">
+              <Button
+                variant="outline"
                 disabled={loadingMore}
                 onClick={() => void loadPage(entries.length, true)}
+                className="gap-2"
               >
-                {loadingMore ? "Loading…" : "Load more"}
-              </button>
+                {loadingMore ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <ChevronDown size={14} />
+                )}
+                Load more
+              </Button>
             </div>
           )}
         </>
       )}
-    </div>
+    </DashboardShell>
   );
 }

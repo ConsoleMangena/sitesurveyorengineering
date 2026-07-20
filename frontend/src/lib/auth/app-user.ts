@@ -7,17 +7,12 @@ import {
   type WorkspaceMembershipSummary,
   type WorkspaceRow,
 } from "../repositories/workspaces.ts";
-import {
-  getWorkspaceLicense,
-  type WorkspaceLicense,
-} from "../repositories/workspaceLicenses.ts";
 
 export interface AppUserContext {
   session: Session | null;
   profile: ProfileRow | null;
   defaultWorkspace: WorkspaceRow | null;
   workspaces: WorkspaceMembershipSummary[];
-  workspaceLicense: WorkspaceLicense | null;
 }
 
 /** True when the corresponding fetch threw (e.g. network or PostgREST error). */
@@ -32,7 +27,6 @@ const emptyContext = (): AppUserContext => ({
   profile: null,
   defaultWorkspace: null,
   workspaces: [],
-  workspaceLicense: null,
 });
 
 async function loadAppUserFromSession(session: Session): Promise<{
@@ -52,20 +46,6 @@ async function loadAppUserFromSession(session: Session): Promise<{
     workspacesFetchFailed: workspacesResult.status === "rejected",
   };
 
-  const defaultWorkspaceId =
-    defaultWorkspaceResult.status === "fulfilled"
-      ? (defaultWorkspaceResult.value?.id ?? null)
-      : null;
-  const fallbackWorkspaceId =
-    workspacesResult.status === "fulfilled"
-      ? (workspacesResult.value[0]?.workspaceId ?? null)
-      : null;
-  const targetWorkspaceId = defaultWorkspaceId ?? fallbackWorkspaceId;
-
-  const workspaceLicenseResult = targetWorkspaceId
-    ? await Promise.allSettled([getWorkspaceLicense(targetWorkspaceId)])
-    : null;
-
   return {
     context: {
       session,
@@ -76,12 +56,6 @@ async function loadAppUserFromSession(session: Session): Promise<{
           : null,
       workspaces:
         workspacesResult.status === "fulfilled" ? workspacesResult.value : [],
-      workspaceLicense:
-        workspaceLicenseResult &&
-        workspaceLicenseResult[0] &&
-        workspaceLicenseResult[0].status === "fulfilled"
-          ? workspaceLicenseResult[0].value
-          : null,
     },
     diagnostics,
   };

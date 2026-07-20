@@ -1,32 +1,101 @@
-import { useState, useEffect, useCallback } from "react";
-import "../../styles/project-hub.css";
-import "../../styles/pages.css";
-import { listAssets, createAsset, updateAsset, listCalibrations, listMaintenanceEvents, type AssetUpdate, type AssetInsert } from "../../lib/repositories/assets.ts";
-import SelectDropdown from "../../components/SelectDropdown.tsx";
-import WorkspaceUsageBanner from "../../components/WorkspaceUsageBanner.tsx";
+import { useState, useEffect, useCallback, type ComponentType } from "react";
+import {
+  Plus,
+  ClipboardList,
+  DollarSign,
+  Gauge,
+  MapPinned,
+  CheckCircle2,
+  AlertTriangle,
+  LayoutGrid,
+  Wrench,
+  Search,
+  X,
+  Download,
+} from "lucide-react";
+
+import PageLoader from "@/components/PageLoader.tsx";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { DashboardHeader, DashboardShell } from "@/components/dashboard/DashboardShell.tsx";
+import { MetricStrip } from "@/components/dashboard/MetricStrip.tsx";
+import { cn } from "@/lib/utils";
+
+import {
+  listAssets,
+  createAsset,
+  updateAsset,
+  listCalibrations,
+  listMaintenanceEvents,
+  type AssetUpdate,
+} from "../../lib/repositories/assets.ts";
+import {
+  getMarketplaceListingByAssetId,
+  createMarketplaceListing,
+  updateMarketplaceListing,
+  deleteMarketplaceListing,
+  listMarketplaceListings,
+  type MarketplaceListingRow,
+} from "../../lib/repositories/marketplace.ts";
+import { getWorkspaceById } from "../../lib/repositories/workspaces.ts";
+import { listProjects, type ProjectWithOrg } from "../../lib/repositories/projects.ts";
 import { mapAssetRowToInstrument, type UiInstrument } from "../../lib/mappers.ts";
 
-/* ── Types ── */
-type Instrument = UiInstrument;
+type Instrument = UiInstrument & { listing?: MarketplaceListingRow | null };
 
 interface AssetManagementPageProps {
   workspaceId: string;
 }
 
-/* Demo data removed — now fetched from Supabase */
+const ASSET_CATEGORIES = [
+  { value: "Total Station", label: "Total Station" },
+  { value: "GNSS Receiver", label: "GNSS Receiver" },
+  { value: "Digital Level", label: "Digital Level" },
+  { value: "UAV / Drone", label: "UAV / Drone" },
+  { value: "Controller", label: "Controller" },
+  { value: "Calibration Service", label: "Calibration Service" },
+  { value: "Other", label: "Other" },
+];
 
-/* ── Helpers ── */
 function daysUntil(dateStr: string): number {
   if (!dateStr) return 999;
   const diff = new Date(dateStr).getTime() - Date.now();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
-function calClass(days: number): string {
-  if (days < 0) return "cal-overdue";
-  if (days <= 30) return "cal-urgent";
-  if (days <= 60) return "cal-warning";
-  return "cal-ok";
+function calDaysClass(days: number): string {
+  if (days < 0) return "text-destructive";
+  if (days <= 30) return "text-amber-600";
+  if (days <= 60) return "text-yellow-600";
+  return "text-emerald-600";
+}
+
+function calBgClass(days: number): string {
+  if (days < 0) return "bg-destructive/10 text-destructive border-destructive/20";
+  if (days <= 30) return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950 dark:text-amber-200";
+  if (days <= 60) return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-950 dark:text-yellow-200";
+  return "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-200";
 }
 
 function calLabel(days: number): string {
@@ -35,11 +104,21 @@ function calLabel(days: number): string {
   return `${days}d remaining`;
 }
 
-const statusClass: Record<string, string> = {
-  Available: "ast-status-green",
-  Deployed: "ast-status-blue",
-  Maintenance: "ast-status-orange",
-  Retired: "ast-status-gray",
+const statusVariant: Record<string, BadgeProps["variant"]> = {
+  Available: "success",
+  Deployed: "default",
+  Maintenance: "warning",
+  Retired: "secondary",
+};
+
+const typeBgClass: Record<string, string> = {
+  "Total Station": "bg-violet-100 text-violet-800 border-violet-200 dark:bg-violet-900 dark:text-violet-200",
+  "GNSS Receiver": "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200",
+  "Digital Level": "bg-sky-100 text-sky-800 border-sky-200 dark:bg-sky-900 dark:text-sky-200",
+  "UAV / Drone": "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900 dark:text-amber-200",
+  Controller: "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900 dark:text-emerald-200",
+  "Calibration Service": "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-900 dark:text-rose-200",
+  Other: "bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-800 dark:text-slate-200",
 };
 
 type Tab = "register" | "calibration" | "deployments" | "maintenance";
@@ -49,30 +128,133 @@ type TypeFilter =
   | "GNSS Receiver"
   | "Digital Level"
   | "UAV / Drone"
-  | "Controller";
+  | "Controller"
+  | "Calibration Service";
 
-/* ── Component ── */
+function IconTotalStation() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 21v-3" /><path d="M8 21l2-3" /><path d="M16 21l-2-3" /><path d="M9 18h6" /><rect x="10" y="15" width="4" height="3" rx="0.5" /><path d="M10 15v-6a2 2 0 0 1 4 0v6" /><rect x="7" y="6" width="10" height="4" rx="1" /><path d="M17 7v2" /><path d="M7 7v2" /><path d="M5 7.5h2v1H5z" /><path d="M10 6V4h4v2" />
+    </svg>
+  );
+}
+function IconGnss() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 21V9" /><path d="M10 21h4" /><path d="M8 9h8a2 2 0 0 0 2-2v-1a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v1a2 2 0 0 0 2 2z" /><path d="M9 4c1-2 5-2 6 0" /><path d="M8 6L7 2" /><rect x="13" y="12" width="3" height="5" rx="0.5" />
+    </svg>
+  );
+}
+function IconLevel() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 21v-3" /><path d="M8 21l2-3" /><path d="M16 21l-2-3" /><path d="M9 18h6" /><rect x="6" y="10" width="12" height="8" rx="1" /><path d="M18 11v6" /><path d="M6 12v4" /><path d="M4 12.5h2v3H4z" /><rect x="9" y="12" width="4" height="4" rx="0.5" /><path d="M11 10V9h2v1" />
+    </svg>
+  );
+}
+function IconDrone() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="9" width="6" height="6" rx="2" /><path d="M11 15v2h2v-2" /><circle cx="12" cy="18" r="1" /><line x1="9" y1="9" x2="5" y2="5" /><line x1="15" y1="9" x2="19" y2="5" /><line x1="9" y1="15" x2="5" y2="19" /><line x1="15" y1="15" x2="19" y2="19" /><ellipse cx="5" cy="5" rx="3" ry="1" /><ellipse cx="19" cy="5" rx="3" ry="1" /><ellipse cx="5" cy="19" rx="3" ry="1" /><ellipse cx="19" cy="19" rx="3" ry="1" />
+    </svg>
+  );
+}
+function IconController() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="3" width="16" height="18" rx="2" /><rect x="6" y="5" width="12" height="10" rx="1" /><circle cx="9" cy="18" r="1" /><circle cx="15" cy="18" r="1" /><circle cx="12" cy="17" r="0.5" /><circle cx="12" cy="19" r="0.5" /><circle cx="11" cy="18" r="0.5" /><circle cx="13" cy="18" r="0.5" />
+    </svg>
+  );
+}
+function IconCalibration() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="8" /><path d="M12 2v4" /><path d="M12 18v4" /><path d="M2 12h4" /><path d="M18 12h4" /><circle cx="12" cy="12" r="2" /><path d="M15 15l5 5a2 2 0 0 1-3 3l-5-5" /><path d="M16 14l2 2" />
+    </svg>
+  );
+}
+
+const iconMap: Record<string, ComponentType> = {
+  "Total Station": IconTotalStation,
+  "GNSS Receiver": IconGnss,
+  "Digital Level": IconLevel,
+  "UAV / Drone": IconDrone,
+  Controller: IconController,
+  "Calibration Service": IconCalibration,
+};
+
+function ListingIcon({ type }: { type: string }) {
+  const Ico = iconMap[type] ?? IconTotalStation;
+  return <Ico />;
+}
+
 export default function AssetManagementPage({ workspaceId }: AssetManagementPageProps) {
   const [instruments, setInstruments] = useState<Instrument[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [workspaceName, setWorkspaceName] = useState<string>("Our Company");
   const [activeTab, setActiveTab] = useState<Tab>("register");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [selectedAsset, setSelectedAsset] = useState<Instrument | null>(null);
+
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [createForm, setCreateForm] = useState({ name: '', kind: 'instrument' as 'instrument' | 'vehicle' | 'equipment' | 'other', category: '', make: '', model: '', serial_number: '', purchase_date: '', purchase_cost: '' });
+  const [createForm, setCreateForm] = useState({
+    name: "",
+    kind: "instrument" as "instrument" | "vehicle" | "equipment" | "other",
+    category: "",
+    make: "",
+    model: "",
+    serial_number: "",
+    purchase_date: "",
+    purchase_cost: "",
+  });
   const [saving, setSaving] = useState(false);
+
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    kind: "instrument" as "instrument" | "vehicle" | "equipment" | "other",
+    category: "",
+    make: "",
+    model: "",
+    serial_number: "",
+    purchase_date: "",
+    purchase_cost: "",
+  });
+
+  const [listOnMarketplace, setListOnMarketplace] = useState(false);
+  const [marketplaceListingId, setMarketplaceListingId] = useState<string | null>(null);
+  const [listingForm, setListingForm] = useState({
+    listing_type: "sale",
+    price: "",
+    condition: "New",
+    location: "",
+    description: "",
+    seller: workspaceName,
+  });
+
+  const [projects, setProjects] = useState<ProjectWithOrg[]>([]);
+  const [showDeployModal, setShowDeployModal] = useState(false);
+  const [deployTargetAssetId, setDeployTargetAssetId] = useState<string | null>(null);
+  const [deployTargetProjectName, setDeployTargetProjectName] = useState("");
 
   const fetchAssets = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const [assets, calibrations, maintenance] = await Promise.all([
+      const [assets, calibrations, maintenance, workspace, projList, listings] = await Promise.all([
         listAssets(workspaceId),
         listCalibrations(workspaceId),
         listMaintenanceEvents(workspaceId),
+        getWorkspaceById(workspaceId).catch(() => null),
+        listProjects(workspaceId).catch(() => []),
+        listMarketplaceListings(workspaceId).catch(() => []),
       ]);
+
+      setProjects(projList);
+      if (workspace) setWorkspaceName(workspace.name);
 
       const calByAsset = new Map<string, typeof calibrations>();
       for (const c of calibrations) {
@@ -88,14 +270,20 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
         maintByAsset.set(m.asset_id, arr);
       }
 
+      const listingByAsset = new Map<string, MarketplaceListingRow>();
+      for (const l of listings) {
+        if (l.asset_id) listingByAsset.set(l.asset_id, l);
+      }
+
       setInstruments(
-        assets.map((a) =>
-          mapAssetRowToInstrument(
+        assets.map((a) => ({
+          ...mapAssetRowToInstrument(
             a,
             calByAsset.get(a.id) ?? [],
             maintByAsset.get(a.id) ?? [],
           ),
-        ),
+          listing: listingByAsset.get(a.id) ?? null,
+        })),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load assets.");
@@ -104,7 +292,9 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
     }
   }, [workspaceId]);
 
-  useEffect(() => { fetchAssets(); }, [fetchAssets]);
+  useEffect(() => {
+    void fetchAssets();
+  }, [fetchAssets]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,7 +312,7 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
         purchase_cost: createForm.purchase_cost ? Number(createForm.purchase_cost) : null,
       });
       setShowCreateModal(false);
-      setCreateForm({ name: '', kind: 'instrument', category: '', make: '', model: '', serial_number: '', purchase_date: '', purchase_cost: '' });
+      setCreateForm({ name: "", kind: "instrument", category: "", make: "", model: "", serial_number: "", purchase_date: "", purchase_cost: "" });
       await fetchAssets();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create asset.");
@@ -131,12 +321,131 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
     }
   };
 
-  const handleStatusChange = async (dbId: string, newStatus: string) => {
+  const handleStatusChange = async (dbId: string, newStatus: string, metadataUpdates?: Record<string, unknown>) => {
     try {
-      await updateAsset(dbId, { status: newStatus as AssetUpdate["status"] });
+      const patch: AssetUpdate = { status: newStatus as AssetUpdate["status"] };
+      if (metadataUpdates) {
+        const asset = instruments.find((i) => i.dbId === dbId);
+        const existingMetadata = asset?.metadata || {};
+        patch.metadata = { ...existingMetadata, ...metadataUpdates } as AssetUpdate["metadata"];
+      }
+      await updateAsset(dbId, patch);
       await fetchAssets();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update asset.");
+    }
+  };
+
+  const handleDeploySubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deployTargetAssetId) return;
+    void handleStatusChange(deployTargetAssetId, "deployed", {
+      current_project_name: deployTargetProjectName || null,
+    });
+    setShowDeployModal(false);
+    setDeployTargetAssetId(null);
+    setDeployTargetProjectName("");
+  };
+
+  const openDeployModal = (e: React.MouseEvent, assetId: string) => {
+    e.stopPropagation();
+    setDeployTargetAssetId(assetId);
+    setDeployTargetProjectName("");
+    setShowDeployModal(true);
+  };
+
+  const handleOpenEdit = useCallback(async () => {
+    if (!selectedAsset) return;
+    setEditForm({
+      name: selectedAsset.name,
+      kind: selectedAsset.kind as "instrument" | "vehicle" | "equipment" | "other",
+      category: selectedAsset.type,
+      make: selectedAsset.make,
+      model: selectedAsset.model,
+      serial_number: selectedAsset.serial,
+      purchase_date: selectedAsset.purchaseDate || "",
+      purchase_cost: selectedAsset.purchaseCost ? String(selectedAsset.purchaseCost) : "",
+    });
+    setEditingAssetId(selectedAsset.dbId);
+
+    try {
+      const listing = await getMarketplaceListingByAssetId(selectedAsset.dbId);
+      if (listing) {
+        setListOnMarketplace(true);
+        setMarketplaceListingId(listing.id);
+        setListingForm({
+          listing_type: listing.listing_type || "sale",
+          price: listing.price.toString(),
+          condition: listing.condition,
+          location: listing.location,
+          description: listing.description || "",
+          seller: listing.seller || workspaceName,
+        });
+      } else {
+        setListOnMarketplace(false);
+        setMarketplaceListingId(null);
+        setListingForm({ listing_type: "sale", price: "", condition: "New", location: "", description: "", seller: workspaceName });
+      }
+    } catch (e) {
+      console.error(e);
+    }
+
+    setSelectedAsset(null);
+    setShowEditModal(true);
+  }, [selectedAsset, workspaceName]);
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editForm.name.trim() || !editingAssetId) return;
+    if (listOnMarketplace && !listingForm.price) {
+      setError("Please specify a price for the marketplace listing.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await updateAsset(editingAssetId, {
+        name: editForm.name.trim(),
+        kind: editForm.kind,
+        category: editForm.category || null,
+        make: editForm.make || null,
+        model: editForm.model || null,
+        serial_number: editForm.serial_number || null,
+        purchase_date: editForm.purchase_date || null,
+        purchase_cost: editForm.purchase_cost ? Number(editForm.purchase_cost) : null,
+      });
+
+      if (listOnMarketplace) {
+        const listingPayload = {
+          asset_id: editingAssetId,
+          listing_type: listingForm.listing_type,
+          name: editForm.name.trim(),
+          type: editForm.category || "Asset",
+          condition: listingForm.condition,
+          price: Number(listingForm.price),
+          currency: "USD",
+          seller: listingForm.seller.trim() || workspaceName,
+          location: listingForm.location || "HQ",
+          description: listingForm.description || "",
+          specs: editForm.model ? [editForm.model] : [],
+        };
+
+        if (marketplaceListingId) {
+          await updateMarketplaceListing(marketplaceListingId, listingPayload);
+        } else {
+          await createMarketplaceListing(workspaceId, listingPayload);
+        }
+      } else if (marketplaceListingId) {
+        await deleteMarketplaceListing(marketplaceListingId);
+      }
+
+      setShowEditModal(false);
+      setEditingAssetId(null);
+      await fetchAssets();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update asset.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -144,15 +453,7 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
     if (typeFilter !== "all" && inst.type !== typeFilter) return false;
     if (search.trim()) {
       const q = search.toLowerCase();
-      return [
-        inst.name,
-        inst.make,
-        inst.model,
-        inst.serial,
-        inst.type,
-        inst.assignedTo,
-        inst.assignedProject,
-      ]
+      return [inst.name, inst.make, inst.model, inst.serial, inst.type, inst.assignedTo, inst.assignedProject]
         .join(" ")
         .toLowerCase()
         .includes(q);
@@ -160,13 +461,10 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
     return true;
   });
 
-  /* ── Summary Stats ── */
   const totalValue = instruments.reduce((s, i) => s + i.currentValue, 0);
-
   const deployed = instruments.filter((i) => i.status === "Deployed").length;
-  const inMaintenance = instruments.filter(
-    (i) => i.status === "Maintenance",
-  ).length;
+  const inMaintenance = instruments.filter((i) => i.status === "Maintenance").length;
+  const available = instruments.filter((i) => i.status === "Available").length;
   const calibDue = instruments.filter((i) => {
     const d = daysUntil(i.nextCalibration);
     return d <= 30 && d !== 999;
@@ -174,883 +472,593 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
 
   if (loading) {
     return (
-      <div className="hub-body" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "400px" }}>
-        <p style={{ color: "var(--text)", fontSize: "14px" }}>Loading instruments...</p>
+      <div className="hub-body p-6">
+        <PageLoader />
       </div>
     );
   }
 
   return (
-    <>
-      <div className="hub-body ast-body">
-        {error && (
-          <div style={{ padding: "12px 16px", background: "var(--surface-muted)", color: "#dc2626", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "13px", marginBottom: "16px" }}>
-            {error}
+    <DashboardShell className="hub-body">
+      <DashboardHeader
+        title="My Instruments"
+        subtitle="Track, calibrate and deploy your survey fleet"
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" className="gap-2">
+              <Download size={16} />
+              Export Register
+            </Button>
+            <Button onClick={() => setShowCreateModal(true)} className="gap-2">
+              <Plus size={16} />
+              Add Instrument
+            </Button>
           </div>
-        )}
-        {/* Page Header */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <div>
-            <h1
-              style={{
-                fontSize: "22px",
-                fontWeight: 700,
-                color: "var(--text-h)",
-                margin: 0,
-                letterSpacing: "-0.4px",
-              }}
-            >
-              My Instruments
-            </h1>
-            <p
-              style={{ margin: "2px 0 0", fontSize: "13px", color: "var(--text)" }}
-            >
-              Track, calibrate and deploy your survey fleet
-            </p>
-          </div>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <button className="btn btn-outline">Export Register</button>
-            <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>+ Add Instrument</button>
-          </div>
+        }
+      />
+
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
         </div>
+      )}
 
-        <WorkspaceUsageBanner workspaceId={workspaceId} />
+      <MetricStrip
+        metrics={[
+          { label: "Instruments", value: instruments.length.toString(), subtext: "registered", accentColor: "#8b5cf6", icon: <ClipboardList size={18} /> },
+          { label: "Fleet Value", value: `$${totalValue.toLocaleString()}`, subtext: "book value", accentColor: "#10b981", icon: <DollarSign size={18} /> },
+          { label: "Utilisation", value: `${instruments.length ? Math.round((deployed / instruments.length) * 100) : 0}%`, subtext: "deployed", accentColor: "#3b82f6", icon: <Gauge size={18} /> },
+          { label: "Deployed", value: deployed.toString(), subtext: "in the field", accentColor: "#f59e0b", icon: <MapPinned size={18} /> },
+          { label: "Available", value: available.toString(), subtext: "ready", accentColor: "#22c55e", icon: <CheckCircle2 size={18} /> },
+          { label: "Calibrations Due", value: calibDue.toString(), subtext: "within 30 days", accentColor: "#ef4444", icon: <AlertTriangle size={18} /> },
+        ]}
+      />
 
-        {/* Overview Tiles */}
-        <div className="invoice-summary-row">
-          <div
-            className="invoice-summary-card"
-            style={{ borderLeftColor: "var(--accent)" }}
-          >
-            <span className="invoice-summary-label">Instruments</span>
-            <span className="invoice-summary-value">{instruments.length}</span>
-          </div>
-          <div
-            className="invoice-summary-card"
-            style={{ borderLeftColor: "#22c55e" }}
-          >
-            <span className="invoice-summary-label">Fleet Value</span>
-            <span className="invoice-summary-value">${totalValue.toLocaleString()}</span>
-          </div>
-          <div
-            className="invoice-summary-card"
-            style={{ borderLeftColor: "#8b5cf6" }}
-          >
-            <span className="invoice-summary-label">Utilisation</span>
-            <span className="invoice-summary-value">
-              {Math.round((deployed / instruments.length) * 100)}%
-            </span>
-          </div>
-          <div
-            className="invoice-summary-card"
-            style={{ borderLeftColor: "#3b82f6" }}
-          >
-            <span className="invoice-summary-label">Deployed</span>
-            <span className="invoice-summary-value" style={{ color: "#1d4ed8" }}>
-              {deployed}
-            </span>
-          </div>
-          <div
-            className="invoice-summary-card"
-            style={{ borderLeftColor: "#06b6d4" }}
-          >
-            <span className="invoice-summary-label">Available</span>
-            <span className="invoice-summary-value" style={{ color: "#15803d" }}>
-              {instruments.filter((i) => i.status === "Available").length}
-            </span>
-          </div>
-          <div
-            className="invoice-summary-card"
-            style={{ borderLeftColor: calibDue > 0 ? "#ef4444" : "#f59e0b" }}
-          >
-            <span className="invoice-summary-label">Calibrations Due</span>
-            <span
-              className="invoice-summary-value"
-              style={{ color: calibDue > 0 ? "#dc2626" : "var(--text-h)" }}
-            >
-              {calibDue}
-            </span>
-          </div>
-        </div>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as Tab)}>
+        <TabsList className="flex-wrap h-auto">
+          <TabsTrigger value="register" className="gap-2">
+            <LayoutGrid size={16} /> Register
+          </TabsTrigger>
+          <TabsTrigger value="calibration" className="gap-2">
+            <Gauge size={16} /> Calibration
+            {calibDue > 0 && <Badge variant="destructive" className="ml-1 h-5 px-1.5">{calibDue}</Badge>}
+          </TabsTrigger>
+          <TabsTrigger value="deployments" className="gap-2">
+            <MapPinned size={16} /> Deployments
+          </TabsTrigger>
+          <TabsTrigger value="maintenance" className="gap-2">
+            <Wrench size={16} /> Maintenance
+            {inMaintenance > 0 && <Badge variant="warning" className="ml-1 h-5 px-1.5">{inMaintenance}</Badge>}
+          </TabsTrigger>
+        </TabsList>
 
-        {/* Tab Navigation */}
-        <div className="ast-tabs">
-          <button
-            className={`ast-tab ${activeTab === "register" ? "active" : ""}`}
-            onClick={() => setActiveTab("register")}
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <line x1="3" y1="9" x2="21" y2="9" />
-              <line x1="9" y1="21" x2="9" y2="9" />
-            </svg>
-            Register
-          </button>
-          <button
-            className={`ast-tab ${activeTab === "calibration" ? "active" : ""}`}
-            onClick={() => setActiveTab("calibration")}
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4" />
-            </svg>
-            Calibration
-            {calibDue > 0 && <span className="ast-tab-badge">{calibDue}</span>}
-          </button>
-          <button
-            className={`ast-tab ${activeTab === "deployments" ? "active" : ""}`}
-            onClick={() => setActiveTab("deployments")}
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <circle cx="12" cy="10" r="3" />
-              <path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z" />
-            </svg>
-            Deployments
-          </button>
-          <button
-            className={`ast-tab ${activeTab === "maintenance" ? "active" : ""}`}
-            onClick={() => setActiveTab("maintenance")}
-          >
-            <svg
-              width="15"
-              height="15"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-            </svg>
-            Maintenance
-            {inMaintenance > 0 && (
-              <span className="ast-tab-badge ast-tab-badge-warn">
-                {inMaintenance}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {/* Filter Bar */}
-        <div className="filter-bar">
-          <button
-            className={`filter-chip ${typeFilter === "all" ? "active" : ""}`}
-            onClick={() => setTypeFilter("all")}
-          >
-            All
-          </button>
-          <button
-            className={`filter-chip ${typeFilter === "Total Station" ? "active" : ""}`}
-            onClick={() => setTypeFilter("Total Station")}
-          >
-            Total Stations
-          </button>
-          <button
-            className={`filter-chip ${typeFilter === "GNSS Receiver" ? "active" : ""}`}
-            onClick={() => setTypeFilter("GNSS Receiver")}
-          >
-            GNSS
-          </button>
-          <button
-            className={`filter-chip ${typeFilter === "Digital Level" ? "active" : ""}`}
-            onClick={() => setTypeFilter("Digital Level")}
-          >
-            Levels
-          </button>
-          <button
-            className={`filter-chip ${typeFilter === "UAV / Drone" ? "active" : ""}`}
-            onClick={() => setTypeFilter("UAV / Drone")}
-          >
-            Drones
-          </button>
-          <button
-            className={`filter-chip ${typeFilter === "Controller" ? "active" : ""}`}
-            onClick={() => setTypeFilter("Controller")}
-          >
-            Controllers
-          </button>
-          <div className="filter-spacer" />
-          <input
-            className="search-input"
-            placeholder="Search instruments..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-
-        {/* ═══ TAB: Register ═══ */}
-        {activeTab === "register" && (
-          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            <div style={{ overflowX: 'auto' }}>
-            <table
-              className="invoice-table"
-              style={{ margin: 0, width: "100%", borderCollapse: "collapse", minWidth: "600px" }}
-            >
-              <thead>
-                <tr style={{ borderBottom: "2px solid var(--border)" }}>
-                  <th
-                    style={{
-                      padding: "16px 20px",
-                      fontSize: "11px",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                      color: "var(--text)",
-                    }}
-                  >
-                    ASSET ID
-                  </th>
-                  <th
-                    style={{
-                      padding: "16px 8px",
-                      fontSize: "11px",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                      color: "var(--text)",
-                    }}
-                  >
-                    EQUIPMENT
-                  </th>
-                  <th
-                    style={{
-                      padding: "16px 8px",
-                      fontSize: "11px",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                      color: "var(--text)",
-                      textAlign: "center",
-                    }}
-                  >
-                    STATUS
-                  </th>
-                  <th
-                    className="hide-on-mobile"
-                    style={{
-                      padding: "16px 8px",
-                      fontSize: "11px",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                      color: "var(--text)",
-                    }}
-                  >
-                    LOCATION / ASSIGNMENT
-                  </th>
-                  <th
-                    className="hide-on-mobile"
-                    style={{
-                      padding: "16px 8px",
-                      fontSize: "11px",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.5px",
-                      color: "var(--text)",
-                    }}
-                  >
-                    NEXT CALIBRATION
-                  </th>
-                  <th style={{ padding: "16px 20px", width: "40px" }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((inst) => {
-                  const days = daysUntil(inst.nextCalibration);
-                  const calCls = calClass(days);
-
-                  return (
-                    <tr
-                      key={inst.id}
-                      onClick={() => setSelectedAsset(inst)}
-                      style={{
-                        cursor: "pointer",
-                        transition: "all 0.2s ease",
-                        borderBottom: "1px solid var(--border)",
-                      }}
-                      onMouseOver={(e) =>
-                        (e.currentTarget.style.backgroundColor = "var(--table-row-hover-bg)")
-                      }
-                      onMouseOut={(e) =>
-                        (e.currentTarget.style.backgroundColor = "transparent")
-                      }
-                    >
-                      <td style={{ paddingLeft: "20px", paddingBlock: "12px" }}>
-                        <div
-                          style={{ display: "flex", flexDirection: "column" }}
-                        >
-                          <span
-                            style={{
-                              fontWeight: 700,
-                              color: "var(--text-h)",
-                              fontSize: "14.5px",
-                            }}
-                          >
-                            {inst.id}
-                          </span>
-                          <code
-                            style={{
-                              fontSize: "12px",
-                              color: "var(--text)",
-                              marginTop: "2px",
-                            }}
-                          >
-                            {inst.serial}
-                          </code>
-                        </div>
-                      </td>
-                      <td style={{ padding: "12px 8px" }}>
-                        <div
-                          style={{ display: "flex", flexDirection: "column" }}
-                        >
-                          <span
-                            style={{
-                              fontWeight: 600,
-                              color: "var(--text-h)",
-                              fontSize: "14px",
-                            }}
-                          >
-                            {inst.name}
-                          </span>
-                          <span style={{ fontSize: "12.5px", color: "var(--text)" }}>
-                            {inst.type}
-                          </span>
-                        </div>
-                      </td>
-                      <td style={{ padding: "12px 8px", textAlign: "center" }}>
-                        <span
-                          className={`ast-status ${statusClass[inst.status]}`}
-                          style={{
-                            display: "inline-block",
-                            fontSize: "11px",
-                            textTransform: "uppercase",
-                            padding: "4px 10px",
-                            borderRadius: "12px",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {inst.status}
-                        </span>
-                      </td>
-                      <td className="hide-on-mobile" style={{ padding: "12px 8px" }}>
-                        <div
-                          style={{ display: "flex", flexDirection: "column" }}
-                        >
-                          <span
-                            style={{
-                              fontSize: "14px",
-                              color: "var(--text-h)",
-                              fontWeight: 500,
-                            }}
-                          >
-                            {inst.assignedTo || "—"}
-                          </span>
-                          <span style={{ fontSize: "12px", color: "var(--text)" }}>
-                            {inst.assignedProject}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="hide-on-mobile" style={{ padding: "12px 8px" }}>
-                        <div
-                          style={{ display: "flex", flexDirection: "column" }}
-                        >
-                          <span
-                            style={{
-                              fontSize: "13px",
-                              color: "var(--text-h)",
-                              fontWeight: 600,
-                            }}
-                          >
-                            {inst.nextCalibration || "—"}
-                          </span>
-                          {inst.nextCalibration && (
-                            <span
-                              className={calCls}
-                              style={{
-                                fontSize: "11.5px",
-                                fontWeight: 600,
-                                marginTop: "2px",
-                              }}
-                            >
-                              {calLabel(days)}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td
-                        style={{
-                          textAlign: "right",
-                          paddingRight: "20px",
-                          paddingBlock: "12px",
-                        }}
-                      >
-                        <button
-                          style={{
-                            background: "none",
-                            border: "none",
-                            color: "var(--text)",
-                            cursor: "pointer",
-                            padding: "6px",
-                            borderRadius: "6px",
-                          }}
-                          className="hover-bg"
-                        >
-                          <svg
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                          >
-                            <circle cx="12" cy="12" r="1" />
-                            <circle cx="12" cy="5" r="1" />
-                            <circle cx="12" cy="19" r="1" />
-                          </svg>
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            </div>
-
-            {filtered.length === 0 && (
-              <div
-                style={{
-                  padding: "64px",
-                  textAlign: "center",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                }}
+        <TabsContent value="register" className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            {(["all", "Total Station", "GNSS Receiver", "Digital Level", "UAV / Drone", "Controller", "Calibration Service"] as const).map((t) => (
+              <Button
+                key={t}
+                variant={typeFilter === t ? "default" : "outline"}
+                size="sm"
+                onClick={() => setTypeFilter(t)}
               >
-                <h3 style={{ margin: "0 0 4px", color: "var(--text-h)" }}>
-                  No instruments found
-                </h3>
-                <p
-                  style={{ margin: 0, color: "var(--text)", fontSize: "13px" }}
+                {t === "all" ? "All" : t}
+              </Button>
+            ))}
+            <div className="flex-1" />
+            <div className="relative w-full sm:w-64">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search instruments..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-8 pr-7"
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label="Clear search"
                 >
-                  Try adjusting your search criteria or clear filters.
-                </p>
-              </div>
-            )}
+                  <X size={14} />
+                </button>
+              )}
+            </div>
           </div>
-        )}
 
-        {/* ═══ TAB: Calibration ═══ */}
-        {activeTab === "calibration" && (
-          <div className="ast-cal-grid">
+          {filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed p-12 text-center text-muted-foreground">
+              <ClipboardList size={40} />
+              <h3 className="mt-3 text-lg font-semibold text-foreground">No instruments found</h3>
+              <p>Try adjusting your search criteria or clear filters.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {filtered.map((inst) => {
+                const days = daysUntil(inst.nextCalibration);
+                const deployed = inst.status === "Deployed";
+                return (
+                  <Card
+                    key={inst.id}
+                    className="cursor-pointer transition-shadow hover:shadow-md"
+                    onClick={() => setSelectedAsset(inst)}
+                  >
+                    <CardContent className="p-5 space-y-3">
+                      <div className="flex items-start justify-between">
+                        <div className={cn("rounded-lg p-2 border text-muted-foreground", typeBgClass[inst.type] ?? typeBgClass.Other)}>
+                          <ListingIcon type={inst.type} />
+                        </div>
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          <Badge variant={statusVariant[inst.status] ?? "secondary"}>{inst.status}</Badge>
+                          {inst.listing && <Badge variant="purple">Listed</Badge>}
+                          {deployed && <Badge variant="default">In Use</Badge>}
+                        </div>
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-foreground">{inst.name}</h3>
+                        <p className="text-sm text-muted-foreground">{inst.type} · {inst.make} {inst.model}</p>
+                      </div>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-lg font-bold">${inst.currentValue.toLocaleString()}</span>
+                        <span className="text-xs text-muted-foreground">book value</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        <span>SN {inst.serial || "—"}</span>
+                        {(inst.assignedProject || inst.assignedTo) && inst.assignedProject !== "—" && (
+                          <>
+                            <span>·</span>
+                            <span>{inst.assignedProject}</span>
+                          </>
+                        )}
+                        {inst.nextCalibration && (
+                          <>
+                            <span>·</span>
+                            <span className={calDaysClass(days)}>{calLabel(days)}</span>
+                          </>
+                        )}
+                      </div>
+                      <div onClick={(e) => e.stopPropagation()}>
+                        {inst.status === "Available" ? (
+                          <Button size="sm" onClick={(e) => openDeployModal(e, inst.dbId)}>Deploy</Button>
+                        ) : inst.status === "Deployed" ? (
+                          <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); void handleStatusChange(inst.dbId, "available", { current_project_name: null }); }}>
+                            Check In
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">View details</span>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="calibration" className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {filtered
               .filter((i) => i.nextCalibration)
               .map((inst) => {
                 const days = daysUntil(inst.nextCalibration);
-                const cls = calClass(days);
                 return (
-                  <div
-                    key={inst.id}
-                    className={`card ast-cal-card ${cls}`}
-                    onClick={() => setSelectedAsset(inst)}
-                  >
-                    <div className="ast-cal-top">
-                      <div>
-                        <h3 className="ast-cal-name">{inst.name}</h3>
-                        <span className="ast-cal-type">{inst.type}</span>
+                  <Card key={inst.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSelectedAsset(inst)}>
+                    <CardContent className="p-5 space-y-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h3 className="font-semibold">{inst.name}</h3>
+                          <p className="text-sm text-muted-foreground">{inst.type}</p>
+                        </div>
+                        <Badge className={cn("border", calBgClass(days))}>{calLabel(days)}</Badge>
                       </div>
-                      <span className={`ast-cal-days ${cls}`}>
-                        {calLabel(days)}
-                      </span>
-                    </div>
-                    <div className="ast-cal-bar-track">
-                      <div
-                        className={`ast-cal-bar-fill ${cls}`}
-                        style={{
-                          width: `${Math.max(0, Math.min(100, ((180 - days) / 180) * 100))}%`,
-                        }}
-                      />
-                    </div>
-                    <div className="ast-cal-dates">
-                      <span>Last: {inst.lastCalibration}</span>
-                      <span>Next: {inst.nextCalibration}</span>
-                    </div>
-                    {inst.calibrationCert && (
-                      <span className="ast-cal-cert">
-                        Cert: {inst.calibrationCert}
-                      </span>
-                    )}
-                  </div>
+                      <div className="space-y-1">
+                        <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                          <div
+                            className={cn("h-full rounded-full", days < 0 ? "bg-destructive" : days <= 30 ? "bg-amber-500" : days <= 60 ? "bg-yellow-500" : "bg-emerald-500")}
+                            style={{ width: `${Math.max(0, Math.min(100, ((180 - days) / 180) * 100))}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Last: {inst.lastCalibration}</span>
+                          <span>Next: {inst.nextCalibration}</span>
+                        </div>
+                      </div>
+                      {inst.calibrationCert && (
+                        <p className="text-xs text-muted-foreground">Cert: {inst.calibrationCert}</p>
+                      )}
+                    </CardContent>
+                  </Card>
                 );
               })}
           </div>
-        )}
+          {filtered.filter((i) => i.nextCalibration).length === 0 && (
+            <div className="rounded-xl border border-dashed p-12 text-center text-muted-foreground">
+              <Gauge size={40} className="mx-auto" />
+              <h3 className="mt-3 text-lg font-semibold text-foreground">No calibration records</h3>
+              <p>Add calibration details to instruments to track due dates.</p>
+            </div>
+          )}
+        </TabsContent>
 
-        {/* ═══ TAB: Deployments ═══ */}
-        {activeTab === "deployments" && (
-          <div className="ast-deploy-grid">
+        <TabsContent value="deployments" className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {instruments
               .filter((i) => i.status === "Deployed")
               .map((inst) => (
-                <div
-                  key={inst.id}
-                  className="card ast-deploy-card"
-                  onClick={() => setSelectedAsset(inst)}
-                >
-                  <div className="ast-deploy-header">
-                    <h3 className="ast-deploy-name">{inst.name}</h3>
-                    <span className="ast-status ast-status-blue">Deployed</span>
-                  </div>
-                  <div className="ast-deploy-details">
-                    <div className="ast-deploy-row">
-                      <span className="ast-deploy-label">Crew</span>
-                      <span className="ast-deploy-value">
-                        {inst.assignedTo}
-                      </span>
+                <Card key={inst.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSelectedAsset(inst)}>
+                  <CardContent className="p-5 space-y-3">
+                    <div className="flex items-start justify-between">
+                      <h3 className="font-semibold">{inst.name}</h3>
+                      <Badge variant="default">Deployed</Badge>
                     </div>
-                    <div className="ast-deploy-row">
-                      <span className="ast-deploy-label">Project</span>
-                      <span className="ast-deploy-value">
-                        {inst.assignedProject}
-                      </span>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between"><span className="text-muted-foreground">Crew</span><span>{inst.assignedTo}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Project</span><span>{inst.assignedProject}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">Serial</span><code>{inst.serial}</code></div>
                     </div>
-                    <div className="ast-deploy-row">
-                      <span className="ast-deploy-label">Serial</span>
-                      <span className="ast-deploy-value">
-                        <code>{inst.serial}</code>
-                      </span>
-                    </div>
-                  </div>
-                  <div className="ast-deploy-actions">
-                    <button
-                      className="btn btn-outline btn-sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleStatusChange(inst.dbId, "available");
-                      }}
-                    >
+                    <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); void handleStatusChange(inst.dbId, "available", { current_project_name: null }); }}>
                       Check In
-                    </button>
-                  </div>
-                </div>
+                    </Button>
+                  </CardContent>
+                </Card>
               ))}
+
             {instruments.filter((i) => i.status === "Available").length > 0 && (
               <>
-                <div className="ast-deploy-divider">
-                  Available for Deployment
-                </div>
+                <div className="col-span-full text-sm font-medium text-muted-foreground">Available for Deployment</div>
                 {instruments
                   .filter((i) => i.status === "Available")
                   .map((inst) => (
-                    <div
-                      key={inst.id}
-                      className="card ast-deploy-card ast-deploy-available"
-                      onClick={() => setSelectedAsset(inst)}
-                    >
-                      <div className="ast-deploy-header">
-                        <h3 className="ast-deploy-name">{inst.name}</h3>
-                        <span className="ast-status ast-status-green">
-                          Available
-                        </span>
-                      </div>
-                      <div className="ast-deploy-details">
-                        <div className="ast-deploy-row">
-                          <span className="ast-deploy-label">Type</span>
-                          <span className="ast-deploy-value">{inst.type}</span>
+                    <Card key={inst.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSelectedAsset(inst)}>
+                      <CardContent className="p-5 space-y-3">
+                        <div className="flex items-start justify-between">
+                          <h3 className="font-semibold">{inst.name}</h3>
+                          <Badge variant="success">Available</Badge>
                         </div>
-                        <div className="ast-deploy-row">
-                          <span className="ast-deploy-label">Serial</span>
-                          <span className="ast-deploy-value">
-                            <code>{inst.serial}</code>
-                          </span>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex justify-between"><span className="text-muted-foreground">Type</span><span>{inst.type}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Serial</span><code>{inst.serial}</code></div>
                         </div>
-                      </div>
-                      <div className="ast-deploy-actions">
-                        <button
-                          className="btn btn-primary btn-sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleStatusChange(inst.dbId, "deployed");
-                          }}
-                        >
-                          Deploy
-                        </button>
-                      </div>
-                    </div>
+                        <Button size="sm" onClick={(e) => openDeployModal(e, inst.dbId)}>Deploy</Button>
+                      </CardContent>
+                    </Card>
                   ))}
               </>
             )}
           </div>
-        )}
+        </TabsContent>
 
-        {/* ═══ TAB: Maintenance ═══ */}
-        {activeTab === "maintenance" && (
-          <div className="ast-maint-list">
-            {filtered
-              .filter((i) => i.maintenanceLog.length > 0)
-              .map((inst) => (
-                <div
-                  key={inst.id}
-                  className="card ast-maint-card"
-                  onClick={() => setSelectedAsset(inst)}
-                >
-                  <div className="ast-maint-header">
+        <TabsContent value="maintenance" className="space-y-4">
+          {filtered
+            .filter((i) => i.maintenanceLog.length > 0)
+            .map((inst) => (
+              <Card key={inst.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setSelectedAsset(inst)}>
+                <CardContent className="p-5 space-y-4">
+                  <div className="flex items-start justify-between">
                     <div>
-                      <h3 className="ast-maint-name">{inst.name}</h3>
-                      <span className="ast-maint-serial">
-                        {inst.serial} — {inst.type}
-                      </span>
+                      <h3 className="font-semibold">{inst.name}</h3>
+                      <p className="text-sm text-muted-foreground">{inst.serial} — {inst.type}</p>
                     </div>
-                    <span className={`ast-status ${statusClass[inst.status]}`}>
-                      {inst.status}
-                    </span>
+                    <Badge variant={statusVariant[inst.status] ?? "secondary"}>{inst.status}</Badge>
                   </div>
-                  <div className="ast-maint-timeline">
+                  <div className="relative space-y-3 pl-4 border-l-2 border-muted">
                     {inst.maintenanceLog.map((log, i) => (
-                      <div key={i} className="ast-maint-event">
-                        <div className="ast-maint-dot" />
-                        <div className="ast-maint-event-content">
-                          <span className="ast-maint-date">{log.date}</span>
-                          <span className="ast-maint-desc">
-                            {log.description}
-                          </span>
-                          {log.cost > 0 && (
-                            <span className="ast-maint-cost">${log.cost}</span>
-                          )}
+                      <div key={i} className="relative">
+                        <span className="absolute -left-[21px] top-1 h-3 w-3 rounded-full border-2 border-background bg-muted-foreground" />
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-sm">
+                          <span className="text-muted-foreground">{log.date}</span>
+                          <span>{log.description}</span>
+                          {log.cost > 0 && <span className="font-medium">${log.cost.toLocaleString()}</span>}
                         </div>
                       </div>
                     ))}
                   </div>
-                  <div className="ast-maint-total">
-                    Total maintenance: $
-                    {inst.maintenanceLog
-                      .reduce((s, l) => s + l.cost, 0)
-                      .toLocaleString()}
-                  </div>
+                  <p className="text-sm font-medium">Total maintenance: ${inst.maintenanceLog.reduce((s, l) => s + l.cost, 0).toLocaleString()}</p>
+                </CardContent>
+              </Card>
+            ))}
+          {filtered.filter((i) => i.maintenanceLog.length > 0).length === 0 && (
+            <div className="rounded-xl border border-dashed p-12 text-center text-muted-foreground">
+              <Wrench size={40} className="mx-auto" />
+              <h3 className="mt-3 text-lg font-semibold text-foreground">No maintenance records</h3>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+
+      {/* Create Asset Dialog */}
+      <Dialog open={showCreateModal} onOpenChange={(open) => { if (!open) setShowCreateModal(false); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add Instrument</DialogTitle>
+            <DialogDescription>Register a new survey instrument in your fleet.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCreate} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="create-name">Name *</Label>
+              <Input id="create-name" value={createForm.name} onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. Leica TS16" required autoFocus />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Kind</Label>
+                <Select value={createForm.kind} onValueChange={(v) => setCreateForm((f) => ({ ...f, kind: v as typeof createForm.kind }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="instrument">Instrument</SelectItem>
+                    <SelectItem value="vehicle">Vehicle</SelectItem>
+                    <SelectItem value="equipment">Equipment</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Category</Label>
+                <Select value={createForm.category} onValueChange={(v) => setCreateForm((f) => ({ ...f, category: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                  <SelectContent>
+                    {ASSET_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="create-make">Make</Label>
+                <Input id="create-make" value={createForm.make} onChange={(e) => setCreateForm((f) => ({ ...f, make: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="create-model">Model</Label>
+                <Input id="create-model" value={createForm.model} onChange={(e) => setCreateForm((f) => ({ ...f, model: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="create-serial">Serial Number</Label>
+                <Input id="create-serial" value={createForm.serial_number} onChange={(e) => setCreateForm((f) => ({ ...f, serial_number: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="create-purchase-date">Purchase Date</Label>
+                <Input id="create-purchase-date" type="date" value={createForm.purchase_date} onChange={(e) => setCreateForm((f) => ({ ...f, purchase_date: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="create-purchase-cost">Purchase Cost ($)</Label>
+                <Input id="create-purchase-cost" type="number" value={createForm.purchase_cost} onChange={(e) => setCreateForm((f) => ({ ...f, purchase_cost: e.target.value }))} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>Cancel</Button>
+              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Add Instrument"}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Asset Dialog */}
+      <Dialog open={showEditModal} onOpenChange={(open) => { if (!open) { setShowEditModal(false); setEditingAssetId(null); } }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Instrument</DialogTitle>
+            <DialogDescription>Update asset details and marketplace settings.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSaveEdit} className="space-y-6">
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Asset Details</h3>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-name">Name *</Label>
+                <Input id="edit-name" value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} required autoFocus />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Kind</Label>
+                  <Select value={editForm.kind} onValueChange={(v) => setEditForm((f) => ({ ...f, kind: v as typeof editForm.kind }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="instrument">Instrument</SelectItem>
+                      <SelectItem value="vehicle">Vehicle</SelectItem>
+                      <SelectItem value="equipment">Equipment</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-              ))}
-            {filtered.filter((i) => i.maintenanceLog.length > 0).length ===
-              0 && (
-              <div className="mkt-empty">
-                <p>No maintenance records found.</p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ═══ Create Asset Modal ═══ */}
-      {showCreateModal && (
-        <div className="mkt-modal-overlay" onClick={() => setShowCreateModal(false)}>
-          <div className="mkt-modal" style={{ maxWidth: "520px" }} onClick={(e) => e.stopPropagation()}>
-            <div className="ast-detail-top">
-              <h2 className="mkt-modal-title">Add Instrument</h2>
-              <button className="mkt-modal-close" onClick={() => setShowCreateModal(false)}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-              </button>
-            </div>
-            <form onSubmit={handleCreate} className="responsive-grid-2" style={{ padding: "20px" }}>
-              <input className="input-field" style={{ gridColumn: "1 / -1" }} placeholder="Name *" value={createForm.name} onChange={(e) => setCreateForm(f => ({ ...f, name: e.target.value }))} autoFocus required />
-              <SelectDropdown
-                className="input-field"
-                value={createForm.kind}
-                onChange={(val) => setCreateForm(f => ({ ...f, kind: val as "instrument" | "vehicle" | "equipment" | "other" }))}
-                options={[
-                  { value: "instrument", label: "Instrument" },
-                  { value: "vehicle", label: "Vehicle" },
-                  { value: "equipment", label: "Equipment" },
-                  { value: "other", label: "Other" }
-                ]}
-              />
-              <input className="input-field" placeholder="Category (e.g. Total Station)" value={createForm.category} onChange={(e) => setCreateForm(f => ({ ...f, category: e.target.value }))} />
-              <input className="input-field" placeholder="Make" value={createForm.make} onChange={(e) => setCreateForm(f => ({ ...f, make: e.target.value }))} />
-              <input className="input-field" placeholder="Model" value={createForm.model} onChange={(e) => setCreateForm(f => ({ ...f, model: e.target.value }))} />
-              <input className="input-field" style={{ gridColumn: "1 / -1" }} placeholder="Serial Number" value={createForm.serial_number} onChange={(e) => setCreateForm(f => ({ ...f, serial_number: e.target.value }))} />
-              <input className="input-field" type="date" placeholder="Purchase Date" value={createForm.purchase_date} onChange={(e) => setCreateForm(f => ({ ...f, purchase_date: e.target.value }))} />
-              <input className="input-field" type="number" placeholder="Purchase Cost ($)" value={createForm.purchase_cost} onChange={(e) => setCreateForm(f => ({ ...f, purchase_cost: e.target.value }))} />
-              <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "8px" }}>
-                <button type="button" className="btn btn-outline" onClick={() => setShowCreateModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? "Saving..." : "Add Instrument"}</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ═══ Asset Detail Modal ═══ */}
-      {selectedAsset && (
-        <div
-          className="mkt-modal-overlay"
-          onClick={() => setSelectedAsset(null)}
-        >
-          <div
-            className="mkt-modal ast-detail-modal"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="ast-detail-top">
-              <div>
-                <h2 className="mkt-modal-title">{selectedAsset.name}</h2>
-                <p className="mkt-modal-type">
-                  {selectedAsset.type} &middot;{" "}
-                  <code className="ast-serial">{selectedAsset.serial}</code>
-                </p>
-              </div>
-              <button
-                className="mkt-modal-close"
-                onClick={() => setSelectedAsset(null)}
-              >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            </div>
-            <div className="ast-detail-grid">
-              <div className="ast-detail-item">
-                <span className="ast-detail-label">Status</span>
-                <span
-                  className={`ast-status ${statusClass[selectedAsset.status]}`}
-                >
-                  {selectedAsset.status}
-                </span>
-              </div>
-              <div className="ast-detail-item">
-                <span className="ast-detail-label">Assigned</span>
-                <span className="ast-detail-value">
-                  {selectedAsset.assignedTo || "—"}
-                </span>
-              </div>
-              <div className="ast-detail-item">
-                <span className="ast-detail-label">Project</span>
-                <span className="ast-detail-value">
-                  {selectedAsset.assignedProject || "—"}
-                </span>
-              </div>
-              <div className="ast-detail-item">
-                <span className="ast-detail-label">Purchase</span>
-                <span className="ast-detail-value">
-                  ${selectedAsset.purchaseCost.toLocaleString()} (
-                  {selectedAsset.purchaseDate})
-                </span>
-              </div>
-              <div className="ast-detail-item">
-                <span className="ast-detail-label">Book Value</span>
-                <span className="ast-detail-value">
-                  ${selectedAsset.currentValue.toLocaleString()}
-                </span>
-              </div>
-              <div className="ast-detail-item">
-                <span className="ast-detail-label">Depreciation</span>
-                <span className="ast-detail-value">
-                  {Math.round(
-                    ((selectedAsset.purchaseCost - selectedAsset.currentValue) /
-                      selectedAsset.purchaseCost) *
-                      100,
-                  )}
-                  %
-                </span>
-              </div>
-            </div>
-            {selectedAsset.nextCalibration && (
-              <div className="ast-detail-cal">
-                <span className="pro-section-label">Calibration</span>
-                <div className="ast-detail-grid">
-                  <div className="ast-detail-item">
-                    <span className="ast-detail-label">Last</span>
-                    <span className="ast-detail-value">
-                      {selectedAsset.lastCalibration}
-                    </span>
-                  </div>
-                  <div className="ast-detail-item">
-                    <span className="ast-detail-label">Next Due</span>
-                    <span
-                      className={`ast-detail-value ${calClass(daysUntil(selectedAsset.nextCalibration))}`}
-                    >
-                      {selectedAsset.nextCalibration} (
-                      {calLabel(daysUntil(selectedAsset.nextCalibration))})
-                    </span>
-                  </div>
-                  <div className="ast-detail-item">
-                    <span className="ast-detail-label">Certificate</span>
-                    <span className="ast-detail-value">
-                      {selectedAsset.calibrationCert}
-                    </span>
-                  </div>
+                <div className="space-y-1.5">
+                  <Label>Category</Label>
+                  <Select value={editForm.category} onValueChange={(v) => setEditForm((f) => ({ ...f, category: v }))}>
+                    <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                    <SelectContent>
+                      {ASSET_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-make">Make</Label>
+                  <Input id="edit-make" value={editForm.make} onChange={(e) => setEditForm((f) => ({ ...f, make: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-model">Model</Label>
+                  <Input id="edit-model" value={editForm.model} onChange={(e) => setEditForm((f) => ({ ...f, model: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="edit-serial">Serial Number</Label>
+                  <Input id="edit-serial" value={editForm.serial_number} onChange={(e) => setEditForm((f) => ({ ...f, serial_number: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-purchase-date">Purchase Date</Label>
+                  <Input id="edit-purchase-date" type="date" value={editForm.purchase_date} onChange={(e) => setEditForm((f) => ({ ...f, purchase_date: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-purchase-cost">Purchase Cost ($)</Label>
+                  <Input id="edit-purchase-cost" type="number" value={editForm.purchase_cost} onChange={(e) => setEditForm((f) => ({ ...f, purchase_cost: e.target.value }))} />
                 </div>
               </div>
-            )}
-            {selectedAsset.maintenanceLog.length > 0 && (
-              <div>
-                <span className="pro-section-label">Maintenance History</span>
-                <div className="ast-maint-timeline">
-                  {selectedAsset.maintenanceLog.map((log, i) => (
-                    <div key={i} className="ast-maint-event">
-                      <div className="ast-maint-dot" />
-                      <div className="ast-maint-event-content">
-                        <span className="ast-maint-date">{log.date}</span>
-                        <span className="ast-maint-desc">
-                          {log.description}
-                        </span>
-                        {log.cost > 0 && (
-                          <span className="ast-maint-cost">${log.cost}</span>
-                        )}
+            </div>
+
+            <Separator />
+
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <Switch id="marketplace" checked={listOnMarketplace} onCheckedChange={setListOnMarketplace} />
+                <Label htmlFor="marketplace">List this asset on the Marketplace</Label>
+              </div>
+              {listOnMarketplace && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label>Listing Type</Label>
+                    <Select value={listingForm.listing_type} onValueChange={(v) => setListingForm((f) => ({ ...f, listing_type: v }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="hire">Available for Hire</SelectItem>
+                        <SelectItem value="sale">Available for Sale</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="listing-price">Price ($) *</Label>
+                    <Input id="listing-price" type="number" value={listingForm.price} onChange={(e) => setListingForm((f) => ({ ...f, price: e.target.value }))} required />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Condition</Label>
+                    <Select value={listingForm.condition} onValueChange={(v) => setListingForm((f) => ({ ...f, condition: v }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {["New", "Like New", "Good", "Fair"].map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="listing-location">Location</Label>
+                    <Input id="listing-location" value={listingForm.location} onChange={(e) => setListingForm((f) => ({ ...f, location: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="listing-seller">Seller Name / Company</Label>
+                    <Input id="listing-seller" value={listingForm.seller} onChange={(e) => setListingForm((f) => ({ ...f, seller: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="listing-description">Listing Description</Label>
+                    <textarea
+                      id="listing-description"
+                      rows={3}
+                      value={listingForm.description}
+                      onChange={(e) => setListingForm((f) => ({ ...f, description: e.target.value }))}
+                      className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => { setShowEditModal(false); setEditingAssetId(null); }}>Cancel</Button>
+              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Asset Detail Dialog */}
+      <Dialog open={selectedAsset !== null} onOpenChange={(open) => { if (!open) setSelectedAsset(null); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          {selectedAsset && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-3">
+                  <div className={cn("rounded-lg p-2 border text-muted-foreground", typeBgClass[selectedAsset.type] ?? typeBgClass.Other)}>
+                    <ListingIcon type={selectedAsset.type} />
+                  </div>
+                  <div>
+                    <DialogTitle>{selectedAsset.name}</DialogTitle>
+                    <DialogDescription>{selectedAsset.type} · <Badge variant={statusVariant[selectedAsset.status] ?? "secondary"}>{selectedAsset.status}</Badge></DialogDescription>
+                  </div>
+                </div>
+              </DialogHeader>
+
+              <div className="text-2xl font-bold">
+                ${selectedAsset.currentValue.toLocaleString()}{" "}
+                <span className="text-sm font-normal text-muted-foreground">book value</span>
+              </div>
+
+              {selectedAsset.listing && (
+                <div className="rounded-lg border p-4 space-y-2 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Marketplace listing</span><span>{selectedAsset.listing.listing_type === "hire" ? "Available for Hire" : "Available for Sale"}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Price</span><span>${selectedAsset.listing.price.toLocaleString()} {selectedAsset.listing.currency}{selectedAsset.listing.listing_type === "hire" ? " / day" : ""}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Condition</span><span>{selectedAsset.listing.condition}</span></div>
+                </div>
+              )}
+
+              <div className="rounded-lg border p-4 space-y-2 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Make / Model</span><span>{selectedAsset.make} {selectedAsset.model}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Serial</span><code>{selectedAsset.serial}</code></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Project</span><span>{selectedAsset.assignedProject}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Purchase Cost</span><span>${selectedAsset.purchaseCost.toLocaleString()} on {selectedAsset.purchaseDate}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Depreciation</span><span>{selectedAsset.purchaseCost > 0 ? Math.round(((selectedAsset.purchaseCost - selectedAsset.currentValue) / selectedAsset.purchaseCost) * 100) : 0}%</span></div>
+              </div>
+
+              {selectedAsset.nextCalibration && (
+                <div className="rounded-lg border p-4 space-y-2 text-sm">
+                  <div className="flex justify-between"><span className="text-muted-foreground">Last Calibration</span><span>{selectedAsset.lastCalibration}</span></div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Next Due</span>
+                    <span className={calDaysClass(daysUntil(selectedAsset.nextCalibration))}>{selectedAsset.nextCalibration} ({calLabel(daysUntil(selectedAsset.nextCalibration))})</span>
+                  </div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Certificate</span><span>{selectedAsset.calibrationCert}</span></div>
+                </div>
+              )}
+
+              {selectedAsset.maintenanceLog.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Maintenance History</h4>
+                  <div className="relative space-y-3 pl-4 border-l-2 border-muted">
+                    {selectedAsset.maintenanceLog.map((log, i) => (
+                      <div key={i} className="relative text-sm">
+                        <span className="absolute -left-[21px] top-1 h-3 w-3 rounded-full border-2 border-background bg-muted-foreground" />
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+                          <span className="text-muted-foreground">{log.date}</span>
+                          <span>{log.description}</span>
+                          {log.cost > 0 && <span className="font-medium">${log.cost.toLocaleString()}</span>}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-            <div className="mkt-modal-actions">
-              <button className="btn btn-primary">
-                {selectedAsset.status === "Available" ? "Deploy" : "Edit Asset"}
-              </button>
-              <button
-                className="btn btn-outline"
-                onClick={() => setSelectedAsset(null)}
-              >
-                Close
-              </button>
+              )}
+
+              <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+                {selectedAsset.status === "Available" ? (
+                  <>
+                    <Button variant="outline" onClick={handleOpenEdit}>Edit Asset</Button>
+                    <Button onClick={(e) => openDeployModal(e, selectedAsset.dbId)}>Deploy</Button>
+                  </>
+                ) : (
+                  <Button onClick={handleOpenEdit}>Edit Asset</Button>
+                )}
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Deploy Asset Dialog */}
+      <Dialog open={showDeployModal} onOpenChange={(open) => { if (!open) { setShowDeployModal(false); setDeployTargetAssetId(null); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Deploy Asset</DialogTitle>
+            <DialogDescription>Assign this instrument to an active project.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleDeploySubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Select Project</Label>
+              <Select value={deployTargetProjectName} onValueChange={setDeployTargetProjectName}>
+                <SelectTrigger><SelectValue placeholder="Select a project..." /></SelectTrigger>
+                <SelectContent>
+                  {projects.map((p) => <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {projects.length === 0 && (
+                <p className="text-xs text-muted-foreground">No active projects found. You can add projects in the Project Hub.</p>
+              )}
             </div>
-          </div>
-        </div>
-      )}
-    </>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => { setShowDeployModal(false); setDeployTargetAssetId(null); }}>Cancel</Button>
+              <Button type="submit" disabled={!deployTargetProjectName}>Deploy Asset</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </DashboardShell>
   );
 }

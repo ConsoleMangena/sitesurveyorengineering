@@ -1,5 +1,37 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import "../../styles/pages.css";
+import { RefreshCw, Search, Loader2, ShieldCheck, ShieldX } from "lucide-react";
+
+import PageLoader from "@/components/PageLoader.tsx";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { ResponsiveTable } from "@/components/ui/responsive-table";
+import { DashboardHeader, DashboardShell } from "@/components/dashboard/DashboardShell.tsx";
+
 import {
   listAllProfiles,
   getProfileWithWorkspaces,
@@ -96,7 +128,14 @@ export default function AdminUsersPage({
     if (!detailUser) return;
     const newVal = !detailUser.is_platform_admin;
     const action = newVal ? "grant" : "revoke";
-    if (!window.confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} platform admin for ${detailUser.full_name ?? detailUser.email ?? detailUser.id}?`)) return;
+    if (
+      !window.confirm(
+        `${action.charAt(0).toUpperCase() + action.slice(1)} platform admin for ${
+          detailUser.full_name ?? detailUser.email ?? detailUser.id
+        }?`,
+      )
+    )
+      return;
 
     setToggling(true);
     try {
@@ -115,228 +154,267 @@ export default function AdminUsersPage({
   if (!isPlatformAdmin) return null;
 
   return (
-    <div className="hub-body admin-console-page">
-      <header className="page-header">
-        <div>
-          <h1>User management</h1>
-          <p className="page-subtitle">
-            View registered users and manage platform admin access
-          </p>
-        </div>
-        <div className="header-actions">
-          <button type="button" className="btn btn-outline btn-sm" onClick={() => void load()}>
+    <DashboardShell className="hub-body admin-console-page">
+      <DashboardHeader
+        badge={<Badge variant="secondary">Platform admin</Badge>}
+        title="User management"
+        subtitle="View registered users and manage platform admin access"
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void load()}
+            disabled={loading}
+            className="gap-2"
+          >
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             Refresh
-          </button>
+          </Button>
+        }
+      />
+
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
         </div>
-      </header>
+      )}
+      {notice && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+          {notice}
+        </div>
+      )}
 
-      {error && <div className="alert-bar alert-warning">{error}</div>}
-      {notice && <div className="alert-bar alert-success">{notice}</div>}
-
-      <div className="admin-console-toolbar" style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-        <input
-          type="search"
-          className="input-field admin-console-search"
-          placeholder="Search by name or email…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label="Search users"
-        />
-        <select
-          className="input-field"
-          style={{ maxWidth: "180px" }}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[220px] max-w-md">
+          <Search
+            size={16}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            type="search"
+            placeholder="Search by name or email…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search users"
+            className="pl-9"
+          />
+        </div>
+        <Select
           value={filterAdmin}
-          onChange={(e) => setFilterAdmin(e.target.value as "all" | "admin" | "user")}
+          onValueChange={(v) => setFilterAdmin(v as "all" | "admin" | "user")}
         >
-          <option value="all">All users</option>
-          <option value="admin">Platform admins</option>
-          <option value="user">Regular users</option>
-        </select>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Filter users" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All users</SelectItem>
+            <SelectItem value="admin">Platform admins</SelectItem>
+            <SelectItem value="user">Regular users</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {loading ? (
-        <p className="admin-console-muted">Loading…</p>
+        <PageLoader compact />
       ) : (
         <>
-          <div className="card admin-console-card admin-console-table-wrap">
-            <table className="invoice-table admin-console-table admin-console-table--stacked">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Title</th>
-                  <th>Signup type</th>
-                  <th>Admin</th>
-                  <th>Joined</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginated.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} style={{ textAlign: "center", padding: "2rem" }}>
-                      No users found.
-                    </td>
-                  </tr>
-                ) : (
-                  paginated.map((p) => (
-                    <tr key={p.id}>
-                      <td data-label="Name">
-                        <div className="admin-console-cell-title">
-                          {p.full_name || "—"}
-                        </div>
-                      </td>
-                      <td data-label="Email">{p.email ?? "—"}</td>
-                      <td data-label="Title">{p.professional_title ?? "—"}</td>
-                      <td data-label="Signup type">
-                        <span className="badge badge-gray">
-                          {p.auth_signup_account_type ?? "—"}
-                        </span>
-                      </td>
-                      <td data-label="Admin">
-                        {p.is_platform_admin ? (
-                          <span className="badge badge-purple">Admin</span>
-                        ) : (
-                          <span className="admin-console-muted">—</span>
-                        )}
-                      </td>
-                      <td data-label="Joined">{formatDate(p.created_at)}</td>
-                      <td data-label="Actions">
-                        <button
-                          type="button"
-                          className="btn btn-outline btn-sm admin-console-row-action"
-                          onClick={() => void openDetail(p.id)}
-                          disabled={detailLoading}
+          <Card className="border-border/60 overflow-hidden">
+            <CardContent className="p-0">
+              <ResponsiveTable>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Title</TableHead>
+                      <TableHead>Signup type</TableHead>
+                      <TableHead>Admin</TableHead>
+                      <TableHead>Joined</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paginated.length === 0 ? (
+                      <TableRow>
+                        <TableCell
+                          colSpan={7}
+                          className="text-center py-8 text-muted-foreground"
                         >
-                          View
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                          No users found.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      paginated.map((p) => (
+                        <TableRow key={p.id}>
+                          <TableCell className="font-medium">
+                            {p.full_name || "—"}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{p.email ?? "—"}</TableCell>
+                          <TableCell>{p.professional_title ?? "—"}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">
+                              {p.auth_signup_account_type ?? "—"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {p.is_platform_admin ? (
+                              <Badge
+                                variant="purple"
+                                className="inline-flex items-center gap-1"
+                              >
+                                <ShieldCheck size={12} />
+                                Admin
+                              </Badge>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {formatDate(p.created_at)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void openDetail(p.id)}
+                              disabled={detailLoading}
+                            >
+                              View
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </ResponsiveTable>
+            </CardContent>
+          </Card>
 
           {totalPages > 1 && (
-            <div style={{ display: "flex", justifyContent: "center", gap: "8px", marginTop: "16px" }}>
-              <button
-                type="button"
-                className="btn btn-outline btn-sm"
+            <div className="flex items-center justify-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
                 disabled={page <= 1}
                 onClick={() => setPage((p) => p - 1)}
               >
                 Previous
-              </button>
-              <span style={{ lineHeight: "32px", fontSize: "13px", color: "var(--text-m)" }}>
+              </Button>
+              <span className="text-sm text-muted-foreground">
                 Page {page} of {totalPages}
               </span>
-              <button
-                type="button"
-                className="btn btn-outline btn-sm"
+              <Button
+                variant="outline"
+                size="sm"
                 disabled={page >= totalPages}
                 onClick={() => setPage((p) => p + 1)}
               >
                 Next
-              </button>
+              </Button>
             </div>
           )}
         </>
       )}
 
-      {detailUser && (
-        <div className="billing-modal-overlay" role="dialog" aria-modal="true">
-          <div className="billing-modal admin-console-modal" style={{ maxWidth: "520px" }}>
-            <div className="billing-modal-header">
-              <h3>User detail</h3>
-              <button
-                type="button"
-                className="billing-modal-close"
-                onClick={() => setDetailUser(null)}
-              >
-                Close
-              </button>
-            </div>
+      <Dialog open={!!detailUser} onOpenChange={(open) => !open && setDetailUser(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>User detail</DialogTitle>
+            <DialogDescription>
+              Workspace memberships and platform admin privileges.
+            </DialogDescription>
+          </DialogHeader>
 
-            <div style={{ padding: "16px 20px" }}>
-              <div style={{ marginBottom: "12px" }}>
-                <strong>{detailUser.full_name || "Unnamed"}</strong>
-                <span className="admin-console-muted" style={{ marginLeft: "8px" }}>
-                  {detailUser.email ?? ""}
-                </span>
+          {detailLoading || !detailUser ? (
+            <PageLoader compact />
+          ) : (
+            <div className="space-y-5">
+              <div className="space-y-1">
+                <p className="text-base font-semibold">{detailUser.full_name || "Unnamed"}</p>
+                <p className="text-sm text-muted-foreground">{detailUser.email ?? ""}</p>
               </div>
 
-              <div style={{ marginBottom: "12px" }}>
-                <span style={{ fontSize: "13px", color: "var(--text-m)" }}>Title: </span>
-                {detailUser.professional_title ?? "—"}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <span className="text-xs text-muted-foreground">Title</span>
+                  <p className="text-sm font-medium">
+                    {detailUser.professional_title ?? "—"}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">Signup type</span>
+                  <p className="text-sm font-medium">
+                    <Badge variant="outline">
+                      {detailUser.auth_signup_account_type ?? "—"}
+                    </Badge>
+                  </p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">Platform admin</span>
+                  <p className="text-sm font-medium">
+                    {detailUser.is_platform_admin ? (
+                      <Badge variant="purple">Yes</Badge>
+                    ) : (
+                      <Badge variant="secondary">No</Badge>
+                    )}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">Joined</span>
+                  <p className="text-sm font-medium">{formatDate(detailUser.created_at)}</p>
+                </div>
               </div>
 
-              <div style={{ marginBottom: "12px" }}>
-                <span style={{ fontSize: "13px", color: "var(--text-m)" }}>Signup type: </span>
-                <span className="badge badge-gray">
-                  {detailUser.auth_signup_account_type ?? "—"}
-                </span>
-              </div>
-
-              <div style={{ marginBottom: "16px" }}>
-                <span style={{ fontSize: "13px", color: "var(--text-m)" }}>Platform admin: </span>
-                {detailUser.is_platform_admin ? (
-                  <span className="badge badge-purple">Yes</span>
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold">
+                  Workspace memberships ({detailUser.workspaces.length})
+                </h4>
+                {detailUser.workspaces.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No workspace memberships.
+                  </p>
                 ) : (
-                  <span className="badge badge-gray">No</span>
+                  <ul className="divide-y border rounded-md">
+                    {detailUser.workspaces.map((ws) => (
+                      <li
+                        key={ws.workspace_id}
+                        className="flex items-center justify-between px-3 py-2 text-sm"
+                      >
+                        <span>{ws.workspace_name}</span>
+                        <Badge variant="outline">{ws.role}</Badge>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
-
-              <h4 style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px" }}>
-                Workspace memberships ({detailUser.workspaces.length})
-              </h4>
-              {detailUser.workspaces.length === 0 ? (
-                <p className="admin-console-muted">No workspace memberships.</p>
-              ) : (
-                <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-                  {detailUser.workspaces.map((ws) => (
-                    <li
-                      key={ws.workspace_id}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        padding: "6px 0",
-                        borderBottom: "1px solid var(--border)",
-                        fontSize: "13px",
-                      }}
-                    >
-                      <span>{ws.workspace_name}</span>
-                      <span className="badge badge-gray">{ws.role}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
             </div>
+          )}
 
-            <div className="billing-modal-actions">
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() => setDetailUser(null)}
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                className={`btn ${detailUser.is_platform_admin ? "btn-outline" : "btn-primary"}`}
+          <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setDetailUser(null)}>
+              Close
+            </Button>
+            {detailUser && (
+              <Button
+                variant={detailUser.is_platform_admin ? "outline" : "default"}
                 onClick={() => void handleToggleAdmin()}
                 disabled={toggling}
+                className="gap-2"
               >
-                {toggling
-                  ? "Saving…"
-                  : detailUser.is_platform_admin
-                    ? "Revoke admin"
-                    : "Grant admin"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+                {toggling ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : detailUser.is_platform_admin ? (
+                  <ShieldX size={16} />
+                ) : (
+                  <ShieldCheck size={16} />
+                )}
+                {detailUser.is_platform_admin ? "Revoke admin" : "Grant admin"}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </DashboardShell>
   );
 }

@@ -1,5 +1,6 @@
 import { getCurrentUser } from "../auth/session.ts";
 import { supabase } from "../supabase/client.ts";
+import { notifyWorkspaceInvitation } from "./notificationEvents.ts";
 import { addProjectMember } from "./projects.ts";
 
 export interface WorkspaceInvitationRow {
@@ -73,6 +74,22 @@ export async function inviteWorkspaceMember(input: {
     .select("*")
     .single();
   if (error) throw error;
+
+  // If the invitee already has an account, surface an in-app notification.
+  if (existingProfile?.id) {
+    const { data: workspace } = await supabase
+      .from("workspaces")
+      .select("name")
+      .eq("id", input.workspaceId)
+      .maybeSingle();
+
+    void notifyWorkspaceInvitation({
+      workspaceId: input.workspaceId,
+      invitedUserId: existingProfile.id,
+      workspaceName: (workspace as { name?: string } | null)?.name ?? null,
+      role: input.role,
+    });
+  }
 
   return { invitation: data, linkedToProject };
 }

@@ -1,3 +1,6 @@
+[workspace]
+members = ["crates/survey-core", "crates/survey-wasm"]
+
 [package]
 name = "sitesurveyor"
 version = "0.1.0"
@@ -22,4 +25,52 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+survey-core = { path = "crates/survey-core" }
+
+# Native-only GeoRust datum/CRS transforms. `proj` wraps the system PROJ C
+# library (https://georust.org), which CANNOT compile to WASM — hence it lives
+# here in the desktop crate, never in `survey-wasm`. Gated behind the `proj`
+# feature so the app still builds on machines without PROJ installed; the
+# frontend falls back to the hand-rolled Karney projection in `projection.ts`.
+proj = { version = "0.27", optional = true }
+
+# Native-only raster/vector I/O. `gdal` (https://georust.org) wraps the system
+# GDAL C library and CANNOT compile to WASM — desktop crate only, feature-gated.
+# Reads/writes GeoTIFF, DEM, and most GIS/CAD vector & raster formats. Pin the
+# crate version to the GDAL installed on the build host.
+gdal = { version = "0.17", optional = true }
+
+# Native ESRI Shapefile read/write. Pure Rust, but kept in the desktop crate by
+# convention since it's a file-format importer used by the native shell only.
+shapefile = { version = "0.6", optional = true }
+
+# Native LiDAR point-cloud reader for .las/.laz survey data.
+las = { version = "0.8", features = ["laz"], optional = true }
+
+# ─── Licensing ───────────────────────────────────────────────────
+# Ed25519 signature verification of license tokens (offline, asymmetric).
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+# Base64 (URL-safe) decoding of the token segments.
+base64 = "0.22"
+# SHA-256 for the machine fingerprint + tamper-evident local cache.
+sha2 = "0.10"
+
+# Stable per-machine identifier used for seat binding. Only available on
+# desktop targets; `machine-uid` 0.5 does not compile for Android/iOS, so we
+# scope it to the desktop platforms and use a fallback fingerprint on mobile.
+[target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
+machine-uid = "0.5"
+
+[features]
+default = []
+# Enable real PROJ-backed datum transforms. Requires PROJ >= 9 on the build
+# host (e.g. `apt install libproj-dev` / `brew install proj`).
+proj = ["dep:proj"]
+# Enable GDAL-backed raster/vector I/O. Requires GDAL >= 3 on the build host
+# (e.g. `apt install libgdal-dev` / `brew install gdal`).
+gdal = ["dep:gdal"]
+# Enable ESRI Shapefile import/export.
+shapefile = ["dep:shapefile"]
+# Enable LiDAR .las/.laz point-cloud import.
+las = ["dep:las"]
 

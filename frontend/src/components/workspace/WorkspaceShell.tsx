@@ -1,12 +1,42 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "../../styles/project-hub.css";
+import { Menu, Search, X } from "lucide-react";
 import { useServerStatus } from "../../lib/serverStatus.ts";
+import {
+  useNotifications,
+  type NotificationRow,
+} from "../../lib/repositories/notifications.ts";
+import { isWorkspaceView } from "../../features/workspace/types.ts";
 import type {
   AccountType,
   UiUser,
   WorkspaceNavGroup,
   WorkspaceView,
 } from "../../features/workspace/types.ts";
+import { Button } from "../ui/button.tsx";
+import { Avatar, AvatarFallback } from "../ui/avatar.tsx";
+import { Badge } from "../ui/badge.tsx";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu.tsx";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "../ui/sheet.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "../ui/dialog.tsx";
 
 interface WorkspaceShellProps {
   user: UiUser;
@@ -24,9 +54,13 @@ interface WorkspaceShellProps {
 interface WorkspaceTopbarProps {
   user: UiUser;
   accountLabel: string;
+  navGroups: WorkspaceNavGroup[];
+  activeView: WorkspaceView;
+  recentViews: WorkspaceView[];
   onProfile: () => void;
   onLogout: () => Promise<void> | void;
-  onToggleMobileMenu: () => void;
+  onOpenMobileMenu: () => void;
+  onChangeView: (view: WorkspaceView) => void;
 }
 
 interface WorkspaceSidebarProps {
@@ -417,6 +451,25 @@ function ClipboardIcon() {
   );
 }
 
+function KeyIcon() {
+  return (
+    <svg
+      width="17"
+      height="17"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="7.5" cy="15.5" r="5.5" />
+      <path d="m21 2-9.6 9.6" />
+      <path d="m15.5 7.5 3 3L22 7l-3-3-3.5 3.5Z" />
+    </svg>
+  );
+}
+
 function ChevronCollapseIcon({ collapsed }: { collapsed: boolean }) {
   return (
     <svg
@@ -435,6 +488,42 @@ function ChevronCollapseIcon({ collapsed }: { collapsed: boolean }) {
     >
       <polyline points="11 17 6 12 11 7" />
       <polyline points="18 17 13 12 18 7" />
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
+function BellIcon() {
+  return (
+    <svg
+      width="19"
+      height="19"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
     </svg>
   );
 }
@@ -574,17 +663,410 @@ function getNavIcon(icon: string) {
       return <BuildingIcon />;
     case "clipboard":
       return <ClipboardIcon />;
+    case "key":
+      return <KeyIcon />;
+    case "notifications":
+      return <BellIcon />;
     default:
       return <DashboardIcon />;
   }
 }
 
+interface SearchResult {
+  view: WorkspaceView;
+  label: string;
+  icon: string;
+  group?: string;
+}
+
+interface WorkspaceSearchProps {
+  navGroups: WorkspaceNavGroup[];
+  activeView: WorkspaceView;
+  recentViews: WorkspaceView[];
+  onChangeView: (view: WorkspaceView) => void;
+}
+
+function WorkspaceSearch({
+  navGroups = [],
+  activeView,
+  recentViews = [],
+  onChangeView,
+}: WorkspaceSearchProps) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [highlight, setHighlight] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const allItems = useMemo<SearchResult[]>(
+    () =>
+      navGroups.flatMap((group) =>
+        (group.items ?? []).map((item) => ({
+          view: item.view,
+          label: item.label,
+          icon: item.icon,
+          group: group.label,
+        })),
+      ),
+    [navGroups],
+  );
+
+  const isSearching = query.trim().length > 0;
+
+  const results = useMemo<SearchResult[]>(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return allItems;
+    return allItems.filter(
+      (item) =>
+        item.label.toLowerCase().includes(term) ||
+        (item.group?.toLowerCase().includes(term) ?? false),
+    );
+  }, [allItems, query]);
+
+  // When idle (no query), show recently visited views as quick jumps.
+  const recentResults = useMemo<SearchResult[]>(() => {
+    if (isSearching) return [];
+    return recentViews
+      .map((view) => allItems.find((item) => item.view === view))
+      .filter((item): item is SearchResult => Boolean(item))
+      .slice(0, 4);
+  }, [allItems, recentViews, isSearching]);
+
+  // Flat list used for keyboard navigation (recents first, then all pages).
+  const navigableResults = useMemo<SearchResult[]>(() => {
+    if (isSearching) return results;
+    const recentViewSet = new Set(recentResults.map((r) => r.view));
+    return [
+      ...recentResults,
+      ...allItems.filter((item) => !recentViewSet.has(item.view)),
+    ];
+  }, [isSearching, results, recentResults, allItems]);
+
+  const updateQuery = (value: string) => {
+    setQuery(value);
+    setHighlight(0);
+  };
+
+  // Global keyboard shortcut: Ctrl/Cmd+K or "/" to focus search.
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const isShortcut =
+        (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) ||
+        (event.key === "/" &&
+          !(event.target instanceof HTMLInputElement) &&
+          !(event.target instanceof HTMLTextAreaElement));
+      if (isShortcut) {
+        event.preventDefault();
+        setOpen(true);
+        window.requestAnimationFrame(() => inputRef.current?.focus());
+      }
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  // Close on outside click.
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const selectResult = (result: SearchResult) => {
+    onChangeView(result.view);
+    setOpen(false);
+    setQuery("");
+  };
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setHighlight((h) => Math.min(h + 1, navigableResults.length - 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlight((h) => Math.max(h - 1, 0));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const result = navigableResults[highlight];
+      if (result) selectResult(result);
+    } else if (event.key === "Escape") {
+      setOpen(false);
+    }
+  };
+
+  const renderItem = (result: SearchResult, index: number) => (
+    <button
+      key={result.view}
+      type="button"
+      className={`hub-search-item ${index === highlight ? "active" : ""} ${
+        result.view === activeView ? "current" : ""
+      }`}
+      onMouseEnter={() => setHighlight(index)}
+      onClick={() => selectResult(result)}
+    >
+      <span className="hub-search-item-icon">{getNavIcon(result.icon)}</span>
+      <span className="hub-search-item-label">{result.label}</span>
+      {result.group ? (
+        <span className="hub-search-item-group">{result.group}</span>
+      ) : null}
+    </button>
+  );
+
+  return (
+    <div className="hub-search" ref={wrapRef}>
+      <button
+        type="button"
+        className="hub-search-trigger"
+        onClick={() => {
+          setOpen(true);
+          window.requestAnimationFrame(() => inputRef.current?.focus());
+        }}
+        title="Search (Ctrl + K)"
+      >
+        <SearchIcon />
+        <span className="hub-search-trigger-text">Search...</span>
+        <kbd className="hub-search-kbd">Ctrl K</kbd>
+      </button>
+
+      {open && (
+        <div className="hub-search-panel" role="dialog" aria-label="Search">
+          <div className="hub-search-input-row">
+            <SearchIcon />
+            <input
+              ref={inputRef}
+              className="hub-search-input"
+              type="text"
+              value={query}
+              placeholder="Search pages..."
+              autoComplete="off"
+              spellCheck={false}
+              aria-label="Search workspace"
+              onChange={(event) => updateQuery(event.target.value)}
+              onKeyDown={onKeyDown}
+            />
+            {query && (
+              <button
+                type="button"
+                className="hub-search-clear"
+                onClick={() => {
+                  updateQuery("");
+                  inputRef.current?.focus();
+                }}
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
+
+          <div className="hub-search-results">
+            {isSearching ? (
+              results.length === 0 ? (
+                <div className="hub-search-empty">
+                  No results for "{query.trim()}"
+                </div>
+              ) : (
+                results.map((result, index) => renderItem(result, index))
+              )
+            ) : (
+              <>
+                {recentResults.length > 0 && (
+                  <>
+                    <div className="hub-search-section">Recent</div>
+                    {recentResults.map((result, index) =>
+                      renderItem(result, index),
+                    )}
+                  </>
+                )}
+                <div className="hub-search-section">All pages</div>
+                {navigableResults
+                  .slice(recentResults.length)
+                  .map((result, index) =>
+                    renderItem(result, recentResults.length + index),
+                  )}
+              </>
+            )}
+          </div>
+
+          <div className="hub-search-footer">
+            <span>
+              <kbd>↑</kbd>
+              <kbd>↓</kbd> to navigate
+            </span>
+            <span>
+              <kbd>↵</kbd> to open
+            </span>
+            <span>
+              <kbd>esc</kbd> to close
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatRelativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const diffSec = Math.round((Date.now() - then) / 1000);
+  if (diffSec < 60) return "just now";
+  const diffMin = Math.round(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.round(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+interface WorkspaceNotificationsProps {
+  workspaceId: string;
+  onChangeView: (view: WorkspaceView) => void;
+}
+
+function getNotificationTargetView(notification: NotificationRow): WorkspaceView | null {
+  const metadata = notification.metadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const view = (metadata as Record<string, unknown>).view;
+  return isWorkspaceView(view) ? view : null;
+}
+
+function WorkspaceNotifications({ workspaceId, onChangeView }: WorkspaceNotificationsProps) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const { notifications, unreadCount, loading, error, markRead, markAllRead } =
+    useNotifications(workspaceId);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const onItemClick = (notification: NotificationRow) => {
+    if (notification.status === "unread") void markRead(notification.id);
+    const targetView = getNotificationTargetView(notification);
+    if (targetView) onChangeView(targetView);
+    setOpen(false);
+  };
+
+  const openNotificationsPage = () => {
+    onChangeView("notifications");
+    setOpen(false);
+  };
+
+  return (
+    <div className="hub-notif-wrap" ref={wrapRef}>
+      <button
+        type="button"
+        className="hub-notif-btn"
+        onClick={() => setOpen((value) => !value)}
+        aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
+        aria-haspopup="true"
+        aria-expanded={open}
+      >
+        <BellIcon />
+        {unreadCount > 0 && (
+          <span className="hub-notif-badge">
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="hub-notif-dropdown" role="dialog" aria-label="Notifications">
+          <div className="hub-notif-header">
+            <button
+              type="button"
+              className="hub-notif-title hub-notif-title-btn"
+              onClick={openNotificationsPage}
+            >
+              Notifications
+            </button>
+            {unreadCount > 0 && (
+              <button
+                type="button"
+                className="hub-notif-mark-all"
+                onClick={() => void markAllRead()}
+              >
+                Mark all read
+              </button>
+            )}
+          </div>
+
+          <div className="hub-notif-list">
+            {loading && notifications.length === 0 ? (
+              <div className="hub-notif-empty">Loading...</div>
+            ) : error ? (
+              <div className="hub-notif-empty">{error}</div>
+            ) : notifications.length === 0 ? (
+              <div className="hub-notif-empty">
+                <BellIcon />
+                <span>You're all caught up</span>
+              </div>
+            ) : (
+              notifications.map((notification) => (
+                <button
+                  key={notification.id}
+                  type="button"
+                  className={`hub-notif-item ${
+                    notification.status === "unread" ? "unread" : ""
+                  }`}
+                  onClick={() => onItemClick(notification)}
+                >
+                  {notification.status === "unread" && (
+                    <span className="hub-notif-dot" aria-hidden="true" />
+                  )}
+                  <span className="hub-notif-item-body">
+                    <span className="hub-notif-item-title">
+                      {notification.title}
+                    </span>
+                    {notification.body ? (
+                      <span className="hub-notif-item-text">
+                        {notification.body}
+                      </span>
+                    ) : null}
+                    <span className="hub-notif-item-time">
+                      {formatRelativeTime(notification.created_at)}
+                    </span>
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+          <div className="hub-notif-footer">
+            <button type="button" onClick={openNotificationsPage}>
+              View all notifications
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function WorkspaceTopbar({
   user,
   accountLabel,
+  navGroups = [],
+  activeView,
+  recentViews = [],
   onProfile,
   onLogout,
-  onToggleMobileMenu,
+  onOpenMobileMenu,
+  onChangeView,
 }: WorkspaceTopbarProps) {
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
@@ -600,22 +1082,29 @@ function WorkspaceTopbar({
         ? "Offline"
         : "Checking...";
 
-  const closeMenu = () => setProfileDropdownOpen(false);
-
   return (
     <>
       <header className="hub-topbar">
         <div className="hub-topbar-left">
-          <button className="hub-mobile-menu-btn" onClick={onToggleMobileMenu} title="Toggle Menu">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="3" y1="12" x2="21" y2="12" />
-              <line x1="3" y1="6" x2="21" y2="6" />
-              <line x1="3" y1="18" x2="21" y2="18" />
-            </svg>
-          </button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hub-mobile-menu-btn"
+            onClick={onOpenMobileMenu}
+            title="Toggle Menu"
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
           <img src="/logo.svg" alt="SiteSurveyor" className="hub-logo" />
           <span className="hub-brand">SiteSurveyor for Engineers</span>
         </div>
+
+        <WorkspaceSearch
+          navGroups={navGroups}
+          activeView={activeView}
+          recentViews={recentViews}
+          onChangeView={onChangeView}
+        />
 
         <div className="hub-topbar-right">
           <div
@@ -627,139 +1116,84 @@ function WorkspaceTopbar({
             <span>{statusLabel}</span>
           </div>
 
-          <div className="hub-profile-wrap">
-            <button
-              className="hub-avatar-btn"
-              onClick={() => setProfileDropdownOpen((open) => !open)}
-            >
-              {user.name.charAt(0).toUpperCase()}
-            </button>
+          <WorkspaceNotifications workspaceId={user.workspaceId} onChangeView={onChangeView} />
 
-            {profileDropdownOpen && (
-              <>
-                <div className="hub-dropdown-overlay" onClick={closeMenu} />
-                <div className="hub-profile-dropdown">
-                  <div className="hub-dropdown-user">
-                    <span className="hub-dropdown-name">{user.name}</span>
-                    <span className="hub-dropdown-email">{user.email}</span>
-                    <span className={`hub-account-badge ${accountClassName}`}>
-                      {accountLabel}
-                    </span>
-                  </div>
-
-                  <div className="hub-dropdown-divider" />
-
-                  <button
-                    className="hub-dropdown-item"
-                    onClick={() => {
-                      closeMenu();
-                      onProfile();
-                    }}
-                  >
-                    <ProfileIcon />
-                    Profile Settings
-                  </button>
-
-                  <button
-                    className="hub-dropdown-item"
-                    onClick={() => {
-                      closeMenu();
-                      onProfile();
-                    }}
-                  >
-                    <EditIcon />
-                    Edit Information
-                  </button>
-
-                  <div className="hub-dropdown-divider" />
-
-                  <button
-                    className="hub-dropdown-item"
-                    onClick={() => {
-                      closeMenu();
-                      setShowAbout(true);
-                    }}
-                  >
-                    <AboutIcon />
-                    About
-                  </button>
-
-                  <a
-                    href="https://sitesurveyor.dev"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="hub-dropdown-item"
-                    style={{ textDecoration: "none", color: "inherit" }}
-                    onClick={closeMenu}
-                  >
-                    <ExternalLinkIcon />
-                    sitesurveyor.dev
-                  </a>
-
-                  <div className="hub-dropdown-divider" />
-
-                  <button
-                    className="hub-dropdown-item hub-dropdown-logout"
-                    onClick={async () => {
-                      closeMenu();
-                      await onLogout();
-                    }}
-                  >
-                    <LogoutIcon />
-                    Log out
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
+          <DropdownMenu open={profileDropdownOpen} onOpenChange={setProfileDropdownOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="relative h-9 w-9 rounded-full p-0">
+                <Avatar className="h-9 w-9">
+                  <AvatarFallback className="bg-gradient-to-br from-primary to-indigo-500 text-primary-foreground text-sm font-semibold">
+                    {user.name.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56" align="end" forceMount>
+              <div className="flex flex-col gap-1 p-2">
+                <span className="text-sm font-semibold text-foreground">{user.name}</span>
+                <span className="text-xs text-muted-foreground">{user.email}</span>
+                <Badge variant={accountClassName === "business" ? "default" : "secondary"} className="mt-1 w-fit text-[10px] uppercase">
+                  {accountLabel}
+                </Badge>
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={onProfile}>
+                <ProfileIcon /> Profile Settings
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onProfile}>
+                <EditIcon /> Edit Information
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setShowAbout(true)}>
+                <AboutIcon /> About
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <a
+                  href="https://sitesurveyor.dev"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-2"
+                >
+                  <ExternalLinkIcon /> sitesurveyor.dev
+                </a>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={async () => await onLogout()}
+                className="text-destructive focus:text-destructive"
+              >
+                <LogoutIcon /> Log out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
-      {showAbout && (
-        <div className="hub-modal-overlay" onClick={() => setShowAbout(false)}>
-          <div
-            className="hub-modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: "400px" }}
-          >
-            <div className="hub-about-logo-wrap">
-              <img
-                src="/logo.svg"
-                alt="SiteSurveyor Logo"
-                className="hub-about-logo"
-              />
-            </div>
-
-            <h2 className="hub-about-title">
-              SiteSurveyor for Engineers
-            </h2>
-
-            <p className="hub-about-version">
-              Version 2.0
-            </p>
-
-            <div className="hub-about-company-card">
-              <p className="hub-about-company-text">
-                A product of <strong>Eineva Incorporated</strong>
-              </p>
-            </div>
-
-            <button
-              className="btn btn-primary"
-              style={{ width: "100%", padding: "12px" }}
-              onClick={() => setShowAbout(false)}
-            >
-              Close
-            </button>
+      <Dialog open={showAbout} onOpenChange={setShowAbout}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader className="items-center text-center">
+            <img
+              src="/logo.svg"
+              alt="SiteSurveyor Logo"
+              className="mb-2 h-16 w-auto"
+            />
+            <DialogTitle>SiteSurveyor for Engineers</DialogTitle>
+            <DialogDescription>Version 2.0</DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border bg-muted/40 p-4 text-center text-sm">
+            A product of <strong>Eineva Incorporated</strong>
           </div>
-        </div>
-      )}
+          <Button className="w-full" onClick={() => setShowAbout(false)}>
+            Close
+          </Button>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
 
 function WorkspaceSidebar({
-  navGroups,
+  navGroups = [],
   activeView,
   collapsed,
   onToggleCollapsed,
@@ -777,7 +1211,7 @@ function WorkspaceSidebar({
               <span className="hub-nav-label">{group.label}</span>
             ) : null}
 
-            {group.items.map((item) => (
+            {(group.items ?? []).map((item) => (
               <button
                 key={item.view}
                 className={`hub-side-tab ${activeView === item.view ? "active" : ""}`}
@@ -806,7 +1240,7 @@ function WorkspaceSidebar({
 export default function WorkspaceShell({
   user,
   activeView,
-  navGroups,
+  navGroups = [],
   accountLabel,
   noticeBanner,
   isProjectFullscreen = false,
@@ -816,6 +1250,19 @@ export default function WorkspaceShell({
 }: WorkspaceShellProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [recentViews, setRecentViews] = useState<WorkspaceView[]>([]);
+
+  // Track recently visited views (most recent first, deduped, capped at 5).
+  useEffect(() => {
+    setRecentViews((prev) =>
+      prev[0] === activeView
+        ? prev
+        : [activeView, ...prev.filter((view) => view !== activeView)].slice(
+            0,
+            5,
+          ),
+    );
+  }, [activeView]);
 
   const shouldHideGlobalChrome =
     activeView === "projects" && isProjectFullscreen;
@@ -826,9 +1273,13 @@ export default function WorkspaceShell({
         <WorkspaceTopbar
           user={user}
           accountLabel={accountLabel}
+          navGroups={navGroups}
+          activeView={activeView}
+          recentViews={recentViews.filter((view) => view !== activeView)}
           onProfile={() => onChangeView("profile")}
           onLogout={onLogout}
-          onToggleMobileMenu={() => setMobileMenuOpen((open) => !open)}
+          onOpenMobileMenu={() => setMobileMenuOpen(true)}
+          onChangeView={onChangeView}
         />
       )}
 
@@ -837,32 +1288,36 @@ export default function WorkspaceShell({
       ) : null}
 
       <div className="hub-workspace">
-        {mobileMenuOpen && !shouldHideGlobalChrome && (
-          <div className="hub-mobile-nav-overlay" onClick={() => setMobileMenuOpen(false)}>
-            <div className="hub-mobile-nav-dropdown" onClick={(e) => e.stopPropagation()}>
-              <nav className="hub-sidebar-nav">
-                {navGroups.map((group, groupIndex) => (
-                  <div className="hub-nav-group" key={`${group.label ?? "group"}-${groupIndex}`}>
-                    {group.label ? <span className="hub-nav-label">{group.label}</span> : null}
-                    {group.items.map((item) => (
-                      <button
-                        key={item.view}
-                        className={`hub-side-tab ${activeView === item.view ? "active" : ""}`}
-                        onClick={() => {
-                          onChangeView(item.view);
-                          setMobileMenuOpen(false);
-                        }}
-                      >
-                        {getNavIcon(item.icon)}
-                        <span>{item.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                ))}
-              </nav>
-            </div>
-          </div>
-        )}
+        <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+          <SheetContent
+            side="left"
+            className="w-[260px] overflow-y-auto p-0 sm:w-[280px]"
+          >
+            <SheetHeader className="border-b p-4 text-left">
+              <SheetTitle>SiteSurveyor</SheetTitle>
+            </SheetHeader>
+            <nav className="hub-sidebar-nav p-4">
+              {navGroups.map((group, groupIndex) => (
+                <div className="hub-nav-group" key={`${group.label ?? "group"}-${groupIndex}`}>
+                  {group.label ? <span className="hub-nav-label">{group.label}</span> : null}
+                  {(group.items ?? []).map((item) => (
+                    <button
+                      key={item.view}
+                      className={`hub-side-tab ${activeView === item.view ? "active" : ""}`}
+                      onClick={() => {
+                        onChangeView(item.view);
+                        setMobileMenuOpen(false);
+                      }}
+                    >
+                      {getNavIcon(item.icon)}
+                      <span>{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </nav>
+          </SheetContent>
+        </Sheet>
 
         {!shouldHideGlobalChrome && (
           <WorkspaceSidebar
@@ -874,7 +1329,13 @@ export default function WorkspaceShell({
           />
         )}
 
-        <main className="hub-main-content">{children}</main>
+        <main
+          className={`hub-main-content${
+            shouldHideGlobalChrome ? " hub-main-content-fullscreen" : ""
+          }`}
+        >
+          {children}
+        </main>
       </div>
     </div>
   );

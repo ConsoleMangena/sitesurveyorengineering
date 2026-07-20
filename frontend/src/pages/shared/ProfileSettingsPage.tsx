@@ -1,10 +1,36 @@
 import { useState, useEffect } from "react";
+import { AlertTriangle, Trash2, Upload, User } from "lucide-react";
 import {
   getMyProfile,
   updateMyProfile,
+  requestAccountDeletion,
 } from "../../lib/repositories/profiles.ts";
+import { signOut } from "../../lib/auth/session.ts";
 import { useThemeMode } from "../../lib/theme.ts";
-import "../../styles/pages.css";
+import PageLoader from "../../components/PageLoader.tsx";
+import { Button } from "../../components/ui/button.tsx";
+import { Input } from "../../components/ui/input.tsx";
+import { Textarea } from "../../components/ui/textarea.tsx";
+import { Label } from "../../components/ui/label.tsx";
+import { Switch } from "../../components/ui/switch.tsx";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "../../components/ui/card.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog.tsx";
+import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert.tsx";
+import { Badge } from "../../components/ui/badge.tsx";
+import { Separator } from "../../components/ui/separator.tsx";
 
 export default function ProfileSettingsPage() {
   const { isDarkMode, setThemeMode } = useThemeMode();
@@ -19,6 +45,11 @@ export default function ProfileSettingsPage() {
   const [bio, setBio] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     getMyProfile()
@@ -57,6 +88,26 @@ export default function ProfileSettingsPage() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText.trim().toLowerCase() !== "delete") {
+      setDeleteError("Type delete to confirm.");
+      return;
+    }
+    setDeleteLoading(true);
+    setDeleteError(null);
+    try {
+      await requestAccountDeletion();
+      setShowDeleteAccount(false);
+      await signOut();
+      window.location.href = "/login?deleted=1";
+    } catch (err: unknown) {
+      setDeleteError(
+        err instanceof Error ? err.message : "Failed to request account deletion.",
+      );
+      setDeleteLoading(false);
+    }
+  };
+
   const initials = fullName
     .split(" ")
     .map((w) => w[0])
@@ -67,245 +118,273 @@ export default function ProfileSettingsPage() {
   if (loading) {
     return (
       <div className="hub-body">
-        <p style={{ padding: "2rem" }}>Loading profile...</p>
+        <PageLoader />
       </div>
     );
   }
 
   return (
-    <div className="hub-body">
+    <div className="hub-body mx-auto max-w-5xl space-y-6">
       {error && (
-        <div
-          style={{
-            background: "var(--danger-bg, #fee)",
-            color: "var(--danger, #c00)",
-            padding: "0.75rem 1rem",
-            borderRadius: "6px",
-            marginBottom: "1rem",
-          }}
-        >
-          {error}
-        </div>
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
-      {notice && <div className="alert-bar alert-warning">{notice}</div>}
+      {notice && (
+        <Alert variant="success">
+          <AlertTitle>Success</AlertTitle>
+          <AlertDescription>{notice}</AlertDescription>
+        </Alert>
+      )}
 
-      <header
-        className="page-header"
-        style={{ padding: 0, marginBottom: "24px" }}
-      >
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1>Profile Settings</h1>
-          <p className="page-subtitle">
+          <p className="text-muted-foreground mt-1 text-sm">
             Manage your personal information, licensing, and account security
           </p>
         </div>
-        <div className="header-actions">
-          <button
-            className="btn btn-primary"
-            onClick={handleSave}
-            disabled={saving}
-          >
-            {saving ? "Saving..." : "Save Changes"}
-          </button>
-        </div>
-      </header>
+        <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
+          {saving ? "Saving..." : "Save Changes"}
+        </Button>
+      </div>
 
-      <div className="settings-layout">
-        <div className="card settings-card">
-          <h2 className="settings-section-title">Edit Information</h2>
-          <div className="settings-group">
-            <div className="setting-row" style={{ alignItems: "center" }}>
-              <div className="setting-info">
-                <span className="setting-label">Profile Avatar</span>
-                <span className="setting-desc">
-                  Upload a picture to replace your initials
-                </span>
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-primary to-indigo-500 text-xl font-bold text-primary-foreground">
+              {initials}
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-lg font-semibold text-foreground">
+                {fullName || "Your Name"}
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                {professionalTitle || "Professional Title"}
+              </p>
+            </div>
+            <Button variant="outline" size="sm" className="w-full sm:w-auto">
+              <Upload className="mr-2 h-4 w-4" /> Upload Photo
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Personal Information</CardTitle>
+            <CardDescription>Your public profile and contact details</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="fullName">Full Name</Label>
+                <Input
+                  id="fullName"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Your legal or professional name"
+                />
               </div>
-              <div
-                style={{ display: "flex", gap: "12px", alignItems: "center" }}
-              >
-                <div
-                  className="hub-avatar-btn"
-                  style={{
-                    width: "48px",
-                    height: "48px",
-                    fontSize: "20px",
-                    cursor: "default",
-                    transform: "none",
-                    boxShadow: "none",
-                  }}
-                >
-                  {initials}
-                </div>
-                <button
-                  className="btn btn-outline"
-                  style={{ padding: "6px 12px" }}
-                >
-                  Upload Photo
-                </button>
+              <div className="space-y-2">
+                <Label htmlFor="title">Professional Title</Label>
+                <Input
+                  id="title"
+                  value={professionalTitle}
+                  onChange={(e) => setProfessionalTitle(e.target.value)}
+                  placeholder="E.g., Registered Land Surveyor"
+                />
               </div>
             </div>
-
-            <div className="setting-row">
-              <div className="setting-info">
-                <span className="setting-label">Full Name</span>
-                <span className="setting-desc">
-                  Your legal or professional name
-                </span>
-              </div>
-              <input
-                className="setting-input"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-              />
-            </div>
-
-            <div className="setting-row">
-              <div className="setting-info">
-                <span className="setting-label">Professional Title</span>
-                <span className="setting-desc">
-                  E.g., Registered Land Surveyor, Party Chief
-                </span>
-              </div>
-              <input
-                className="setting-input"
-                value={professionalTitle}
-                onChange={(e) => setProfessionalTitle(e.target.value)}
-              />
-            </div>
-
-            <div className="setting-row">
-              <div className="setting-info">
-                <span className="setting-label">Promo / Referral Code</span>
-                <span className="setting-desc">
-                  Optional code for promotions and referral tracking
-                </span>
-              </div>
-              <input
-                className="setting-input"
+            <div className="space-y-2">
+              <Label htmlFor="promo">Promo / Referral Code</Label>
+              <Input
+                id="promo"
                 value={promoCode}
                 onChange={(e) => setPromoCode(e.target.value)}
+                placeholder="Optional code for promotions"
               />
             </div>
-
-            <div className="setting-row" style={{ alignItems: "flex-start" }}>
-              <div className="setting-info">
-                <span className="setting-label">Professional Bio</span>
-                <span className="setting-desc">
-                  Brief summary of your skills and experience
-                </span>
-              </div>
-              <textarea
-                className="setting-input"
-                style={{
-                  minHeight: "80px",
-                  fontFamily: "inherit",
-                  resize: "vertical",
-                }}
+            <div className="space-y-2">
+              <Label htmlFor="bio">Professional Bio</Label>
+              <Textarea
+                id="bio"
                 value={bio}
                 onChange={(e) => setBio(e.target.value)}
+                placeholder="Brief summary of your skills and experience"
+                rows={4}
               />
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
-        <div className="card settings-card">
-          <h2 className="settings-section-title">
-            Account Security & Notifications
-          </h2>
-          <div className="settings-group">
-            <div className="setting-row">
-              <div className="setting-info">
-                <span className="setting-label">Email Address</span>
-                <span className="setting-desc">
-                  Used for login and notifications
-                </span>
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Account Security & Notifications</CardTitle>
+              <CardDescription>Manage your sign-in and alert preferences</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email Address</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Phone Number</Label>
+                  <Input
+                    id="phone"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="For 2FA and field contact"
+                  />
+                </div>
               </div>
-              <input
-                className="setting-input"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
 
-            <div className="setting-row">
-              <div className="setting-info">
-                <span className="setting-label">Phone Number</span>
-                <span className="setting-desc">For 2FA and field contact</span>
-              </div>
-              <input
-                className="setting-input"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
-            </div>
+              <Separator />
 
-            <div className="setting-row">
-              <div className="setting-info">
-                <span className="setting-label">Dark Mode</span>
-                <span className="setting-desc">
-                  Use a darker interface optimized for low-light work
-                </span>
-              </div>
-              <label className="toggle">
-                <input
-                  type="checkbox"
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label className="text-sm">Dark Mode</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Use a darker interface optimized for low-light work
+                  </p>
+                </div>
+                <Switch
                   checked={isDarkMode}
-                  onChange={(e) =>
-                    setThemeMode(e.target.checked ? "dark" : "light")
+                  onCheckedChange={(checked) =>
+                    setThemeMode(checked ? "dark" : "light")
                   }
                 />
-                <span className="toggle-slider" />
-              </label>
-            </div>
-
-            <div className="setting-row">
-              <div className="setting-info">
-                <span className="setting-label">
-                  Two-Factor Authentication (2FA)
-                </span>
-                <span className="setting-desc">
-                  Require an SMS code when logging in
-                </span>
               </div>
-              <label className="toggle">
-                <input type="checkbox" defaultChecked />
-                <span className="toggle-slider" />
-              </label>
-            </div>
 
-            <div className="setting-row">
-              <div className="setting-info">
-                <span className="setting-label">Email Notifications</span>
-                <span className="setting-desc">
-                  Receive updates about calibration alerts and project invites
-                </span>
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label className="text-sm">Two-Factor Authentication (2FA)</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Require an SMS code when logging in
+                  </p>
+                </div>
+                <Switch defaultChecked />
               </div>
-              <label className="toggle">
-                <input type="checkbox" defaultChecked />
-                <span className="toggle-slider" />
-              </label>
-            </div>
 
-            <div className="setting-row">
-              <div className="setting-info">
-                <span className="setting-label" style={{ color: "#c62828" }}>
-                  Change Password
-                </span>
-                <span className="setting-desc">
-                  Send a secure magic link to reset your password
-                </span>
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label className="text-sm">Email Notifications</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Receive updates about alerts and invites
+                  </p>
+                </div>
+                <Switch defaultChecked />
               </div>
-              <button
-                className="btn btn-outline"
-                style={{ color: "#c62828", borderColor: "#fbcfe8" }}
-              >
-                Reset Password
-              </button>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Danger Zone</CardTitle>
+              <CardDescription>Irreversible account actions</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-0.5">
+                  <Label className="text-sm">Change Password</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Send a secure magic link to reset your password
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" className="w-full sm:w-auto">
+                  Reset Password
+                </Button>
+              </div>
+              <Separator />
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-0.5">
+                  <Label className="text-sm text-destructive">Delete Account</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Start a 30-day deletion process
+                  </p>
+                </div>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  onClick={() => {
+                    setShowDeleteAccount(true);
+                    setDeleteConfirmText("");
+                    setDeleteError(null);
+                  }}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" /> Delete Account
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
+
+      <Dialog open={showDeleteAccount} onOpenChange={setShowDeleteAccount}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" /> Delete your account?
+            </DialogTitle>
+            <DialogDescription>
+              This starts a 30-day grace period. After that, your profile,
+              embedded wallet, and personal data will be permanently removed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="text-sm text-muted-foreground">
+            You cannot undo this from the app. Workspace owners must transfer
+            ownership or delete those workspaces first.
+          </div>
+          {deleteError && (
+            <Alert variant="destructive">
+              <AlertDescription>{deleteError}</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="delete-confirm">
+              Type <strong>delete</strong> to confirm
+            </Label>
+            <Input
+              id="delete-confirm"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder="delete"
+              autoFocus
+            />
+          </div>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteAccount(false)}
+              disabled={deleteLoading}
+              className="w-full sm:w-auto"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteAccount}
+              disabled={deleteLoading || deleteConfirmText.trim().toLowerCase() !== "delete"}
+              aria-busy={deleteLoading}
+              className="w-full sm:w-auto"
+            >
+              {deleteLoading ? "Deleting…" : "Delete Account"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

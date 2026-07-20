@@ -12,6 +12,7 @@ interface SelectDropdownProps {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  disabled?: boolean;
 }
 
 export default function SelectDropdown({
@@ -20,6 +21,7 @@ export default function SelectDropdown({
   onChange,
   placeholder = 'Select...',
   className = '',
+  disabled = false,
 }: SelectDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -51,7 +53,8 @@ export default function SelectDropdown({
         className={`input-field select-dropdown-trigger ${
           isOpen ? 'open' : ''
         }`}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
       >

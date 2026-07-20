@@ -1,6 +1,32 @@
 import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
 import { supabase } from "../supabase/client.ts";
 
+// ── Google OAuth helper ───────────────────────────────────────────────────────
+
+/**
+ * Starts the Google OAuth (PKCE) flow. Supabase redirects the browser to
+ * Google and back to `redirectTo`; the returning URL is consumed by the
+ * client's `detectSessionInUrl`, which fires a `SIGNED_IN` auth event that
+ * `App.tsx` already listens for. No session is returned here directly.
+ */
+export async function signInWithGoogle(): Promise<void> {
+  const redirectTo = `${window.location.origin}/`;
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo,
+      queryParams: {
+        access_type: "offline",
+        prompt: "consent",
+      },
+    },
+  });
+
+  if (error) {
+    throw error;
+  }
+}
+
 export interface SignInInput {
   email: string;
   password: string;
@@ -29,23 +55,31 @@ export interface SignUpResult {
 }
 
 export async function getCurrentSession(): Promise<Session | null> {
-  const { data, error } = await supabase.auth.getSession();
+  try {
+    const { data, error } = await supabase.auth.getSession();
 
-  if (error) {
-    throw error;
+    if (error) {
+      return null;
+    }
+
+    return data.session;
+  } catch {
+    return null;
   }
-
-  return data.session;
 }
 
 export async function getCurrentUser(): Promise<User | null> {
-  const { data, error } = await supabase.auth.getUser();
+  try {
+    const { data, error } = await supabase.auth.getUser();
 
-  if (error) {
-    throw error;
+    if (error) {
+      return null;
+    }
+
+    return data.user;
+  } catch {
+    return null;
   }
-
-  return data.user;
 }
 
 export async function signInWithEmail({ email, password }: SignInInput) {
@@ -95,6 +129,19 @@ export async function signOut() {
   if (error) {
     throw error;
   }
+}
+
+export async function resendSignupConfirmation(email: string) {
+  const { data, error } = await supabase.auth.resend({
+    type: "signup",
+    email,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
 }
 
 export async function requestPasswordReset(email: string) {

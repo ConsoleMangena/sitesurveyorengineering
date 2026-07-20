@@ -1,0 +1,28 @@
+[package]
+name = "survey-wasm"
+version = "0.1.0"
+description = "wasm-bindgen wrapper exposing survey-core to the SiteSurveyor frontend."
+authors = ["SiteSurveyor Engineering"]
+edition = "2021"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+survey-core = { path = "../survey-core" }
+wasm-bindgen = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+
+# Smaller, faster panic handling in the browser.
+console_error_panic_hook = { version = "0.1", optional = true }
+
+[features]
+default = ["console_error_panic_hook"]
+
+[profile.release]
+# Optimise the WASM artifact for size; pairs with wasm-opt in the build script.
+opt-level = "s"
+lto = true
+codegen-units = 1

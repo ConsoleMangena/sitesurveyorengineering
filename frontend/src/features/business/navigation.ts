@@ -2,7 +2,10 @@ import type { WorkspaceNavGroup } from "../workspace/types";
 
 export const businessNavGroups: WorkspaceNavGroup[] = [
   {
-    items: [{ view: "dashboard", label: "Dashboard", icon: "dashboard" }],
+    items: [
+      { view: "dashboard", label: "Dashboard", icon: "dashboard" },
+      { view: "notifications", label: "Notifications", icon: "notifications" },
+    ],
   },
   {
     label: "OPERATIONS",
@@ -11,7 +14,7 @@ export const businessNavGroups: WorkspaceNavGroup[] = [
       { view: "projects", label: "Projects", icon: "folder" },
       { view: "timeTracking", label: "Time & Expenses", icon: "clock" },
       { view: "files", label: "File Manager", icon: "file-manager" },
-      { view: "dispatch", label: "Dispatch", icon: "calendar" },
+      { view: "dispatch", label: "Dispatch", icon: "clipboard" },
       { view: "schedule", label: "Schedule", icon: "calendar" },
     ],
   },

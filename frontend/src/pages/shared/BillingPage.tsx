@@ -1,41 +1,58 @@
 import { useState, useEffect, useCallback } from "react";
+import { Receipt, Banknote, AlertCircle, ExternalLink, Loader2, Plus, Download } from "lucide-react";
+
+import { cn } from "@/lib/utils";
+import PageLoader from "@/components/PageLoader.tsx";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { DashboardHeader, DashboardShell } from "@/components/dashboard/DashboardShell.tsx";
+import { DashboardCard } from "@/components/dashboard/DashboardCard.tsx";
+
 import { listInvoices } from "../../lib/repositories/invoices.ts";
 import type { InvoiceWithDetails } from "../../lib/repositories/invoices.ts";
 import { createPayment, listPayments } from "../../lib/repositories/payments.ts";
 import type { PaymentWithInvoice } from "../../lib/repositories/payments.ts";
 import {
-  createPaymentMethod,
   deletePaymentMethod,
   listPaymentMethods,
   setDefaultPaymentMethod,
   type PaymentMethodRow,
 } from "../../lib/repositories/paymentMethods.ts";
 import { hasMinimumRole } from "../../lib/permissions.ts";
+import { getMyWorkspaceMembership, type WorkspaceMemberRow } from "../../lib/repositories/workspaces.ts";
+import SolanaLogo from "../../components/SolanaLogo.tsx";
+import EmbeddedWalletCard from "../../components/EmbeddedWalletCard.tsx";
+import { useEmbeddedWallet } from "../../hooks/useEmbeddedWallet.ts";
 import {
-  getMyWorkspaceMembership,
-  type WorkspaceMemberRow,
-} from "../../lib/repositories/workspaces.ts";
-import {
-  getWorkspaceLicense,
-  listLicenseEvents,
-  updateWorkspaceLicense,
-  type LicenseEvent,
-  type LicenseStatus,
-  type LicenseTier,
-  type WorkspaceLicense,
-} from "../../lib/repositories/workspaceLicenses.ts";
-import {
-  formatWorkspaceBytes,
-  getWorkspaceUsage,
-  type WorkspaceUsageSnapshot,
-} from "../../lib/repositories/workspaceUsage.ts";
-import SelectDropdown from "../../components/SelectDropdown.tsx";
-import WorkspaceUsageBanner from "../../components/WorkspaceUsageBanner.tsx";
-import "../../styles/pages.css";
+  estimateUsdcTransferFee,
+  payInvoiceWithUsdc,
+} from "../../lib/payments/solanaPay.ts";
+import { verifySolanaPayment } from "../../lib/payments/verify.ts";
+import { isOnChainPaymentConfigured, SOLANA_CLUSTER } from "../../lib/solana/config.ts";
+import { saveWalletActivity } from "../../lib/solana/walletHistory.ts";
 
 interface BillingPageProps {
   workspaceId: string;
-  /** Workspace managers may edit tier/notes; only platform admins may edit license status (server-enforced). */
+  /** Workspace managers and platform admins may record/manage payments. */
   isPlatformAdmin?: boolean;
 }
 
@@ -43,9 +60,8 @@ export default function BillingPage({
   workspaceId,
   isPlatformAdmin = false,
 }: BillingPageProps) {
-  const [activeTab, setActiveTab] = useState<"overview" | "history">(
-    "overview",
-  );
+  const embeddedWallet = useEmbeddedWallet();
+  const [activeTab, setActiveTab] = useState<"overview" | "history">("overview");
   const [notice, setNotice] = useState<string | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodRow[]>([]);
   const [methodsLoading, setMethodsLoading] = useState(true);
@@ -55,28 +71,13 @@ export default function BillingPage({
   const [invoices, setInvoices] = useState<InvoiceWithDetails[]>([]);
   const [invoicesLoading, setInvoicesLoading] = useState(true);
   const [membership, setMembership] = useState<WorkspaceMemberRow | null>(null);
-  const [license, setLicense] = useState<WorkspaceLicense | null>(null);
-  const [licenseEvents, setLicenseEvents] = useState<LicenseEvent[]>([]);
-  const [_licenseLoading, setLicenseLoading] = useState(true);
-  const [licenseError, setLicenseError] = useState<string | null>(null);
-  const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
-  const [licenseTierDraft, setLicenseTierDraft] = useState<LicenseTier>("free");
-  const [licenseStatusDraft, setLicenseStatusDraft] =
-    useState<LicenseStatus>("active");
-  const [licenseNotesDraft, setLicenseNotesDraft] = useState("");
-  const [savingLicense, setSavingLicense] = useState(false);
-  const [usageReloadKey, setUsageReloadKey] = useState(0);
-  const [licenseModalUsage, setLicenseModalUsage] =
-    useState<WorkspaceUsageSnapshot | null>(null);
-  const [licenseModalUsageLoading, setLicenseModalUsageLoading] =
-    useState(false);
-  const [licenseModalUsageError, setLicenseModalUsageError] = useState<
-    string | null
-  >(null);
-  const [isAddMethodOpen, setIsAddMethodOpen] = useState(false);
   const [isRecordPaymentOpen, setIsRecordPaymentOpen] = useState(false);
   const [recordPaymentError, setRecordPaymentError] = useState<string | null>(null);
   const [recordingPayment, setRecordingPayment] = useState(false);
+  const [solanaStatus, setSolanaStatus] = useState<
+    "idle" | "connecting" | "pending" | "verifying"
+  >("idle");
+  const [solanaFeeEstimate, setSolanaFeeEstimate] = useState<string | null>(null);
   const [paymentInvoiceId, setPaymentInvoiceId] = useState("");
   const [paymentDate, setPaymentDate] = useState(
     new Date().toISOString().slice(0, 10),
@@ -85,11 +86,6 @@ export default function BillingPage({
   const [paymentMethod, setPaymentMethod] = useState("");
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentNotes, setPaymentNotes] = useState("");
-  const [newType, setNewType] = useState<"Card" | "Mobile Money" | "Bank Transfer">("Card");
-  const [newLabel, setNewLabel] = useState("");
-  const [newDetail, setNewDetail] = useState("");
-  const [newExpiry, setNewExpiry] = useState("");
-  const [newHolder, setNewHolder] = useState("");
   const [historySearch, setHistorySearch] = useState("");
   const [historySort, setHistorySort] = useState<
     "date-desc" | "date-asc" | "amount-desc"
@@ -107,7 +103,7 @@ export default function BillingPage({
   }, [workspaceId]);
 
   useEffect(() => {
-    fetchMethods();
+    void fetchMethods();
   }, [fetchMethods]);
 
   const fetchHistory = useCallback(async () => {
@@ -123,7 +119,7 @@ export default function BillingPage({
   }, [workspaceId]);
 
   useEffect(() => {
-    fetchHistory();
+    void fetchHistory();
   }, [fetchHistory]);
 
   const fetchInvoices = useCallback(async () => {
@@ -138,62 +134,21 @@ export default function BillingPage({
   }, [workspaceId]);
 
   useEffect(() => {
-    fetchInvoices();
+    void fetchInvoices();
   }, [fetchInvoices]);
 
-  const fetchLicense = useCallback(async () => {
+  const fetchMembership = useCallback(async () => {
     try {
-      setLicenseError(null);
-      const [membershipData, licenseData, eventsData] = await Promise.all([
-        getMyWorkspaceMembership(workspaceId),
-        getWorkspaceLicense(workspaceId),
-        listLicenseEvents(workspaceId),
-      ]);
+      const membershipData = await getMyWorkspaceMembership(workspaceId);
       setMembership(membershipData);
-      setLicense(licenseData);
-      setLicenseEvents(eventsData);
-      if (licenseData) {
-        setLicenseTierDraft(licenseData.tier);
-        setLicenseStatusDraft(licenseData.status);
-        setLicenseNotesDraft(licenseData.notes ?? "");
-      }
-    } catch (err: unknown) {
-      setLicenseError(err instanceof Error ? err.message : "Failed to load license details.");
-    } finally {
-      setLicenseLoading(false);
+    } catch {
+      setMembership(null);
     }
   }, [workspaceId]);
 
   useEffect(() => {
-    fetchLicense();
-  }, [fetchLicense]);
-
-  useEffect(() => {
-    if (!isLicenseModalOpen) {
-      setLicenseModalUsage(null);
-      setLicenseModalUsageError(null);
-      return;
-    }
-    let cancelled = false;
-    setLicenseModalUsageLoading(true);
-    setLicenseModalUsageError(null);
-    getWorkspaceUsage(workspaceId)
-      .then((snapshot) => {
-        if (!cancelled) setLicenseModalUsage(snapshot);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled)
-          setLicenseModalUsageError(
-            err instanceof Error ? err.message : "Failed to load usage.",
-          );
-      })
-      .finally(() => {
-        if (!cancelled) setLicenseModalUsageLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isLicenseModalOpen, workspaceId]);
+    void fetchMembership();
+  }, [fetchMembership]);
 
   const showNotice = (message: string) => {
     setNotice(message);
@@ -205,6 +160,7 @@ export default function BillingPage({
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })}`;
+
   const formatDate = (iso: string) =>
     new Date(iso).toLocaleDateString("en-GB", {
       day: "2-digit",
@@ -232,37 +188,6 @@ export default function BillingPage({
     }
   };
 
-  const resetMethodForm = () => {
-    setNewType("Card");
-    setNewLabel("");
-    setNewDetail("");
-    setNewExpiry("");
-    setNewHolder("");
-  };
-
-  const addMethod = async () => {
-    if (!newLabel.trim() || !newDetail.trim()) {
-      showNotice("Enter both label and details for the new method.");
-      return;
-    }
-    try {
-      await createPaymentMethod(workspaceId, {
-        type: newType,
-        label: newLabel.trim(),
-        detail: newDetail.trim(),
-        holder: newHolder.trim() || null,
-        expiry: newExpiry.trim() || null,
-        is_default: paymentMethods.length === 0,
-      });
-      setIsAddMethodOpen(false);
-      resetMethodForm();
-      await fetchMethods();
-      showNotice("Payment method added.");
-    } catch (err: unknown) {
-      showNotice(err instanceof Error ? err.message : "Failed to add method.");
-    }
-  };
-
   const escapeCsv = (value: string | number | null | undefined) => {
     const str = String(value ?? "");
     if (/[",\n]/.test(str)) return `"${str.replaceAll('"', '""')}"`;
@@ -275,14 +200,7 @@ export default function BillingPage({
       showNotice("No payment records available to export.");
       return;
     }
-    const header = [
-      "paid_on",
-      "invoice_number",
-      "payment_method",
-      "reference",
-      "amount",
-      "notes",
-    ];
+    const header = ["paid_on", "invoice_number", "payment_method", "reference", "amount", "notes"];
     const csvRows = rows.map((entry) =>
       [
         entry.paid_on,
@@ -317,6 +235,7 @@ export default function BillingPage({
     setPaymentReference("");
     setPaymentNotes("");
     setRecordPaymentError(null);
+    setSolanaStatus("idle");
   };
 
   const submitRecordPayment = async () => {
@@ -356,43 +275,92 @@ export default function BillingPage({
     }
   };
 
-  const canManageBilling = hasMinimumRole(membership?.role, "admin") || isPlatformAdmin;
-  const canManageLicense = isPlatformAdmin;
+  const selectedInvoice = invoices.find((inv) => inv.id === paymentInvoiceId);
+  const solanaBusy = solanaStatus !== "idle";
+  const solanaConfigured = isOnChainPaymentConfigured();
 
-  const licenseTierLabel = (license?.tier ?? "free").toUpperCase();
-  const licenseStatusLabel = (license?.status ?? "active").replaceAll("_", " ");
-  const statusBadgeClass =
-    license?.status === "active" || license?.status === "trialing"
-      ? "badge-green"
-      : license?.status === "past_due"
-        ? "badge-yellow"
-        : "badge-gray";
-  const tierBadgeClass =
-    license?.tier === "enterprise"
-      ? "badge-purple"
-      : license?.tier === "pro"
-        ? "badge-blue"
-        : "badge-gray";
+  const solanaButtonLabel = {
+    idle: `Pay with Solana (USDC) on ${SOLANA_CLUSTER}`,
+    connecting: "Connecting wallet…",
+    pending: "Confirm in wallet…",
+    verifying: "Verifying on-chain payment…",
+  }[solanaStatus];
 
-  const saveLicense = async () => {
-    if (!license) return;
+  const payWithSolana = async () => {
+    if (!selectedInvoice) {
+      setRecordPaymentError("Please select an invoice to pay.");
+      return;
+    }
+    setRecordPaymentError(null);
     try {
-      setSavingLicense(true);
-      await updateWorkspaceLicense(workspaceId, {
-        tier: licenseTierDraft,
-        ...(isPlatformAdmin ? { status: licenseStatusDraft } : {}),
-        notes: licenseNotesDraft.trim() || null,
+      setSolanaStatus("connecting");
+      const { signature, reference, walletAddress } = await payInvoiceWithUsdc(
+        {
+          amount: selectedInvoice.total,
+          invoiceId: selectedInvoice.id,
+        },
+        embeddedWallet.unlockedWallet?.keypair,
+      );
+
+      setSolanaStatus("verifying");
+      const result = await verifySolanaPayment({
+        workspaceId,
+        invoiceId: selectedInvoice.id,
+        signature,
+        reference,
+        walletAddress,
       });
-      await fetchLicense();
-      setUsageReloadKey((k) => k + 1);
-      setIsLicenseModalOpen(false);
-      showNotice("Workspace license updated.");
+
+      saveWalletActivity({
+        type: "payment",
+        label: `Paid invoice ${selectedInvoice.invoice_number}`,
+        signature,
+        amount: selectedInvoice.total.toString(),
+        token: "USDC",
+        detail: selectedInvoice.invoice_number,
+        network: SOLANA_CLUSTER,
+      });
+      await fetchHistory();
+      setIsRecordPaymentOpen(false);
+      resetRecordPaymentForm();
+      showNotice(
+        result.alreadyRecorded
+          ? "Payment already recorded."
+          : "Solana payment confirmed and recorded.",
+      );
     } catch (err: unknown) {
-      setLicenseError(err instanceof Error ? err.message : "Failed to update license.");
+      setRecordPaymentError(err instanceof Error ? err.message : "Solana payment failed.");
     } finally {
-      setSavingLicense(false);
+      setSolanaStatus("idle");
     }
   };
+
+  useEffect(() => {
+    if (!selectedInvoice || !solanaConfigured) {
+      setSolanaFeeEstimate(null);
+      return;
+    }
+    let cancelled = false;
+    setSolanaFeeEstimate("…");
+    void estimateUsdcTransferFee(selectedInvoice.total)
+      .then((fee) => {
+        if (!cancelled) {
+          setSolanaFeeEstimate(
+            fee > 0
+              ? `~${fee.toLocaleString(undefined, { maximumFractionDigits: 6 })} SOL`
+              : null,
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSolanaFeeEstimate(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedInvoice, solanaConfigured]);
+
+  const canManageBilling = hasMinimumRole(membership?.role, "admin") || isPlatformAdmin;
 
   const query = historySearch.trim().toLowerCase();
   const filteredHistory = history
@@ -406,607 +374,388 @@ export default function BillingPage({
     .sort((a, b) => {
       if (historySort === "amount-desc") return b.amount - a.amount;
       if (historySort === "date-asc")
-        return (
-          new Date(a.paid_on).getTime() - new Date(b.paid_on).getTime()
-        );
-      return (
-        new Date(b.paid_on).getTime() - new Date(a.paid_on).getTime()
-      );
+        return new Date(a.paid_on).getTime() - new Date(b.paid_on).getTime();
+      return new Date(b.paid_on).getTime() - new Date(a.paid_on).getTime();
     });
 
   const totalCollected = history.reduce((s, p) => s + p.amount, 0);
 
   return (
-    <div className="hub-body billing-page">
-      <header className="page-header billing-header">
-        <div>
-          <h1>Billing & Payments</h1>
-          <p className="page-subtitle">
-            Manage payment methods and view payment history
-          </p>
-        </div>
-        <div className="header-actions">
-          <div className="billing-license-widget" aria-label="Workspace license">
-            <span className="billing-license-label">License Plan</span>
-            <span className={`badge ${tierBadgeClass}`}>{licenseTierLabel}</span>
-            <span className="billing-license-label">Status</span>
-            <span className={`badge ${statusBadgeClass}`}>{licenseStatusLabel}</span>
-            {canManageLicense && (
-              <button
-                className="btn btn-outline btn-sm"
-                onClick={() => setIsLicenseModalOpen(true)}
+    <DashboardShell className="hub-body billing-page finance-page">
+      <DashboardHeader
+        title="Finance"
+        subtitle="Wallet, payments, and transaction history"
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={downloadStatementCsv}
+              className="gap-2"
+            >
+              <Download size={16} />
+              Export
+            </Button>
+            {canManageBilling && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  resetRecordPaymentForm();
+                  setIsRecordPaymentOpen(true);
+                }}
+                disabled={invoicesLoading || invoices.length === 0}
+                className="gap-2"
               >
-                Manage License
-              </button>
+                <Plus size={16} />
+                Record Payment
+              </Button>
             )}
           </div>
-          {canManageBilling && (
-            <button
-              className="btn btn-primary"
-              onClick={() => {
-                resetRecordPaymentForm();
-                setIsRecordPaymentOpen(true);
-              }}
-              disabled={invoicesLoading || invoices.length === 0}
-            >
-              Record Payment
-            </button>
-          )}
-          <button
-            className="btn btn-outline billing-statements-btn"
-            onClick={downloadStatementCsv}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            Download Statements
-          </button>
-        </div>
-      </header>
-      {notice && <div className="alert-bar alert-warning">{notice}</div>}
-      <WorkspaceUsageBanner
-        workspaceId={workspaceId}
-        reloadKey={usageReloadKey}
+        }
       />
 
-      <div className="invoice-summary-row billing-summary-row">
-        <div className="invoice-summary-card billing-summary-card balance">
-          <div className="billing-summary-head">
-            <span className="invoice-summary-label">Payments Recorded</span>
-          </div>
-          <span className="invoice-summary-value">{history.length}</span>
-          <p className="billing-summary-copy">Total payment records</p>
-        </div>
-        <div className="invoice-summary-card billing-summary-card plan">
-          <div className="billing-summary-head">
-            <span className="invoice-summary-label">Total Collected</span>
-          </div>
-          <span className="invoice-summary-value">
-            {formatCurrency(totalCollected)}
-          </span>
-          <p className="billing-summary-copy">
-            Across all recorded payments
-          </p>
-        </div>
-      </div>
-      {licenseError && <div className="alert-bar alert-warning">{licenseError}</div>}
-
-      {licenseEvents.length > 0 && (
-        <div className="card" style={{ marginBottom: "1rem" }}>
-          <div className="card-header">
-            <h3 className="billing-section-title">Recent License Events</h3>
-          </div>
-          <table className="invoice-table billing-history-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Tier</th>
-                <th>Status</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {licenseEvents.map((event) => (
-                <tr key={event.id}>
-                  <td>{formatDate(event.created_at)}</td>
-                  <td>{event.previous_tier ?? "—"} → {event.new_tier ?? "—"}</td>
-                  <td>{event.previous_status ?? "—"} → {event.new_status ?? "—"}</td>
-                  <td>{event.notes ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {notice && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          {notice}
         </div>
       )}
 
-      <div className="card billing-card">
-        <div className="card-header billing-tabs">
-          <button
-            onClick={() => setActiveTab("overview")}
-            className={`billing-tab-btn ${activeTab === "overview" ? "active" : ""}`}
-          >
-            Payment Methods
-          </button>
-          <button
-            onClick={() => setActiveTab("history")}
-            className={`billing-tab-btn ${activeTab === "history" ? "active" : ""}`}
-          >
-            Payment History
-          </button>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <DashboardCard title="Payments Recorded" icon={<Receipt size={16} />}>
+          <div className="text-3xl font-bold">{history.length}</div>
+          <p className="text-xs text-muted-foreground">Total transactions</p>
+        </DashboardCard>
+        <DashboardCard title="Total Collected" icon={<Banknote size={16} />}>
+          <div className="text-3xl font-bold">{formatCurrency(totalCollected)}</div>
+          <p className="text-xs text-muted-foreground">Across all payments</p>
+        </DashboardCard>
+        <DashboardCard title="Outstanding" icon={<AlertCircle size={16} />}>
+          <div className="text-3xl font-bold">
+            {formatCurrency(
+              invoices
+                .filter((inv) => inv.status !== "paid")
+                .reduce((s, inv) => s + inv.total, 0),
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">Unpaid invoices</p>
+        </DashboardCard>
+      </div>
 
-        {activeTab === "overview" ? (
-          <div className="billing-methods-panel">
-            <h3 className="billing-section-title">Saved Methods</h3>
-            {methodsLoading ? (
-              <p style={{ color: "var(--text)" }}>Loading payment methods...</p>
-            ) : (
-              <div className="billing-method-grid">
-                {paymentMethods.map((method) => (
-                <div
-                  key={method.id}
-                  className={`billing-method-card ${method.is_default ? "is-default" : ""}`}
-                >
-                  {method.is_default && (
-                    <span className="billing-default-badge">Default</span>
-                  )}
-                  <div className="billing-method-top">
-                    <div
-                      className={`billing-method-icon ${method.type === "Card" ? "card" : "mobile"}`}
+      <EmbeddedWalletCard />
+
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab(v as "overview" | "history")}
+      >
+        <Card className="border-border/60">
+          <CardHeader className="pb-0">
+            <TabsList>
+              <TabsTrigger value="overview">Saved Methods</TabsTrigger>
+              <TabsTrigger value="history">Payment History</TabsTrigger>
+            </TabsList>
+          </CardHeader>
+          <CardContent className="pt-4">
+            <TabsContent value="overview" className="mt-0">
+              {methodsLoading ? (
+                <PageLoader compact />
+              ) : paymentMethods.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  No saved payment methods yet.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {paymentMethods.map((method) => (
+                    <Card
+                      key={method.id}
+                      className={cn(
+                        "border-border/60",
+                        method.is_default && "border-l-4 border-l-primary",
+                      )}
                     >
-                      {method.type === "Card" ? method.label : "MM"}
-                    </div>
-                    <div>
-                      <div className="billing-method-label">{method.label}</div>
-                      <div className="billing-method-detail">
-                        {method.detail}
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={cn(
+                                "h-10 w-10 rounded-lg flex items-center justify-center text-sm font-semibold",
+                                method.type === "Card"
+                                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200"
+                                  : method.type === "Crypto Wallet"
+                                    ? "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200"
+                                    : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200",
+                              )}
+                            >
+                              {method.type === "Card"
+                                ? method.label.slice(0, 2)
+                                : method.type === "Crypto Wallet"
+                                  ? <SolanaLogo size={22} />
+                                  : "MM"}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold truncate">{method.label}</p>
+                              <p className="text-xs text-muted-foreground">{method.type}</p>
+                            </div>
+                          </div>
+                          {method.is_default && <Badge variant="success">Default</Badge>}
+                        </div>
+
+                        <p className="mt-3 text-sm font-medium">
+                          {method.type === "Crypto Wallet"
+                            ? `${method.detail.slice(0, 6)}…${method.detail.slice(-6)}`
+                            : method.detail}
+                        </p>
+                        {method.expiry && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {method.type === "Crypto Wallet"
+                              ? `Network: ${method.expiry}`
+                              : `Expires ${method.expiry}`}
+                          </p>
+                        )}
+                        {method.holder && (
+                          <p className="text-xs text-muted-foreground">{method.holder}</p>
+                        )}
+
+                        <div className="flex flex-wrap gap-2 mt-4">
+                          {canManageBilling && !method.is_default && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void setDefaultMethod(method.id)}
+                            >
+                              Set Default
+                            </Button>
+                          )}
+                          {canManageBilling && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void removeMethod(method.id)}
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="history" className="mt-0 space-y-4">
+              {historyError && (
+                <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                  {historyError}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-3">
+                <Input
+                  placeholder="Search transactions..."
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                  className="max-w-sm"
+                />
+                <div className="inline-flex flex-wrap gap-2">
+                  {[
+                    { value: "date-desc", label: "Newest" },
+                    { value: "date-asc", label: "Oldest" },
+                    { value: "amount-desc", label: "Highest amount" },
+                  ].map((opt) => (
+                    <Button
+                      key={opt.value}
+                      variant={historySort === opt.value ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setHistorySort(opt.value as typeof historySort)}
+                    >
+                      {opt.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {historyLoading ? (
+                <PageLoader compact />
+              ) : filteredHistory.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  {history.length === 0
+                    ? "No payments recorded yet."
+                    : "No records match your search."}
+                </div>
+              ) : (
+                <div className="divide-y border rounded-md">
+                  {filteredHistory.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className="text-muted-foreground">{formatDate(entry.paid_on)}</span>
+                          <span className="font-medium">{entry.invoice_number ?? "Payment"}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5 truncate">
+                          {entry.payment_method ?? "Manual"} • {entry.reference ?? "No reference"}
+                          {entry.tx_signature && (
+                            <>
+                              {" • "}
+                              <a
+                                href={`https://explorer.solana.com/tx/${entry.tx_signature}${
+                                  SOLANA_CLUSTER === "mainnet-beta" ? "" : `?cluster=${SOLANA_CLUSTER}`
+                                }`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-primary hover:underline"
+                              >
+                                View on Explorer
+                                <ExternalLink size={12} />
+                              </a>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <div className="font-semibold text-sm shrink-0">
+                        {formatCurrency(entry.amount)}
                       </div>
                     </div>
-                  </div>
-                  {(method.expiry || method.holder) && (
-                    <div className="billing-method-meta">
-                      <span>
-                        {method.expiry ? `Expires ${method.expiry}` : "\u2014"}
-                      </span>
-                      <span>{method.holder ?? "\u2014"}</span>
-                    </div>
-                  )}
-                  <div className="billing-method-actions">
-                    {canManageBilling && !method.is_default && (
-                      <button
-                        className="btn btn-outline btn-sm"
-                        onClick={() => void setDefaultMethod(method.id)}
-                      >
-                        Set Default
-                      </button>
-                    )}
-                    {canManageBilling && (
-                      <button
-                        className="btn btn-outline btn-sm"
-                        onClick={() => void removeMethod(method.id)}
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {canManageBilling && (
-                <button
-                  className="billing-add-method-btn"
-                  onClick={() => setIsAddMethodOpen(true)}
-                >
-                  <div className="billing-add-icon">
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                    >
-                      <line x1="12" y1="5" x2="12" y2="19" />
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                    </svg>
-                  </div>
-                  <span>Add Payment Method</span>
-                </button>
-              )}
-            </div>
-            )}
-          </div>
-        ) : (
-          <div className="billing-history-panel">
-            <div className="billing-history-controls">
-              <input
-                className="input-field billing-history-search"
-                placeholder="Search by invoice, method, or notes..."
-                value={historySearch}
-                onChange={(e) => setHistorySearch(e.target.value)}
-              />
-              <SelectDropdown
-                className="input-field billing-history-select"
-                value={historySort}
-                onChange={(val) =>
-                  setHistorySort(val as typeof historySort)
-                }
-                options={[
-                  { value: "date-desc", label: "Newest first" },
-                  { value: "date-asc", label: "Oldest first" },
-                  { value: "amount-desc", label: "Highest amount" }
-                ]}
-              />
-            </div>
-            {historyError && (
-              <div
-                style={{
-                  background: "var(--danger-bg, #fee)",
-                  color: "var(--danger, #c00)",
-                  padding: "0.75rem 1rem",
-                  borderRadius: "6px",
-                  margin: "0.5rem 1rem",
-                }}
-              >
-                {historyError}
-              </div>
-            )}
-            {historyLoading ? (
-              <p style={{ padding: "2rem", textAlign: "center" }}>
-                Loading payment history...
-              </p>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-              <table className="invoice-table billing-history-table" style={{ minWidth: '500px' }}>
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Invoice</th>
-                    <th className="hide-on-mobile">Method</th>
-                    <th className="hide-on-mobile">Reference</th>
-                    <th>Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredHistory.map((entry) => (
-                    <tr key={entry.id}>
-                      <td>{formatDate(entry.paid_on)}</td>
-                      <td className="billing-history-invoice">
-                        {entry.invoice_number ?? "\u2014"}
-                      </td>
-                      <td className="hide-on-mobile">{entry.payment_method ?? "\u2014"}</td>
-                      <td className="hide-on-mobile">{entry.reference ?? "\u2014"}</td>
-                      <td>{formatCurrency(entry.amount)}</td>
-                    </tr>
                   ))}
-                  {filteredHistory.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="billing-history-empty">
-                        {history.length === 0
-                          ? "No payments recorded yet."
-                          : "No records match your search."}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {isAddMethodOpen && (
-        <div
-          className="billing-modal-overlay"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="billing-modal">
-            <div className="billing-modal-header">
-              <h3>Add Payment Method</h3>
-              <button
-                className="billing-modal-close"
-                onClick={() => setIsAddMethodOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-            <div className="billing-modal-grid">
-              <SelectDropdown
-                className="input-field billing-history-select"
-                value={newType}
-                onChange={(val) =>
-                  setNewType(val as typeof newType)
-                }
-                options={[
-                  { value: "Card", label: "Card" },
-                  { value: "Mobile Money", label: "Mobile Money" },
-                  { value: "Bank Transfer", label: "Bank Transfer" }
-                ]}
-              />
-              <input
-                className="input-field"
-                placeholder={
-                  newType === "Card"
-                    ? "Card type (e.g. VISA)"
-                    : "Method name"
-                }
-                value={newLabel}
-                onChange={(e) => setNewLabel(e.target.value)}
-              />
-              <input
-                className="input-field"
-                placeholder={
-                  newType === "Card"
-                    ? "Masked number (e.g. \u2022\u2022\u2022\u2022 9876)"
-                    : "Phone/account detail"
-                }
-                value={newDetail}
-                onChange={(e) => setNewDetail(e.target.value)}
-              />
-              {newType === "Card" && (
-                <>
-                  <input
-                    className="input-field"
-                    placeholder="Card holder"
-                    value={newHolder}
-                    onChange={(e) => setNewHolder(e.target.value)}
-                  />
-                  <input
-                    className="input-field"
-                    placeholder="Expiry (MM/YY)"
-                    value={newExpiry}
-                    onChange={(e) => setNewExpiry(e.target.value)}
-                  />
-                </>
+                </div>
               )}
+            </TabsContent>
+          </CardContent>
+        </Card>
+      </Tabs>
+
+      <Dialog
+        open={isRecordPaymentOpen}
+        onOpenChange={(open) => !open && setIsRecordPaymentOpen(false)}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Record Payment</DialogTitle>
+            <DialogDescription>
+              Record an offline payment or pay on-chain with Solana.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2 space-y-1.5">
+              <Label>Invoice</Label>
+              <Select value={paymentInvoiceId} onValueChange={setPaymentInvoiceId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select invoice" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Select invoice</SelectItem>
+                  {invoices.map((inv) => (
+                    <SelectItem key={inv.id} value={inv.id}>
+                      {inv.invoice_number} - {formatCurrency(inv.total)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="billing-modal-actions">
-              <button
-                className="btn btn-outline"
-                onClick={() => setIsAddMethodOpen(false)}
-              >
-                Cancel
-              </button>
-              <button className="btn btn-primary" onClick={addMethod}>
-                Add Method
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {isRecordPaymentOpen && (
-        <div className="billing-modal-overlay" role="dialog" aria-modal="true">
-          <div className="billing-modal">
-            <div className="billing-modal-header">
-              <h3>Record Payment</h3>
-              <button
-                className="billing-modal-close"
-                onClick={() => setIsRecordPaymentOpen(false)}
-                disabled={recordingPayment}
-              >
-                Close
-              </button>
-            </div>
-            <div className="billing-modal-grid">
-              <SelectDropdown
-                className="input-field billing-history-select"
-                value={paymentInvoiceId}
-                onChange={(val) => setPaymentInvoiceId(val)}
-                options={[
-                  { value: "", label: "Select invoice" },
-                  ...invoices.map((inv) => ({
-                    value: inv.id,
-                    label: `${inv.invoice_number} - ${formatCurrency(inv.total)}`,
-                  })),
-                ]}
-              />
-              <input
+            <div className="space-y-1.5">
+              <Label htmlFor="payment-date">Date</Label>
+              <Input
+                id="payment-date"
                 type="date"
-                className="input-field"
                 value={paymentDate}
                 onChange={(e) => setPaymentDate(e.target.value)}
               />
-              <input
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="payment-amount">Amount</Label>
+              <Input
+                id="payment-amount"
                 type="number"
                 min="0"
                 step="0.01"
-                className="input-field"
                 placeholder="Amount"
                 value={paymentAmount}
                 onChange={(e) => setPaymentAmount(e.target.value)}
               />
-              <input
-                className="input-field"
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="payment-method">Method</Label>
+              <Input
+                id="payment-method"
                 placeholder="Payment method (optional)"
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value)}
               />
-              <input
-                className="input-field"
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="payment-reference">Reference</Label>
+              <Input
+                id="payment-reference"
                 placeholder="Reference (optional)"
                 value={paymentReference}
                 onChange={(e) => setPaymentReference(e.target.value)}
               />
-              <input
-                className="input-field"
+            </div>
+            <div className="sm:col-span-2 space-y-1.5">
+              <Label htmlFor="payment-notes">Notes</Label>
+              <Input
+                id="payment-notes"
                 placeholder="Notes (optional)"
                 value={paymentNotes}
                 onChange={(e) => setPaymentNotes(e.target.value)}
               />
             </div>
-            {recordPaymentError && (
-              <div className="mkt-post-error">{recordPaymentError}</div>
-            )}
-            <div className="billing-modal-actions">
-              <button
-                className="btn btn-outline"
-                onClick={() => setIsRecordPaymentOpen(false)}
-                disabled={recordingPayment}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={submitRecordPayment}
-                disabled={recordingPayment}
-              >
-                {recordingPayment ? "Saving..." : "Save Payment"}
-              </button>
-            </div>
           </div>
-        </div>
-      )}
-      {isLicenseModalOpen && (
-        <div className="billing-modal-overlay" role="dialog" aria-modal="true">
-          <div className="billing-modal">
-            <div className="billing-modal-header">
-              <h3>Update Workspace License</h3>
-              <button
-                className="billing-modal-close"
-                onClick={() => setIsLicenseModalOpen(false)}
-                disabled={savingLicense}
+
+          {recordPaymentError && (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {recordPaymentError}
+            </div>
+          )}
+
+          {solanaConfigured && (
+            <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full gap-2"
+                onClick={payWithSolana}
+                disabled={solanaBusy || recordingPayment || !selectedInvoice || !embeddedWallet.unlocked}
+                aria-busy={solanaBusy}
               >
-                Close
-              </button>
-            </div>
-            <div className="billing-modal-grid">
-              <SelectDropdown
-                className="input-field billing-history-select"
-                value={licenseTierDraft}
-                onChange={(val) => setLicenseTierDraft(val as LicenseTier)}
-                options={[
-                  { value: "free", label: "Free" },
-                  { value: "pro", label: "Pro" },
-                  { value: "enterprise", label: "Enterprise" },
-                ]}
-              />
-              {isPlatformAdmin ? (
-                <SelectDropdown
-                  className="input-field billing-history-select"
-                  value={licenseStatusDraft}
-                  onChange={(val) =>
-                    setLicenseStatusDraft(val as LicenseStatus)
-                  }
-                  options={[
-                    { value: "trialing", label: "Trialing" },
-                    { value: "active", label: "Active" },
-                    { value: "past_due", label: "Past Due" },
-                    { value: "suspended", label: "Suspended" },
-                    { value: "cancelled", label: "Cancelled" },
-                  ]}
-                />
-              ) : (
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Status (read-only)</label>
-                  <p
-                    className="billing-license-readonly-status"
-                    style={{
-                      margin: 0,
-                      padding: "10px 12px",
-                      borderRadius: 8,
-                      border: "1px solid var(--border, #e2e8f0)",
-                      background: "var(--surface-muted, #f8fafc)",
-                      fontSize: 14,
-                    }}
-                  >
-                    {licenseStatusLabel}
-                  </p>
-                  <p
-                    className="form-hint"
-                    style={{ fontSize: 12, marginTop: 6, opacity: 0.85 }}
-                  >
-                    Only platform administrators can change subscription status.
-                  </p>
-                </div>
-              )}
-              <input
-                className="input-field"
-                placeholder="Change notes (optional)"
-                value={licenseNotesDraft}
-                onChange={(e) => setLicenseNotesDraft(e.target.value)}
-              />
-            </div>
-            {licenseModalUsageLoading ? (
-              <p className="form-hint billing-license-usage-muted">
-                Loading current usage…
+                {solanaBusy && <Loader2 size={16} className="animate-spin" />}
+                <SolanaLogo size={18} />
+                {solanaButtonLabel}
+              </Button>
+              <p className="text-xs text-muted-foreground text-center">
+                {!embeddedWallet.unlocked
+                  ? "Unlock your embedded wallet to pay invoices on-chain."
+                  : selectedInvoice
+                    ? `Pays ${formatCurrency(selectedInvoice.total)} in USDC to the workspace treasury. Verified on-chain before recording.${
+                        solanaFeeEstimate ? ` Estimated network fee: ${solanaFeeEstimate}.` : ""
+                      }`
+                    : "Select an invoice to pay it directly with a Solana wallet."}
               </p>
-            ) : null}
-            {licenseModalUsageError ? (
-              <p className="form-hint billing-license-usage-warn">
-                {licenseModalUsageError}
-              </p>
-            ) : null}
-            {licenseModalUsage && !licenseModalUsageLoading ? (
-              <div
-                className="billing-license-usage-summary"
-                aria-label="Current plan usage"
-              >
-                <div className="billing-license-usage-summary-title">
-                  Current usage
-                </div>
-                <ul className="billing-license-usage-list">
-                  <li>
-                    Seats: {licenseModalUsage.seats_used} /{" "}
-                    {licenseModalUsage.seat_limit == null
-                      ? "Unlimited"
-                      : licenseModalUsage.seat_limit}
-                  </li>
-                  <li>
-                    Projects: {licenseModalUsage.projects_used} /{" "}
-                    {licenseModalUsage.project_cap == null
-                      ? "Unlimited"
-                      : licenseModalUsage.project_cap}
-                  </li>
-                  <li>
-                    Instruments: {licenseModalUsage.assets_used} /{" "}
-                    {licenseModalUsage.asset_cap == null
-                      ? "Unlimited"
-                      : licenseModalUsage.asset_cap}
-                  </li>
-                  <li>
-                    Storage:{" "}
-                    {formatWorkspaceBytes(
-                      licenseModalUsage.storage_used_bytes,
-                    )}
-                    {" / "}
-                    {licenseModalUsage.storage_cap_bytes == null
-                      ? "Unlimited"
-                      : formatWorkspaceBytes(
-                          licenseModalUsage.storage_cap_bytes,
-                        )}
-                  </li>
-                </ul>
-              </div>
-            ) : null}
-            <div className="billing-modal-actions">
-              <button
-                className="btn btn-outline"
-                onClick={() => setIsLicenseModalOpen(false)}
-                disabled={savingLicense}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={saveLicense}
-                disabled={savingLicense}
-              >
-                {savingLicense ? "Saving..." : "Save License"}
-              </button>
             </div>
-          </div>
-        </div>
-      )}
-    </div>
+          )}
+
+          <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsRecordPaymentOpen(false)}
+              disabled={recordingPayment || solanaBusy}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={submitRecordPayment}
+              disabled={recordingPayment || solanaBusy}
+            >
+              {recordingPayment && <Loader2 size={14} className="animate-spin mr-2" />}
+              {recordingPayment ? "Saving..." : "Save Payment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </DashboardShell>
   );
 }
+

@@ -1,12 +1,31 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import "../../styles/pages.css";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Building2, Briefcase, Users, RefreshCw } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { ResponsiveTable } from "@/components/ui/responsive-table";
+import { MetricStrip } from "@/components/dashboard/MetricStrip.tsx";
+import {
+  DashboardHeader,
+  DashboardShell,
+} from "@/components/dashboard/DashboardShell.tsx";
+import PageLoader from "@/components/PageLoader.tsx";
+
 import {
   countProfiles,
-  listWorkspacesWithLicenses,
-  pickWorkspaceLicense,
-  type WorkspaceRowWithLicense,
+  listProfilesSummary,
+  listWorkspaces,
+  type WorkspaceRowAdmin,
 } from "../../lib/repositories/adminPlatform.ts";
-import type { LicenseStatus, LicenseTier } from "../../lib/repositories/workspaceLicenses.ts";
 
 interface AdminOverviewPageProps {
   isPlatformAdmin: boolean;
@@ -16,11 +35,21 @@ function formatStat(n: number): string {
   return n.toLocaleString();
 }
 
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium" });
+  } catch {
+    return iso;
+  }
+}
+
 export default function AdminOverviewPage({
   isPlatformAdmin,
 }: AdminOverviewPageProps) {
-  const [rows, setRows] = useState<WorkspaceRowWithLicense[]>([]);
+  const [rows, setRows] = useState<WorkspaceRowAdmin[]>([]);
   const [userCount, setUserCount] = useState<number | null>(null);
+  const [ownerLabels, setOwnerLabels] = useState<Map<string, string>>(new Map());
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,11 +59,16 @@ export default function AdminOverviewPage({
     setError(null);
     try {
       const [ws, profiles] = await Promise.all([
-        listWorkspacesWithLicenses(),
+        listWorkspaces(),
         countProfiles(),
       ]);
       setRows(ws);
       setUserCount(profiles);
+      setLastRefreshed(new Date());
+      if (ws.length > 0) {
+        const labels = await listProfilesSummary(ws.map((r) => r.owner_user_id));
+        setOwnerLabels(labels);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load platform data.");
     } finally {
@@ -50,124 +84,150 @@ export default function AdminOverviewPage({
     const activeWs = rows.filter((r) => !r.archived_at);
     const personal = activeWs.filter((r) => r.type === "personal").length;
     const business = activeWs.filter((r) => r.type === "business").length;
-    const tierCounts: Record<LicenseTier, number> = {
-      free: 0,
-      pro: 0,
-      enterprise: 0,
-    };
-    const statusCounts: Record<LicenseStatus, number> = {
-      trialing: 0,
-      active: 0,
-      past_due: 0,
-      suspended: 0,
-      cancelled: 0,
-    };
-    for (const r of activeWs) {
-      const lic = pickWorkspaceLicense(r);
-      const tier = lic?.tier ?? "free";
-      const status = lic?.status ?? "active";
-      if (tier in tierCounts) tierCounts[tier as LicenseTier] += 1;
-      if (status in statusCounts) statusCounts[status as LicenseStatus] += 1;
-    }
     return {
       workspaces: activeWs.length,
       archived: rows.length - activeWs.length,
       personal,
       business,
-      tierCounts,
-      statusCounts,
     };
   }, [rows]);
+
+  const recentWorkspaces = useMemo(
+    () =>
+      [...rows]
+        .filter((r) => !r.archived_at)
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 10),
+    [rows],
+  );
 
   if (!isPlatformAdmin) {
     return null;
   }
 
   return (
-    <div className="hub-body admin-console-page">
-      <header className="page-header">
-        <div>
-          <h1>Platform overview</h1>
-          <p className="page-subtitle">
-            Cross-tenant metrics for licensing and workspaces
-          </p>
-        </div>
-        <div className="header-actions">
-          <button type="button" className="btn btn-outline btn-sm" onClick={() => void load()}>
+    <DashboardShell className="hub-body admin-console-page">
+      <DashboardHeader
+        badge={<Badge variant="secondary">Platform admin</Badge>}
+        title="Platform overview"
+        subtitle="Cross-tenant metrics for workspaces and users"
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void load()}
+            disabled={loading}
+            className="gap-2"
+          >
+            {loading ? (
+              <RefreshCw size={14} className="animate-spin" />
+            ) : (
+              <RefreshCw size={14} />
+            )}
             Refresh
-          </button>
-        </div>
-      </header>
+          </Button>
+        }
+      />
 
-      {error && <div className="alert-bar alert-warning">{error}</div>}
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
+      {lastRefreshed && !loading && (
+        <p className="text-xs text-muted-foreground -mt-2">
+          Last refreshed: {lastRefreshed.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+        </p>
+      )}
 
       {loading ? (
-        <p className="admin-console-muted">Loading…</p>
+        <PageLoader compact />
       ) : (
         <>
-          <div className="admin-console-kpi-row">
-            <div className="admin-console-kpi-card">
-              <span className="admin-console-kpi-label">Workspaces</span>
-              <span className="admin-console-kpi-value">{formatStat(stats.workspaces)}</span>
-              <span className="admin-console-kpi-hint">
-                {stats.archived > 0
-                  ? `${formatStat(stats.archived)} archived`
-                  : "No archived workspaces"}
-              </span>
-            </div>
-            <div className="admin-console-kpi-card">
-              <span className="admin-console-kpi-label">User profiles</span>
-              <span className="admin-console-kpi-value">
-                {userCount === null ? "—" : formatStat(userCount)}
-              </span>
-              <span className="admin-console-kpi-hint">Registered accounts</span>
-            </div>
-            <div className="admin-console-kpi-card">
-              <span className="admin-console-kpi-label">Personal workspaces</span>
-              <span className="admin-console-kpi-value">{formatStat(stats.personal)}</span>
-            </div>
-            <div className="admin-console-kpi-card">
-              <span className="admin-console-kpi-label">Business workspaces</span>
-              <span className="admin-console-kpi-value">{formatStat(stats.business)}</span>
-            </div>
-          </div>
+          <MetricStrip
+            metrics={[
+              {
+                label: "Workspaces",
+                value: formatStat(stats.workspaces),
+                subtext: stats.archived > 0 ? `${formatStat(stats.archived)} archived` : "No archived workspaces",
+                accentColor: "#8b5cf6",
+                icon: <Briefcase size={18} />,
+              },
+              {
+                label: "User profiles",
+                value: userCount === null ? "—" : formatStat(userCount),
+                subtext: "Registered accounts",
+                accentColor: "#3b82f6",
+                icon: <Users size={18} />,
+              },
+              {
+                label: "Personal workspaces",
+                value: formatStat(stats.personal),
+                subtext: "Individual accounts",
+                accentColor: "#10b981",
+                icon: <Users size={18} />,
+              },
+              {
+                label: "Business workspaces",
+                value: formatStat(stats.business),
+                subtext: "Organizations",
+                accentColor: "#f59e0b",
+                icon: <Building2 size={18} />,
+              },
+            ]}
+          />
 
-          <div className="admin-console-two-col">
-            <div className="card admin-console-card">
-              <div className="card-header">
-                <h2 className="admin-console-card-title">Licenses by tier</h2>
-              </div>
-              <ul className="admin-console-stat-list">
-                {(
-                  Object.entries(stats.tierCounts) as [LicenseTier, number][]
-                ).map(([tier, n]) => (
-                  <li key={tier}>
-                    <span className="admin-console-stat-key">{tier}</span>
-                    <span className="admin-console-stat-val">{formatStat(n)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className="card admin-console-card">
-              <div className="card-header">
-                <h2 className="admin-console-card-title">Licenses by status</h2>
-              </div>
-              <ul className="admin-console-stat-list">
-                {(
-                  Object.entries(stats.statusCounts) as [LicenseStatus, number][]
-                ).map(([status, n]) => (
-                  <li key={status}>
-                    <span className="admin-console-stat-key">
-                      {status.replaceAll("_", " ")}
-                    </span>
-                    <span className="admin-console-stat-val">{formatStat(n)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
+          <Card className="border-border/60">
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle className="text-base font-semibold">Recent workspaces</CardTitle>
+              <span className="text-xs text-muted-foreground">
+                {recentWorkspaces.length} newest active
+              </span>
+            </CardHeader>
+            <CardContent className="p-0">
+              <ResponsiveTable>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Owner</TableHead>
+                      <TableHead>Created</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {recentWorkspaces.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                        No active workspaces yet.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    recentWorkspaces.map((ws) => (
+                      <TableRow key={ws.id}>
+                        <TableCell>
+                          <span className="font-medium text-foreground">{ws.name}</span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{ws.type}</Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {ownerLabels.get(ws.owner_user_id) ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {formatDate(ws.created_at)}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                  </TableBody>
+                </Table>
+              </ResponsiveTable>
+            </CardContent>
+          </Card>
         </>
       )}
-    </div>
+    </DashboardShell>
   );
 }

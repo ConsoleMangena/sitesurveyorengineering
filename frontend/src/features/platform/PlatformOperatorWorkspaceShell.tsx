@@ -27,29 +27,17 @@ export default function PlatformOperatorWorkspaceShell({
   const [isProjectFullscreen, setIsProjectFullscreen] = useState(false);
 
   const activeView = useMemo(
-    () =>
-      getAccessibleView(
-        "personal",
-        currentView,
-        user.licenseTier,
-        user.licenseStatus,
-        user.isPlatformAdmin,
-      ),
-    [currentView, user.isPlatformAdmin, user.licenseStatus, user.licenseTier],
+    () => getAccessibleView("personal", currentView, user.isPlatformAdmin),
+    [currentView, user.isPlatformAdmin],
   );
 
   const navGroups = useMemo(() => {
     const allowed = new Set(
       personalNavGroups
         .flatMap((group) => group.items.map((item) => item.view))
-        .filter((view) =>
-          getAccessibleView(
-            "personal",
-            view,
-            user.licenseTier,
-            user.licenseStatus,
-            user.isPlatformAdmin,
-          ) === view,
+        .filter(
+          (view) =>
+            getAccessibleView("personal", view, user.isPlatformAdmin) === view,
         ),
     );
     const personalFiltered = personalNavGroups
@@ -63,20 +51,15 @@ export default function PlatformOperatorWorkspaceShell({
 
     const adminItems = platformAdminNavGroup.items.filter(
       (item) =>
-        getAccessibleView(
-          "personal",
-          item.view,
-          user.licenseTier,
-          user.licenseStatus,
-          user.isPlatformAdmin,
-        ) === item.view,
+        getAccessibleView("personal", item.view, user.isPlatformAdmin) ===
+        item.view,
     );
     if (adminItems.length === 0) return personalFiltered;
     return [
       { ...platformAdminNavGroup, items: adminItems },
       ...personalFiltered,
     ];
-  }, [user.isPlatformAdmin, user.licenseStatus, user.licenseTier]);
+  }, [user.isPlatformAdmin]);
 
   useEffect(() => {
     localStorage.setItem(storageKey, activeView);

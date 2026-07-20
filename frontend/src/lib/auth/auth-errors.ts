@@ -23,6 +23,29 @@ function authErrorStatus(error: unknown): number | undefined {
   return undefined;
 }
 
+function authErrorCode(error: unknown): string | undefined {
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof (error as { code: unknown }).code === "string"
+  ) {
+    return (error as { code: string }).code;
+  }
+  return undefined;
+}
+
+/** True when Supabase reports the user must confirm their email before signing in. */
+export function isEmailNotConfirmedError(error: unknown): boolean {
+  if (authErrorCode(error) === "email_not_confirmed") return true;
+  const msg = authErrorMessage(error).toLowerCase();
+  return (
+    msg.includes("email not confirmed") ||
+    msg.includes("confirm your email") ||
+    msg.includes("email address not confirmed")
+  );
+}
+
 /** User-facing copy when Supabase Auth hits email / OTP rate limits (429). */
 export function formatAuthRateLimitMessage(error: unknown): string | null {
   const raw = authErrorMessage(error);

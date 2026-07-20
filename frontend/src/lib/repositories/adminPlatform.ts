@@ -1,11 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "../supabase/client.ts";
-import type { LicenseEvent, WorkspaceLicense } from "./workspaceLicenses.ts";
 
 // Cast to generic SupabaseClient so we can query tables not in the generated schema
 const adminDb = supabase as unknown as SupabaseClient;
 
-export interface WorkspaceRowWithLicense {
+export interface WorkspaceRowAdmin {
   id: string;
   name: string;
   type: "personal" | "business";
@@ -14,59 +13,18 @@ export interface WorkspaceRowWithLicense {
   archived_at: string | null;
   created_at: string;
   updated_at: string;
-  workspace_licenses: WorkspaceLicense | WorkspaceLicense[] | null;
 }
 
-export function pickWorkspaceLicense(
-  row: WorkspaceRowWithLicense,
-): WorkspaceLicense | null {
-  const wl = row.workspace_licenses;
-  if (!wl) return null;
-  return Array.isArray(wl) ? (wl[0] ?? null) : wl;
-}
-
-export async function listWorkspacesWithLicenses(): Promise<
-  WorkspaceRowWithLicense[]
-> {
+export async function listWorkspaces(): Promise<WorkspaceRowAdmin[]> {
   const { data, error } = await adminDb
     .from("workspaces")
     .select(
-      "id, name, type, slug, owner_user_id, archived_at, created_at, updated_at, workspace_licenses(*)",
+      "id, name, type, slug, owner_user_id, archived_at, created_at, updated_at",
     )
     .order("name", { ascending: true });
 
   if (error) throw error;
-  return (data as WorkspaceRowWithLicense[] | null) ?? [];
-}
-
-export interface LicenseEventWithWorkspace extends LicenseEvent {
-  workspaces:
-    | { name: string; type: string }
-    | { name: string; type: string }[]
-    | null;
-}
-
-export function workspaceFromEvent(
-  row: LicenseEventWithWorkspace,
-): { name: string; type: string } | null {
-  const w = row.workspaces;
-  if (!w) return null;
-  return Array.isArray(w) ? (w[0] ?? null) : w;
-}
-
-export async function listGlobalLicenseEvents(opts: {
-  limit: number;
-  offset?: number;
-}): Promise<LicenseEventWithWorkspace[]> {
-  const { limit, offset = 0 } = opts;
-  const { data, error } = await adminDb
-    .from("license_events")
-    .select("*, workspaces(name, type)")
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
-
-  if (error) throw error;
-  return (data as LicenseEventWithWorkspace[] | null) ?? [];
+  return (data as WorkspaceRowAdmin[] | null) ?? [];
 }
 
 export async function countProfiles(): Promise<number> {
@@ -383,6 +341,108 @@ export async function updateProfessional(
 
 export async function deleteProfessional(id: string): Promise<void> {
   const { error } = await adminDb.from("professionals").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/* ── System Features (subscribable add-ons) ─────────────────────────── */
+
+export interface FeatureCatalogRowAdmin {
+  key: string;
+  name: string;
+  description: string | null;
+  category: string;
+  price: number;
+  currency: string;
+  billing_period: "one_time" | "monthly" | "annual";
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FeatureRequestRowAdmin {
+  id: string;
+  workspace_id: string;
+  feature_key: string;
+  requested_by: string | null;
+  status: "pending" | "approved" | "declined";
+  note: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listFeatureCatalogAdmin(): Promise<FeatureCatalogRowAdmin[]> {
+  const { data, error } = await adminDb
+    .from("feature_catalog")
+    .select("*")
+    .order("name", { ascending: true });
+
+  if (error) throw error;
+  return (data as FeatureCatalogRowAdmin[] | null) ?? [];
+}
+
+export async function createFeature(
+  patch: Omit<Partial<FeatureCatalogRowAdmin>, "created_at" | "updated_at"> & {
+    key: string;
+    name: string;
+  },
+): Promise<FeatureCatalogRowAdmin> {
+  const { data, error } = await adminDb
+    .from("feature_catalog")
+    .insert(patch)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data as FeatureCatalogRowAdmin;
+}
+
+export async function updateFeature(
+  key: string,
+  patch: Partial<Omit<FeatureCatalogRowAdmin, "key" | "created_at" | "updated_at">>,
+): Promise<FeatureCatalogRowAdmin> {
+  const { data, error } = await adminDb
+    .from("feature_catalog")
+    .update(patch)
+    .eq("key", key)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data as FeatureCatalogRowAdmin;
+}
+
+export async function listFeatureRequests(
+  status?: "pending" | "approved" | "declined",
+): Promise<FeatureRequestRowAdmin[]> {
+  let query = adminDb
+    .from("feature_access_requests")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (status) query = query.eq("status", status);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data as FeatureRequestRowAdmin[] | null) ?? [];
+}
+
+export async function approveFeatureRequest(requestId: string): Promise<void> {
+  const { error } = await adminDb.rpc("admin_approve_feature_request", {
+    p_request_id: requestId,
+  });
+  if (error) throw error;
+}
+
+export async function declineFeatureRequest(
+  requestId: string,
+  note?: string,
+): Promise<void> {
+  const { error } = await adminDb.rpc("admin_decline_feature_request", {
+    p_request_id: requestId,
+    p_note: note ?? null,
+  });
   if (error) throw error;
 }
 

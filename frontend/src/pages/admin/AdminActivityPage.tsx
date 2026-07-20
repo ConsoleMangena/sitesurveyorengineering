@@ -1,9 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
-import "../../styles/pages.css";
+import { RefreshCw, Loader2, ChevronDown } from "lucide-react";
+
+import PageLoader from "@/components/PageLoader.tsx";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import {
-  listGlobalLicenseEvents,
-  workspaceFromEvent,
-  type LicenseEventWithWorkspace,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { ResponsiveTable } from "@/components/ui/responsive-table";
+import { DashboardHeader, DashboardShell } from "@/components/dashboard/DashboardShell.tsx";
+
+import {
+  listAuditLogs,
+  listProfilesSummary,
+  type AuditLogEntry,
 } from "../../lib/repositories/adminPlatform.ts";
 
 const PAGE_SIZE = 40;
@@ -23,10 +39,9 @@ function formatWhen(iso: string): string {
   }
 }
 
-export default function AdminActivityPage({
-  isPlatformAdmin,
-}: AdminActivityPageProps) {
-  const [events, setEvents] = useState<LicenseEventWithWorkspace[]>([]);
+export default function AdminActivityPage({ isPlatformAdmin }: AdminActivityPageProps) {
+  const [entries, setEntries] = useState<AuditLogEntry[]>([]);
+  const [actorLabels, setActorLabels] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -39,16 +54,25 @@ export default function AdminActivityPage({
       else setLoading(true);
       setError(null);
       try {
-        const batch = await listGlobalLicenseEvents({
-          limit: PAGE_SIZE,
-          offset: start,
-        });
+        const batch = await listAuditLogs({ limit: PAGE_SIZE, offset: start });
         if (append) {
-          setEvents((prev) => [...prev, ...batch]);
+          setEntries((prev) => [...prev, ...batch]);
         } else {
-          setEvents(batch);
+          setEntries(batch);
         }
         setHasMore(batch.length === PAGE_SIZE);
+
+        const actorIds = batch
+          .map((e) => e.actor_user_id)
+          .filter((id): id is string => id != null);
+        if (actorIds.length > 0) {
+          const labels = await listProfilesSummary(actorIds);
+          setActorLabels((prev) => {
+            const next = new Map(prev);
+            labels.forEach((v, k) => next.set(k, v));
+            return next;
+          });
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load events.");
       } finally {
@@ -63,98 +87,101 @@ export default function AdminActivityPage({
     void loadPage(0, false);
   }, [loadPage]);
 
-  const loadMore = () => {
-    void loadPage(events.length, true);
-  };
-
   if (!isPlatformAdmin) {
     return null;
   }
 
   return (
-    <div className="hub-body admin-console-page">
-      <header className="page-header">
-        <div>
-          <h1>License activity</h1>
-          <p className="page-subtitle">Recent tier and status changes across workspaces</p>
-        </div>
-        <div className="header-actions">
-          <button
-            type="button"
-            className="btn btn-outline btn-sm"
-            onClick={() => {
-              void loadPage(0, false);
-            }}
+    <DashboardShell className="hub-body admin-console-page">
+      <DashboardHeader
+        badge={<Badge variant="secondary">Platform admin</Badge>}
+        title="Platform activity"
+        subtitle="Recent administrative activity across workspaces"
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadPage(0, false)}
+            disabled={loading}
+            className="gap-2"
           >
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             Refresh
-          </button>
-        </div>
-      </header>
+          </Button>
+        }
+      />
 
-      {error && <div className="alert-bar alert-warning">{error}</div>}
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
 
       {loading ? (
-        <p className="admin-console-muted">Loading…</p>
-      ) : events.length === 0 ? (
-        <p className="admin-console-muted">No license events yet.</p>
+        <PageLoader compact />
+      ) : entries.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No activity yet.</p>
       ) : (
         <>
-          <div className="card admin-console-card admin-console-table-wrap">
-            <table className="invoice-table admin-console-table admin-console-table--stacked">
-              <thead>
-                <tr>
-                  <th>When</th>
-                  <th>Workspace</th>
-                  <th>Tier change</th>
-                  <th>Status change</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {events.map((ev) => {
-                  const ws = workspaceFromEvent(ev);
-                  return (
-                    <tr key={ev.id}>
-                      <td data-label="When">{formatWhen(ev.created_at)}</td>
-                      <td data-label="Workspace">
-                        {ws ? (
-                          <>
-                            <div className="admin-console-cell-title">{ws.name}</div>
-                            <span className="admin-console-muted">{ws.type}</span>
-                          </>
-                        ) : (
-                          <span className="admin-console-muted">—</span>
-                        )}
-                      </td>
-                      <td data-label="Tier change">
-                        {(ev.previous_tier ?? "—")} → {(ev.new_tier ?? "—")}
-                      </td>
-                      <td data-label="Status change">
-                        {(ev.previous_status ?? "—")} → {(ev.new_status ?? "—")}
-                      </td>
-                      <td className="admin-console-notes-cell" data-label="Notes">
-                        {ev.notes ?? "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <Card className="border-border/60 overflow-hidden">
+            <CardContent className="p-0">
+              <ResponsiveTable>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>When</TableHead>
+                      <TableHead>Actor</TableHead>
+                      <TableHead>Table</TableHead>
+                      <TableHead>Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {entries.map((ev) => (
+                      <TableRow key={ev.id}>
+                        <TableCell className="text-muted-foreground whitespace-nowrap">
+                          {formatWhen(ev.created_at)}
+                        </TableCell>
+                        <TableCell>
+                          {ev.actor_user_id ? (
+                            actorLabels.get(ev.actor_user_id) ??
+                            `${ev.actor_user_id.slice(0, 8)}…`
+                          ) : (
+                            <span className="text-sm text-muted-foreground">system</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <code className="text-xs">{ev.entity_table}</code>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{ev.action}</Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </ResponsiveTable>
+            </CardContent>
+          </Card>
+
           {hasMore && (
-            <div className="admin-console-load-more">
-              <button
-                type="button"
-                className="btn btn-outline"
+            <div className="flex justify-center">
+              <Button
+                variant="outline"
                 disabled={loadingMore}
-                onClick={() => void loadMore()}
+                onClick={() => void loadPage(entries.length, true)}
+                className="gap-2"
               >
-                {loadingMore ? "Loading…" : "Load more"}
-              </button>
+                {loadingMore ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <ChevronDown size={14} />
+                )}
+                Load more
+              </Button>
             </div>
           )}
         </>
       )}
-    </div>
+    </DashboardShell>
   );
 }

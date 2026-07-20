@@ -1,12 +1,32 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Building2, Check, ChevronLeft, Shield, User } from "lucide-react";
+import PasswordField from "../../components/PasswordField";
+import GoogleSignInButton from "../../components/GoogleSignInButton";
 import { formatAuthUserFacingError } from "../../lib/auth/auth-errors.ts";
 import { signUpWithEmail } from "../../lib/auth/session.ts";
+import { useAuthStore } from "../../lib/auth/auth-store";
+import { Button } from "../../components/ui/button.tsx";
+import { Input } from "../../components/ui/input.tsx";
+import { Label } from "../../components/ui/label.tsx";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "../../components/ui/card.tsx";
+import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
+import { Separator } from "../../components/ui/separator.tsx";
+import { Badge } from "../../components/ui/badge.tsx";
+import { cn } from "../../lib/utils.ts";
 import "../../styles/auth.css";
 
-interface SignupPageProps {
-  onSignup: () => Promise<void> | void;
-  onGoToLogin: () => void;
-}
+const ENABLE_PLATFORM_ADMIN =
+  import.meta.env.VITE_ENABLE_PLATFORM_ADMIN_SIGNUP === "true";
+
+type AccountType = "personal" | "business" | "platform_admin";
 
 function getPasswordStrength(pw: string): {
   level: number;
@@ -25,11 +45,18 @@ function getPasswordStrength(pw: string): {
   return { level: 4, label: "Strong", key: "strong" };
 }
 
-export default function SignupPage({ onSignup, onGoToLogin }: SignupPageProps) {
+const strengthColor: Record<string, string> = {
+  weak: "bg-red-500",
+  fair: "bg-amber-500",
+  good: "bg-blue-500",
+  strong: "bg-emerald-500",
+};
+
+export default function SignupPage() {
+  const navigate = useNavigate();
+  const setAuthLoading = useAuthStore((s) => s.setAuthLoading);
   const [step, setStep] = useState<"type" | "details">("type");
-  const [accountType, setAccountType] = useState<
-    "personal" | "business" | "platform_admin" | null
-  >(null);
+  const [accountType, setAccountType] = useState<AccountType | null>(null);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [company, setCompany] = useState("");
@@ -64,6 +91,7 @@ export default function SignupPage({ onSignup, onGoToLogin }: SignupPageProps) {
     }
 
     setIsSubmitting(true);
+    setAuthLoading(true);
 
     try {
       const normalizedCompany =
@@ -97,372 +125,311 @@ export default function SignupPage({ onSignup, onGoToLogin }: SignupPageProps) {
             ? "Account created. Confirm your email, then sign in. A SiteSurveyor super-admin must still enable platform operator access for your user before the Platform section appears in the app."
             : "Account created. Check your email to confirm your account, then sign in.",
         );
-        setTimeout(() => onGoToLogin(), 1200);
+        setTimeout(() => navigate("/login"), 1200);
         return;
       }
 
-      await onSignup();
+      navigate("/", { replace: true });
     } catch (err) {
       setError(formatAuthUserFacingError(err, "Unable to create account."));
     } finally {
       setIsSubmitting(false);
+      setAuthLoading(false);
     }
   };
 
-  // Step 1: Account type selection
+  const accountOptions: { value: AccountType; icon: React.ReactNode; title: string; desc: string }[] = [
+    {
+      value: "personal",
+      icon: <User className="h-5 w-5" />,
+      title: "Personal",
+      desc: "For independent surveyors working solo.",
+    },
+    {
+      value: "business",
+      icon: <Building2 className="h-5 w-5" />,
+      title: "Business",
+      desc: "For firms managing teams and crews.",
+    },
+  ];
+
+  if (ENABLE_PLATFORM_ADMIN) {
+    accountOptions.push({
+      value: "platform_admin",
+      icon: <Shield className="h-5 w-5" />,
+      title: "Platform admin",
+      desc: "For trusted operators only.",
+    });
+  }
+
   if (step === "type") {
     return (
-      <div className="auth-screen">
-        <div className="auth-card auth-card-wide">
-          <div className="auth-header">
-            <img src="/logo.svg" alt="SiteSurveyor" className="auth-logo" />
-            <h1 className="auth-brand">SiteSurveyor for Engineers</h1>
-            <p className="auth-tagline">Choose how you'll use SiteSurveyor</p>
-          </div>
-
-          <div className="account-type-grid">
-            <button
-              type="button"
-              className={`account-type-card ${accountType === "personal" ? "selected" : ""}`}
-              onClick={() => setAccountType("personal")}
-            >
-              <div className="account-type-icon personal">
-                <svg
-                  width="32"
-                  height="32"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+      <div className="auth-screen px-4 py-8">
+        <Card className="mx-auto w-full max-w-xl auth-animate-card">
+          <CardHeader className="text-center auth-animate-header">
+            <img
+              src="/logo.svg"
+              alt="SiteSurveyor"
+              className="mx-auto mb-2 h-16 w-auto object-contain"
+            />
+            <CardTitle>SiteSurveyor for Engineers</CardTitle>
+            <CardDescription>Choose how you'll use SiteSurveyor</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6 auth-animate-stagger">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 auth-animate-stagger">
+              {accountOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setAccountType(option.value)}
+                  className={cn(
+                    "flex flex-col items-start gap-2 rounded-lg border p-4 text-left transition-all hover:border-primary hover:bg-muted/50",
+                    accountType === option.value && "border-primary bg-primary/5 ring-1 ring-primary",
+                  )}
                 >
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
-              </div>
-              <h3>Personal account</h3>
-              <ul className="account-type-features">
-                <li>My Projects & Field Data</li>
-                <li>Personal Equipment Tracker</li>
-                <li>Quotes & Invoicing</li>
-                <li>Job Board Access</li>
-              </ul>
-            </button>
+                  <div className="flex w-full items-center justify-between">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-md bg-muted text-primary">
+                      {option.icon}
+                    </span>
+                    {accountType === option.value && (
+                      <Badge variant="default" className="h-5 px-1.5">
+                        <Check className="h-3 w-3" />
+                      </Badge>
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-foreground">{option.title}</p>
+                    <p className="text-xs text-muted-foreground">{option.desc}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
 
-            <button
-              type="button"
-              className={`account-type-card ${accountType === "business" ? "selected" : ""}`}
-              onClick={() => setAccountType("business")}
+            <Button
+              className="w-full"
+              disabled={!accountType}
+              onClick={() => setStep("details")}
             >
-              <div className="account-type-icon business">
-                <svg
-                  width="32"
-                  height="32"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                  <circle cx="9" cy="7" r="4" />
-                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                </svg>
-              </div>
-              <h3>Business account</h3>
-              <ul className="account-type-features">
-                <li>Everything in Personal, plus:</li>
-                <li>Team & Crew Management</li>
-                <li>Dispatch Board & Scheduling</li>
-                <li>Analytics & Business Intelligence</li>
-              </ul>
-            </button>
+              Continue
+            </Button>
 
-            <button
-              className={`account-type-card ${accountType === "platform_admin" ? "selected" : ""}`}
-              type="button"
-              onClick={() => setAccountType("platform_admin")}
-            >
-              <div className="account-type-icon platform-admin">
-                <svg
-                  width="32"
-                  height="32"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                </svg>
-              </div>
-              <h3>Platform administration</h3>
-              <ul className="account-type-features">
-                <li>Platform console &amp; all workspaces</li>
-                <li>License allocation &amp; tenant oversight</li>
-                <li>Global license activity &amp; audit</li>
-                <li>For trusted operators only</li>
-              </ul>
-            </button>
-          </div>
+            <div className="relative flex items-center py-1">
+              <Separator className="flex-1" />
+              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-2 text-xs uppercase tracking-wide text-muted-foreground">
+                or sign up instantly
+              </span>
+            </div>
 
-          <button
-            className="auth-btn auth-btn-primary"
-            disabled={!accountType}
-            onClick={() => setStep("details")}
-            style={{ marginTop: "24px", opacity: accountType ? 1 : 0.5 }}
-          >
-            Continue
-          </button>
+            <GoogleSignInButton
+              label="Sign up with Google"
+              onSuccess={() => navigate("/", { replace: true })}
+              onError={(err) => setError(err.message)}
+            />
 
-          <div className="auth-footer">
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+          <CardFooter className="justify-center text-sm text-muted-foreground">
             Already have an account?{" "}
-            <button className="auth-footer-link" onClick={onGoToLogin}>
+            <Button variant="link" className="h-auto p-0 ml-1" onClick={() => navigate("/login")}>
               Log in
-            </button>
-          </div>
-        </div>
+            </Button>
+          </CardFooter>
+        </Card>
       </div>
     );
   }
 
-  // Step 2: Details form
   return (
-    <div className="auth-screen">
-      <div className="auth-card auth-card-wide">
-        <div className="auth-header">
-          <img src="/logo.svg" alt="SiteSurveyor" className="auth-logo" />
-          <h1 className="auth-brand">SiteSurveyor for Engineers</h1>
-          <p className="auth-tagline">
+      <div className="auth-screen px-4 py-8">
+        <Card className="mx-auto w-full max-w-xl auth-animate-card">
+          <CardHeader className="text-center auth-animate-header">
+          <img
+            src="/logo.svg"
+            alt="SiteSurveyor"
+            className="mx-auto mb-2 h-16 w-auto object-contain"
+          />
+          <CardTitle>SiteSurveyor for Engineers</CardTitle>
+          <CardDescription>
             {accountType === "personal"
               ? "Set up your personal workspace"
               : accountType === "platform_admin"
                 ? "Create your platform operator account"
                 : "Register your surveying firm"}
-          </p>
-        </div>
-
-        <button className="auth-back-btn" onClick={() => setStep("type")}>
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-ml-2 h-auto px-2 py-1 text-muted-foreground"
+            onClick={() => setStep("type")}
           >
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          Change account type
-        </button>
+            <ChevronLeft className="mr-1 h-4 w-4" /> Change account type
+          </Button>
 
-        <form className="auth-form" onSubmit={handleSubmit}>
-          <div className="auth-form-row">
-            <div className="form-group">
-              <label className="form-label">Full Name</label>
-              <input
-                className="form-input"
-                type="text"
-                placeholder="Tendai Moyo"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                autoComplete="name"
-                autoFocus
-              />
+          <form className="space-y-4 auth-animate-stagger" onSubmit={handleSubmit}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="signup-fullname">Full Name</Label>
+                <Input
+                  id="signup-fullname"
+                  placeholder="Tendai Moyo"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  autoComplete="name"
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="signup-email">Email</Label>
+                <Input
+                  id="signup-email"
+                  type="email"
+                  placeholder="you@company.co.zw"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                />
+              </div>
             </div>
-            <div className="form-group">
-              <label className="form-label">Email</label>
-              <input
-                className="form-input"
-                type="email"
-                placeholder="you@company.co.zw"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-              />
-            </div>
-          </div>
 
-          <div className="auth-form-row">
-            {accountType === "business" ? (
-              <div className="form-group">
-                <label className="form-label">Company / Firm Name</label>
-                <input
-                  className="form-input"
-                  type="text"
-                  placeholder="GeoDeZ Surveyors (Pvt) Ltd"
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="signup-company">
+                  {accountType === "business"
+                    ? "Company / Firm Name"
+                    : accountType === "platform_admin"
+                      ? "Organization label"
+                      : "Trading Name"}{" "}
+                  {accountType !== "business" && (
+                    <span className="text-muted-foreground">(optional)</span>
+                  )}
+                </Label>
+                <Input
+                  id="signup-company"
+                  placeholder={
+                    accountType === "business"
+                      ? "GeoDeZ Surveyors (Pvt) Ltd"
+                      : accountType === "platform_admin"
+                        ? "SiteSurveyor Operations"
+                        : "T. Moyo Land Surveys"
+                  }
                   value={company}
                   onChange={(e) => setCompany(e.target.value)}
                   autoComplete="organization"
                 />
               </div>
-            ) : accountType === "platform_admin" ? (
-              <div className="form-group">
-                <label className="form-label">
-                  Organization label{" "}
-                  <span className="form-label-optional">(optional)</span>
-                </label>
-                <input
-                  className="form-input"
-                  type="text"
-                  placeholder="SiteSurveyor Operations"
-                  value={company}
-                  onChange={(e) => setCompany(e.target.value)}
-                  autoComplete="organization"
+              <div className="space-y-2">
+                <Label htmlFor="signup-promo">
+                  Promo / Referral Code{" "}
+                  <span className="text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  id="signup-promo"
+                  placeholder="Early access code"
+                  value={promoCode}
+                  onChange={(e) => setPromoCode(e.target.value)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Examples: <strong>EARLYBIRD</strong>, <strong>FIELDCREW</strong>
+                </p>
               </div>
-            ) : (
-              <div className="form-group">
-                <label className="form-label">
-                  Trading Name{" "}
-                  <span className="form-label-optional">(optional)</span>
-                </label>
-                <input
-                  className="form-input"
-                  type="text"
-                  placeholder="T. Moyo Land Surveys"
-                  value={company}
-                  onChange={(e) => setCompany(e.target.value)}
-                />
-              </div>
+            </div>
+
+            {accountType === "platform_admin" && (
+              <Alert>
+                <Shield className="h-4 w-4" />
+                <AlertDescription>
+                  Trusted operators only. Platform-wide privileges are granted by a SiteSurveyor
+                  super-admin after your account exists.
+                </AlertDescription>
+              </Alert>
             )}
-            <div className="form-group">
-              <label className="form-label">
-                Promo / Referral Code{" "}
-                <span className="form-label-optional">(optional)</span>
-              </label>
-              <input
-                className="form-input"
-                type="text"
-                placeholder="Early access code"
-                value={promoCode}
-                onChange={(e) => setPromoCode(e.target.value)}
-              />
-              {/* Keep in sync with seed rows in supabase/migrations/20260504120000_monetisation_billing_limits_promo_marketplace.sql */}
-              <p className="form-hint" style={{ marginTop: "0.35rem" }}>
-                Campaign examples (when enabled on the server):{" "}
-                <strong>EARLYBIRD</strong>, <strong>FIELDCREW</strong>.
-              </p>
-            </div>
-          </div>
 
-          {accountType === "platform_admin" && (
-            <div className="auth-admin-signup-notice" role="note">
-              <strong>Trusted operators only.</strong> You are registering a
-              standard user account. Platform-wide operator privileges (licenses,
-              all workspaces, audit) are granted by a SiteSurveyor super-admin
-              after your account exists—this form does not turn those privileges
-              on by itself.
-            </div>
-          )}
-
-          <div className="form-group">
-            <label className="form-label">Password</label>
-            <div className="password-wrapper">
-              <input
-                className="form-input"
-                type={showPassword ? "text" : "password"}
-                placeholder="Min. 8 characters"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
-              />
-              <button
-                type="button"
-                className="password-toggle"
-                onClick={() => setShowPassword(!showPassword)}
-                tabIndex={-1}
-              >
-                {showPassword ? (
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-                    <line x1="1" y1="1" x2="23" y2="23" />
-                  </svg>
-                ) : (
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                )}
-              </button>
-            </div>
-            {password && (
-              <>
-                <div className="password-strength">
-                  {[1, 2, 3, 4].map((i) => (
-                    <div
-                      key={i}
-                      className={`strength-bar ${i <= strength.level ? `filled ${strength.key}` : ""}`}
-                    />
-                  ))}
-                </div>
-                <span className={`strength-text ${strength.key}`}>
-                  {strength.label}
-                </span>
-              </>
-            )}
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Confirm Password</label>
-            <input
-              className="form-input"
-              type={showPassword ? "text" : "password"}
-              placeholder="Re-enter your password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
+            <PasswordField
+              id="signup-password"
+              label="Password"
+              value={password}
+              onChange={setPassword}
+              placeholder="Min. 8 characters"
               autoComplete="new-password"
+              showPassword={showPassword}
+              onToggleShowPassword={() => setShowPassword((v) => !v)}
+            >
+              {password ? (
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="flex flex-1 gap-1">
+                    {[1, 2, 3, 4].map((i) => (
+                      <div
+                        key={i}
+                        className={cn(
+                          "h-1.5 flex-1 rounded-full bg-muted",
+                          i <= strength.level && strengthColor[strength.key],
+                        )}
+                      />
+                    ))}
+                  </div>
+                  <span className={cn("text-xs font-medium", strength.key === "weak" && "text-red-500")}>
+                    {strength.label}
+                  </span>
+                </div>
+              ) : null}
+            </PasswordField>
+
+            <PasswordField
+              id="signup-confirm-password"
+              label="Confirm Password"
+              value={confirmPassword}
+              onChange={setConfirmPassword}
+              placeholder="Re-enter your password"
+              autoComplete="new-password"
+              showPassword={showPassword}
             />
-          </div>
 
-          {error && <p className="form-error">{error}</p>}
-          {successMessage && <p className="form-success">{successMessage}</p>}
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            {successMessage && (
+              <Alert variant="success">
+                <AlertDescription>{successMessage}</AlertDescription>
+              </Alert>
+            )}
 
-          <button
-            type="submit"
-            className="auth-btn auth-btn-primary"
-            disabled={isSubmitting}
-          >
-            {isSubmitting
-              ? "Creating Account..."
-              : accountType === "platform_admin"
-                ? "Create platform administration account"
-                : `Create ${accountType === "business" ? "Business" : "Personal"} Account`}
-          </button>
-        </form>
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting
+                ? "Creating Account..."
+                : accountType === "platform_admin"
+                  ? "Create platform administration account"
+                  : `Create ${accountType === "business" ? "Business" : "Personal"} Account`}
+            </Button>
 
-        <div className="auth-footer">
+            <div className="relative flex items-center py-1">
+              <Separator className="flex-1" />
+              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-2 text-xs uppercase tracking-wide text-muted-foreground">
+                or
+              </span>
+            </div>
+
+            <GoogleSignInButton
+              label="Sign up with Google"
+              onSuccess={() => navigate("/", { replace: true })}
+              onError={(err) => setError(err.message)}
+            />
+          </form>
+        </CardContent>
+        <CardFooter className="justify-center text-sm text-muted-foreground">
           Already have an account?{" "}
-          <button className="auth-footer-link" onClick={onGoToLogin}>
+          <Button variant="link" className="h-auto p-0 ml-1" onClick={() => navigate("/login")}>
             Log in
-          </button>
-        </div>
-      </div>
+          </Button>
+        </CardFooter>
+      </Card>
     </div>
   );
 }

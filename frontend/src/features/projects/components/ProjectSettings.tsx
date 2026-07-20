@@ -1,12 +1,17 @@
 import React from 'react';
 import type { HubProject } from '../../../pages/shared/ProjectHubPage.tsx';
 import type { ProjectActivity } from '../../../lib/repositories/projects.ts';
+import type { OrganizationRow } from '../../../lib/repositories/organizations.ts';
+import SelectDropdown from '../../../components/SelectDropdown.tsx';
 
 interface ProjectSettingsProps {
   activeProject: HubProject;
   editName: string;
   setEditName: (v: string) => void;
   editClient: string;
+  organizations: OrganizationRow[];
+  editOrgId: string;
+  setEditOrgId: (v: string) => void;
   editPhase: string;
   setEditPhase: (v: string) => void;
   editDatum: string;
@@ -42,6 +47,9 @@ export function ProjectSettings({
   editName,
   setEditName,
   editClient,
+  organizations,
+  editOrgId,
+  setEditOrgId,
   editPhase,
   setEditPhase,
   editDatum,
@@ -89,7 +97,16 @@ export function ProjectSettings({
           <div className="responsive-grid-2" style={{ marginBottom: '16px' }}>
             <div className="form-group">
               <label className="form-label" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Client / Organization</label>
-              <input type="text" className="input-field" value={editClient} disabled style={{ opacity: 0.7, cursor: 'not-allowed' }} />
+              <SelectDropdown
+                className="input-field"
+                value={editOrgId}
+                onChange={setEditOrgId}
+                disabled={!canEditProjects}
+                options={[
+                  { value: '', label: editClient || 'Unassigned' },
+                  ...organizations.map(org => ({ value: org.id, label: org.name })),
+                ]}
+              />
             </div>
             <div className="form-group">
               <label className="form-label" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Phase</label>
@@ -132,28 +149,28 @@ export function ProjectSettings({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {activeProject.status === 'Archived' ? (
               <>
-                <div className="project-settings-danger-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', border: '1px solid #dcfce7', background: '#f0fdf4', borderRadius: '8px' }}>
+                <div className="project-settings-danger-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', border: '1px solid var(--color-success-border)', background: 'var(--color-success-bg)', borderRadius: '8px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 600, color: '#166534' }}>Restore Project</span>
-                    <span style={{ fontSize: '11px', color: '#15803d' }}>Make project active and editable again.</span>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-success)' }}>Restore Project</span>
+                    <span style={{ fontSize: '11px', color: 'var(--color-success)' }}>Make project active and editable again.</span>
                   </div>
-                <button className="btn btn-sm" style={{ background: '#22c55e', color: '#fff', border: 'none' }} onClick={() => handleUnarchiveProject(activeProject.dbId)} disabled={!canEditProjects}>Restore</button>
+                <button className="btn btn-sm" style={{ background: 'var(--color-success)', color: '#fff', border: 'none' }} onClick={() => handleUnarchiveProject(activeProject.dbId)} disabled={!canEditProjects}>Restore</button>
                 </div>
-                <div className="project-settings-danger-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', border: '1px solid #fee2e2', background: '#fef2f2', borderRadius: '8px' }}>
+                <div className="project-settings-danger-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', border: '1px solid var(--color-error-border)', background: 'var(--color-error-bg)', borderRadius: '8px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 600, color: '#991b1b' }}>Permanent Delete</span>
-                    <span style={{ fontSize: '11px', color: '#b91c1c' }}>Destroy all project data. This cannot be undone.</span>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-error)' }}>Permanent Delete</span>
+                    <span style={{ fontSize: '11px', color: 'var(--color-error)' }}>Destroy all project data. This cannot be undone.</span>
                   </div>
-                  <button className="btn btn-sm" style={{ background: '#dc2626', color: '#fff', border: 'none' }} onClick={() => { setSelectedProject(activeProject); setShowPermanentDeleteConfirm(true); }} disabled={!canEditProjects}>Delete</button>
+                  <button className="btn btn-sm" style={{ background: 'var(--color-error)', color: '#fff', border: 'none' }} onClick={() => { setSelectedProject(activeProject); setShowPermanentDeleteConfirm(true); }} disabled={!canEditProjects}>Delete</button>
                 </div>
               </>
             ) : (
-              <div className="project-settings-danger-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', border: '1px solid #fee2e2', background: '#fef2f2', borderRadius: '8px' }}>
+              <div className="project-settings-danger-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', border: '1px solid var(--color-error-border)', background: 'var(--color-error-bg)', borderRadius: '8px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#991b1b' }}>Archive Project</span>
-                  <span style={{ fontSize: '11px', color: '#b91c1c' }}>Mark project as inactive and read-only.</span>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-error)' }}>Archive Project</span>
+                  <span style={{ fontSize: '11px', color: 'var(--color-error)' }}>Mark project as inactive and read-only.</span>
                 </div>
-                <button className="btn btn-sm" style={{ background: '#ef4444', color: '#fff', border: 'none' }} onClick={() => { setSelectedProject(activeProject); setShowDeleteConfirm(true); }} disabled={!canEditProjects}>Archive</button>
+                <button className="btn btn-sm" style={{ background: 'var(--color-error)', color: '#fff', border: 'none' }} onClick={() => { setSelectedProject(activeProject); setShowDeleteConfirm(true); }} disabled={!canEditProjects}>Archive</button>
               </div>
             )}
           </div>

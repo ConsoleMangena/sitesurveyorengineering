@@ -1,8 +1,6 @@
 import type { AppUserContext } from "../../lib/auth/app-user.ts";
 import type {
   AccountType,
-  LicenseStatus,
-  LicenseTier,
   SignupAccountType,
   UiUser,
   WorkspaceView,
@@ -33,6 +31,7 @@ function resolveSignupAccountType(input: {
 
 export const SHARED_VIEWS: WorkspaceView[] = [
   "dashboard",
+  "notifications",
   "files",
   "quotes",
   "projects",
@@ -52,18 +51,12 @@ export const BUSINESS_ONLY_VIEWS: WorkspaceView[] = ["dispatch", "team"];
 
 export const ADMIN_PLATFORM_VIEWS: WorkspaceView[] = [
   "admin_overview",
-  "admin_licenses",
   "admin_activity",
   "admin_users",
   "admin_workspaces",
   "admin_audit",
-];
-
-const FREE_BLOCKED_VIEWS: WorkspaceView[] = ["dispatch", "team", "timeTracking"];
-const INACTIVE_LICENSE_ALLOWED_VIEWS: WorkspaceView[] = [
-  "dashboard",
-  "billing",
-  "profile",
+  "admin_feature_requests",
+  "admin_licenses",
 ];
 
 function mergePlatformAdminViews(
@@ -76,10 +69,14 @@ function mergePlatformAdminViews(
   return next;
 }
 
+/**
+ * Every feature is available to every account in the open-source app.
+ * Access is scoped only by account type (personal vs business) and
+ * platform-admin status. Monetization happens at the hosting layer, not
+ * through in-app feature gating.
+ */
 export function getAllowedViews(
   accountType: AccountType,
-  licenseTier: LicenseTier = "free",
-  licenseStatus: LicenseStatus = "active",
   isPlatformAdmin = false,
 ): Set<WorkspaceView> {
   const accountViews = new Set(
@@ -88,33 +85,15 @@ export function getAllowedViews(
       : [...SHARED_VIEWS, ...PERSONAL_ONLY_VIEWS],
   );
 
-  if (!["active", "trialing"].includes(licenseStatus)) {
-    const allowed = new Set(
-      INACTIVE_LICENSE_ALLOWED_VIEWS.filter((view) => accountViews.has(view)),
-    );
-    return mergePlatformAdminViews(allowed, isPlatformAdmin);
-  }
-
-  if (licenseTier === "free") {
-    FREE_BLOCKED_VIEWS.forEach((view) => accountViews.delete(view));
-  }
-
   return mergePlatformAdminViews(accountViews, isPlatformAdmin);
 }
 
 export function getAccessibleView(
   accountType: AccountType,
   requestedView: WorkspaceView,
-  licenseTier: LicenseTier = "free",
-  licenseStatus: LicenseStatus = "active",
   isPlatformAdmin = false,
 ): WorkspaceView {
-  return getAllowedViews(
-    accountType,
-    licenseTier,
-    licenseStatus,
-    isPlatformAdmin,
-  ).has(requestedView)
+  return getAllowedViews(accountType, isPlatformAdmin).has(requestedView)
     ? requestedView
     : "dashboard";
 }
@@ -170,6 +149,7 @@ export function mapAppUserToUiUser(input: AppUserContext): UiUser | null {
     if (!input.profile?.is_platform_admin) return null;
 
     return {
+      id: input.session.user.id,
       workspaceId: PLATFORM_ADMIN_FALLBACK_WORKSPACE_ID,
       name:
         input.profile?.full_name ||
@@ -181,13 +161,12 @@ export function mapAppUserToUiUser(input: AppUserContext): UiUser | null {
       company: "Platform operator",
       accountType,
       signupAccountType,
-      licenseTier: input.workspaceLicense?.tier ?? "free",
-      licenseStatus: input.workspaceLicense?.status ?? "active",
       isPlatformAdmin: true,
     };
   }
 
   return {
+    id: input.session.user.id,
     workspaceId,
     name:
       input.profile?.full_name ||
@@ -207,8 +186,6 @@ export function mapAppUserToUiUser(input: AppUserContext): UiUser | null {
         : "Independent Surveyor",
     accountType,
     signupAccountType,
-    licenseTier: input.workspaceLicense?.tier ?? "free",
-    licenseStatus: input.workspaceLicense?.status ?? "active",
     isPlatformAdmin: Boolean(input.profile?.is_platform_admin),
   };
 }

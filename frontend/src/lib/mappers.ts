@@ -96,6 +96,7 @@ export interface UiHubProject {
   dbId: string;
   name: string;
   client: string;
+  organizationId: string | null;
   description: string;
   phase: string;
   datum: string;
@@ -143,6 +144,7 @@ export function mapProjectRowToHubProject(
     dbId: row.id,
     name: row.name,
     client: row.organization_name ?? "Unspecified",
+    organizationId: row.organization_id,
     description: row.description ?? "",
     phase: row.phase ?? "",
     datum: row.datum ?? "",
@@ -172,6 +174,7 @@ export interface UiInstrument {
   model: string;
   serial: string;
   type: string;
+  kind: string;
   status: string;
   purchaseDate: string;
   purchaseCost: number;
@@ -182,6 +185,7 @@ export interface UiInstrument {
   nextCalibration: string;
   calibrationCert: string;
   maintenanceLog: { date: string; description: string; cost: number }[];
+  metadata: Record<string, unknown>;
 }
 
 export function mapAssetRowToInstrument(
@@ -190,6 +194,9 @@ export function mapAssetRowToInstrument(
   maintenance: MaintenanceEventRow[],
 ): UiInstrument {
   const latest = calibrations[0];
+  const metadata = (row.metadata as Record<string, unknown>) || {};
+  const currentProjectName =
+    typeof metadata.current_project_name === "string" ? metadata.current_project_name : "";
   return {
     id: row.asset_code ?? row.id.slice(0, 8).toUpperCase(),
     dbId: row.id,
@@ -198,12 +205,13 @@ export function mapAssetRowToInstrument(
     model: row.model ?? "",
     serial: row.serial_number ?? "",
     type: row.category ?? mapStatus(row.kind),
+    kind: row.kind,
     status: mapStatus(row.status),
     purchaseDate: row.purchase_date ?? "",
     purchaseCost: Number(row.purchase_cost ?? 0),
     currentValue: Number(row.current_value ?? 0),
     assignedTo: "\u2014",
-    assignedProject: "\u2014",
+    assignedProject: currentProjectName || "\u2014",
     lastCalibration: latest?.calibration_date ?? "",
     nextCalibration: latest?.next_calibration_date ?? "",
     calibrationCert: latest?.certificate_number ?? "",
@@ -212,6 +220,7 @@ export function mapAssetRowToInstrument(
       description: m.description,
       cost: Number(m.cost),
     })),
+    metadata,
   };
 }
 

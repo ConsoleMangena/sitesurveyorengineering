@@ -119,3 +119,29 @@ export async function createExpenseEntry(
   if (error) throw error;
   return data as ExpenseEntryRow;
 }
+
+export async function deleteTimeEntry(id: string): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("You must be signed in to delete a time entry.");
+
+  const { error } = await trackingDb
+    .from("time_entries")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", user.id);
+
+  if (error) throw error;
+}
+
+export async function deleteExpenseEntry(id: string): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("You must be signed in to delete an expense entry.");
+
+  const { error } = await trackingDb
+    .from("expense_entries")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", user.id);
+
+  if (error) throw error;
+}

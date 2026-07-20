@@ -1,5 +1,21 @@
 import { useState, useEffect, useCallback } from "react";
 import {
+  Mountain,
+  MapPinned,
+  HardHat,
+  Pickaxe,
+  Activity,
+  Briefcase,
+  Plus,
+  Search,
+  MapPin,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  type LucideIcon,
+} from "lucide-react";
+import {
   archiveJob,
   createJob,
   listJobs,
@@ -10,6 +26,23 @@ import { listProjects, type ProjectWithOrg } from "../../lib/repositories/projec
 import { mapStatus } from "../../lib/mappers.ts";
 import type { Database } from "../../lib/supabase/types.ts";
 import SelectDropdown from "../../components/SelectDropdown.tsx";
+import PageLoader from "../../components/PageLoader.tsx";
+import { Button } from "../../components/ui/button.tsx";
+import { Input } from "../../components/ui/input.tsx";
+import { Label } from "../../components/ui/label.tsx";
+import { Badge } from "../../components/ui/badge.tsx";
+import { Card, CardContent } from "../../components/ui/card.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog.tsx";
+import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
+import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx";
+import { Separator } from "../../components/ui/separator.tsx";
+import { cn } from "../../lib/utils.ts";
 import "../../styles/pages.css";
 
 type JobStatus = Database["public"]["Enums"]["job_status"];
@@ -41,6 +74,42 @@ type JobFilter =
   | "Engineering"
   | "Mining"
   | "Monitoring";
+
+const jobTypeIcons: Record<string, LucideIcon> = {
+  Topographical: Mountain,
+  Cadastral: MapPinned,
+  Engineering: HardHat,
+  Mining: Pickaxe,
+  Monitoring: Activity,
+};
+
+const jobTypeColors: Record<string, string> = {
+  Topographical: "bg-blue-100 text-blue-700",
+  Cadastral: "bg-emerald-100 text-emerald-700",
+  Engineering: "bg-amber-100 text-amber-700",
+  Mining: "bg-purple-100 text-purple-700",
+  Monitoring: "bg-orange-100 text-orange-700",
+};
+
+function JobTypeIcon({ type }: { type: string | null }) {
+  const Icon = jobTypeIcons[type ?? ""] ?? Briefcase;
+  return <Icon className="h-6 w-6" aria-hidden="true" />;
+}
+
+const statusVariant = (status: string): "default" | "secondary" | "outline" | "destructive" => {
+  switch (mapStatus(status)) {
+    case "Planned":
+    case "Scheduled":
+      return "default";
+    case "In Progress":
+      return "secondary";
+    case "Completed":
+    case "Cancelled":
+      return "outline";
+    default:
+      return "outline";
+  }
+};
 
 export default function JobsPage({
   workspaceId,
@@ -203,630 +272,387 @@ export default function JobsPage({
     });
   };
 
-  const getStatusClass = (status: string) => {
-    const mapped = mapStatus(status);
-    switch (mapped) {
-      case "Planned":
-      case "Scheduled":
-        return "badge-green";
-      case "In Progress":
-        return "badge-yellow";
-      case "Completed":
-      case "Cancelled":
-        return "badge-gray";
-      default:
-        return "badge-gray";
-    }
-  };
+  const filterTabs: { label: string; value: JobFilter }[] = [
+    { label: "All", value: "all" },
+    { label: "Topographical", value: "Topographical" },
+    { label: "Cadastral", value: "Cadastral" },
+    { label: "Engineering", value: "Engineering" },
+    { label: "Mining", value: "Mining" },
+    { label: "Monitoring", value: "Monitoring" },
+  ];
 
   if (loading) {
     return (
-      <div className="hub-body mkt-body">
-        <p style={{ padding: "2rem" }}>Loading jobs...</p>
+      <div className="hub-body">
+        <PageLoader />
       </div>
     );
   }
 
   return (
-    <div className="hub-body mkt-body">
+    <div className="hub-body mx-auto max-w-6xl space-y-6">
       {error && (
-        <div
-          style={{
-            background: "var(--danger-bg, #fee)",
-            color: "var(--danger, #c00)",
-            padding: "0.75rem 1rem",
-            borderRadius: "6px",
-            marginBottom: "1rem",
-          }}
-        >
-          {error}
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
-      <header
-        className="page-header"
-        style={{
-          padding: 0,
-          marginBottom: "24px",
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "flex-start",
-          justifyContent: "space-between",
-          gap: "16px",
-        }}
-      >
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1>Jobs</h1>
-          <p className="page-subtitle">
+          <p className="text-muted-foreground mt-1 text-sm">
             View field jobs, site visits, and survey assignments
           </p>
           {!isPlatformAdmin && (
-            <p
-              className="page-subtitle"
-              style={{ fontSize: 13, marginTop: 8, opacity: 0.85 }}
-            >
+            <p className="mt-1 text-xs text-muted-foreground">
               Job listings are maintained by platform administrators.
             </p>
           )}
         </div>
         {isPlatformAdmin && (
-          <div className="header-actions">
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={openCreateEditor}
-            >
-              Add job
-            </button>
-          </div>
+          <Button onClick={openCreateEditor}>
+            <Plus className="mr-2 h-4 w-4" /> Add job
+          </Button>
         )}
-      </header>
-
-      <div className="filter-bar">
-        {(
-          [
-            "all",
-            "Topographical",
-            "Cadastral",
-            "Engineering",
-            "Mining",
-            "Monitoring",
-          ] as const
-        ).map((f) => (
-          <button
-            key={f}
-            className={`filter-chip ${typeFilter === f ? "active" : ""}`}
-            onClick={() => setTypeFilter(f)}
-          >
-            {f === "all" ? "All" : f}
-          </button>
-        ))}
-        <div className="filter-spacer" />
-        <input
-          className="search-input"
-          placeholder="Search jobs..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
       </div>
 
-      {selectedJob && (
-        <div className="mkt-modal-overlay" onClick={() => setSelectedJob(null)}>
-          <div className="mkt-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="mkt-modal-header">
-              <div
-                className="mkt-modal-icon"
-                style={{ background: "#e0e7ff", color: "#4f46e5" }}
-              >
-                <svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                  <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-                  <line x1="12" y1="22.08" x2="12" y2="12" />
-                </svg>
-              </div>
-              <div>
-                <h2 className="mkt-modal-title">{selectedJob.title}</h2>
-                <p className="mkt-modal-type">
-                  {selectedJob.project_name ?? "No project"} &middot;{" "}
-                  {selectedJob.location ?? "No location"}
-                </p>
-              </div>
-              <button
-                className="mkt-modal-close"
-                onClick={() => setSelectedJob(null)}
-              >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            </div>
-
-            <div style={{ display: "flex", gap: "8px" }}>
-              <span className={`badge ${getStatusClass(selectedJob.status)}`}>
-                {mapStatus(selectedJob.status)}
-              </span>
-              {selectedJob.job_type && (
-                <span className="badge badge-gray">{selectedJob.job_type}</span>
-              )}
-            </div>
-
-            <p className="mkt-modal-desc">
-              {selectedJob.description ?? "No description provided."}
-            </p>
-
-            <div className="mkt-modal-seller">
-              <div className="mkt-seller-row">
-                <span className="mkt-seller-label">Scheduled Start</span>
-                <span className="mkt-seller-value">
-                  {formatDate(selectedJob.scheduled_start)}
-                </span>
-              </div>
-              <div className="mkt-seller-row">
-                <span className="mkt-seller-label">Scheduled End</span>
-                <span className="mkt-seller-value">
-                  {formatDate(selectedJob.scheduled_end)}
-                </span>
-              </div>
-              <div className="mkt-seller-row">
-                <span className="mkt-seller-label">Project</span>
-                <span className="mkt-seller-value">
-                  {selectedJob.project_name ?? "—"}
-                </span>
-              </div>
-            </div>
-
-            <div className="mkt-modal-actions">
-              <button
-                className="btn btn-outline"
-                onClick={() => setSelectedJob(null)}
-              >
-                Close
-              </button>
-              {isPlatformAdmin && selectedJob ? (
-                <>
-                  <button
-                    type="button"
-                    className="btn btn-outline"
-                    onClick={() => openEditEditor(selectedJob)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-outline"
-                    onClick={() => void handleArchiveJob(selectedJob.id)}
-                  >
-                    Archive
-                  </button>
-                </>
-              ) : null}
-            </div>
-          </div>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <Tabs value={typeFilter} onValueChange={(value) => setTypeFilter(value as JobFilter)}>
+          <TabsList className="h-auto flex-wrap">
+            {filterTabs.map((f) => (
+              <TabsTrigger key={f.value} value={f.value} className="text-xs sm:text-sm">
+                {f.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+        <div className="relative flex-1 lg:max-w-xs">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search jobs..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
         </div>
-      )}
+      </div>
 
-      {jobEditorOpen && (
-        <div
-          className="billing-modal-overlay"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => !savingJob && setJobEditorOpen(false)}
-        >
-          <div
-            className="billing-modal billing-modal--scrollable-form"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="billing-modal-header">
-              <h3>{editingJobId ? "Edit job" : "Add job"}</h3>
-              <button
-                type="button"
-                className="billing-modal-close"
-                disabled={savingJob}
-                onClick={() => setJobEditorOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-            <div className="billing-modal-body-scroll">
-              <div className="billing-modal-grid billing-modal-form-single">
-                <label className="form-label" htmlFor="job-editor-title">
-                  Title
-                </label>
-                <input
-                  id="job-editor-title"
-                  className="input-field"
-                  value={jobTitle}
-                  onChange={(e) => setJobTitle(e.target.value)}
-                  placeholder="Job title"
-                />
-                <label className="form-label" htmlFor="job-editor-desc">
-                  Description
-                </label>
-                <textarea
-                  id="job-editor-desc"
-                  className="input-field"
-                  rows={3}
-                  value={jobDescription}
-                  onChange={(e) => setJobDescription(e.target.value)}
-                  placeholder="Optional description"
-                />
-                <label className="form-label">Job type</label>
-                <SelectDropdown
-                  className="input-field billing-history-select"
-                  value={jobType}
-                  onChange={setJobType}
-                  placeholder="Type"
-                  options={[
-                    { value: "", label: "—" },
-                    { value: "Topographical", label: "Topographical" },
-                    { value: "Cadastral", label: "Cadastral" },
-                    { value: "Engineering", label: "Engineering" },
-                    { value: "Mining", label: "Mining" },
-                    { value: "Monitoring", label: "Monitoring" },
-                  ]}
-                />
-                <label className="form-label" htmlFor="job-editor-location">
-                  Location
-                </label>
-                <input
-                  id="job-editor-location"
-                  className="input-field"
-                  value={jobLocation}
-                  onChange={(e) => setJobLocation(e.target.value)}
-                  placeholder="Optional"
-                />
-                <label className="form-label">Status</label>
-                <SelectDropdown
-                  className="input-field billing-history-select"
-                  value={jobStatus}
-                  onChange={(v) => setJobStatus(v as JobStatus)}
-                  options={[
-                    { value: "planned", label: "Planned" },
-                    { value: "scheduled", label: "Scheduled" },
-                    { value: "in_progress", label: "In progress" },
-                    { value: "completed", label: "Completed" },
-                    { value: "cancelled", label: "Cancelled" },
-                  ]}
-                />
-                <label className="form-label">Project (optional)</label>
-                <SelectDropdown
-                  className="input-field billing-history-select"
-                  value={jobProjectId}
-                  onChange={setJobProjectId}
-                  options={[
-                    { value: "", label: "No project" },
-                    ...projects.map((p) => ({
-                      value: p.id,
-                      label: p.name || "Untitled project",
-                    })),
-                  ]}
-                />
-                <label className="form-label" htmlFor="job-editor-start">
-                  Scheduled start
-                </label>
-                <input
-                  id="job-editor-start"
-                  className="input-field"
-                  type="datetime-local"
-                  value={jobScheduledStart}
-                  onChange={(e) => setJobScheduledStart(e.target.value)}
-                />
-                <label className="form-label" htmlFor="job-editor-end">
-                  Scheduled end
-                </label>
-                <input
-                  id="job-editor-end"
-                  className="input-field"
-                  type="datetime-local"
-                  value={jobScheduledEnd}
-                  onChange={(e) => setJobScheduledEnd(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="billing-modal-actions">
-              <button
-                type="button"
-                className="btn btn-outline"
-                disabled={savingJob}
-                onClick={() => setJobEditorOpen(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={savingJob}
-                onClick={() => void saveJobEditor()}
-              >
-                {savingJob ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-        <div style={{ overflowX: "auto" }}>
-        <table
-          className="invoice-table"
-          style={{ margin: 0, width: "100%", borderCollapse: "collapse" }}
-        >
-          <thead>
-            <tr style={{ borderBottom: "2px solid var(--border)" }}>
-              <th
-                style={{
-                  padding: "16px 20px",
-                  fontSize: "11px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.5px",
-                  color: "#64748b",
-                }}
-              >
-                JOB TITLE
-              </th>
-              <th
-                className="hide-on-mobile"
-                style={{
-                  padding: "16px 8px",
-                  fontSize: "11px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.5px",
-                  color: "#64748b",
-                }}
-              >
-                LOCATION
-              </th>
-              <th
-                className="hide-on-mobile"
-                style={{
-                  padding: "16px 8px",
-                  fontSize: "11px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.5px",
-                  color: "#64748b",
-                }}
-              >
-                SCHEDULED
-              </th>
-              <th
-                style={{
-                  padding: "16px 8px",
-                  fontSize: "11px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.5px",
-                  color: "#64748b",
-                  textAlign: "right",
-                }}
-              >
-                STATUS
-              </th>
-              <th style={{ padding: "16px 20px", width: "40px" }}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginated.map((job) => {
-              const statusLabel = mapStatus(job.status);
-              const bgStatus =
-                statusLabel === "Planned" || statusLabel === "Scheduled"
-                  ? "#dcfce7"
-                  : statusLabel === "In Progress"
-                    ? "#fef9c3"
-                    : "#f1f5f9";
-              const textStatus =
-                statusLabel === "Planned" || statusLabel === "Scheduled"
-                  ? "#15803d"
-                  : statusLabel === "In Progress"
-                    ? "#a16207"
-                    : "#475569";
-
-              return (
-                <tr
-                  key={job.id}
-                  onClick={() => setSelectedJob(job)}
-                  style={{
-                    cursor: "pointer",
-                    transition: "all 0.2s ease",
-                    borderBottom: "1px solid var(--border)",
-                  }}
-                  onMouseOver={(e) =>
-                    (e.currentTarget.style.backgroundColor = "#f8fafc")
-                  }
-                  onMouseOut={(e) =>
-                    (e.currentTarget.style.backgroundColor = "transparent")
-                  }
-                >
-                  <td style={{ paddingLeft: "20px", paddingBlock: "16px" }}>
-                    <div style={{ display: "flex", flexDirection: "column" }}>
-                      <span
-                        style={{
-                          fontWeight: 700,
-                          color: "#0f172a",
-                          fontSize: "15px",
-                        }}
-                      >
-                        {job.title}
-                      </span>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                          marginTop: "4px",
-                        }}
-                      >
-                        <span
-                          style={{
-                            fontSize: "13px",
-                            color: "#475569",
-                            fontWeight: 500,
-                          }}
-                        >
-                          {job.project_name ?? "No project"}
-                        </span>
-                        {job.job_type && (
-                          <>
-                            <span
-                              style={{
-                                fontSize: "12px",
-                                color: "var(--text-h)",
-                                opacity: 0.5,
-                              }}
-                            >
-                              &bull;
-                            </span>
-                            <code
-                              style={{
-                                fontSize: "12px",
-                                color: "#4f46e5",
-                                fontWeight: 600,
-                              }}
-                            >
-                              {job.job_type}
-                            </code>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="hide-on-mobile" style={{ padding: "16px 8px" }}>
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        color: "#334155",
-                        fontSize: "14px",
-                      }}
-                    >
-                      {job.location ?? "—"}
-                    </span>
-                  </td>
-                  <td className="hide-on-mobile" style={{ padding: "16px 8px" }}>
-                    <span style={{ fontSize: "13px", color: "#64748b" }}>
-                      {formatDate(job.scheduled_start)}
-                      {job.scheduled_end
-                        ? ` \u2013 ${formatDate(job.scheduled_end)}`
-                        : ""}
-                    </span>
-                  </td>
-                  <td style={{ textAlign: "right", padding: "16px 8px" }}>
-                    <span
-                      style={{
-                        background: bgStatus,
-                        color: textStatus,
-                        padding: "4px 10px",
-                        borderRadius: "12px",
-                        fontSize: "11px",
-                        fontWeight: 700,
-                        textTransform: "uppercase",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {statusLabel}
-                    </span>
-                  </td>
-                  <td
-                    style={{
-                      textAlign: "right",
-                      paddingRight: "20px",
-                      paddingBlock: "16px",
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {isPlatformAdmin ? (
-                      <button
-                        type="button"
-                        className="btn btn-outline btn-sm"
-                        onClick={() => openEditEditor(job)}
-                      >
-                        Edit
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: "#64748b",
-                          cursor: "default",
-                          padding: "6px",
-                          borderRadius: "6px",
-                        }}
-                        aria-hidden
-                      >
-                        <svg
-                          width="18"
-                          height="18"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <circle cx="12" cy="12" r="1" />
-                          <circle cx="12" cy="5" r="1" />
-                          <circle cx="12" cy="19" r="1" />
-                        </svg>
-                      </button>
+      <Dialog open={!!selectedJob} onOpenChange={() => setSelectedJob(null)}>
+        <DialogContent className="sm:max-w-[480px]">
+          {selectedJob && (
+            <>
+              <DialogHeader>
+                <div className="flex items-start gap-4">
+                  <div
+                    className={cn(
+                      "flex h-12 w-12 shrink-0 items-center justify-center rounded-lg",
+                      jobTypeColors[selectedJob.job_type ?? ""] ?? "bg-muted text-primary",
                     )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        </div>
+                  >
+                    <JobTypeIcon type={selectedJob.job_type} />
+                  </div>
+                  <div>
+                    <DialogTitle>{selectedJob.title}</DialogTitle>
+                    <p className="text-sm text-muted-foreground">
+                      {selectedJob.project_name ?? "No project"} ·{" "}
+                      {selectedJob.location ?? "No location"}
+                    </p>
+                  </div>
+                </div>
+              </DialogHeader>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant={statusVariant(selectedJob.status)}>
+                  {mapStatus(selectedJob.status)}
+                </Badge>
+                {selectedJob.job_type && <Badge variant="outline">{selectedJob.job_type}</Badge>}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {selectedJob.description ?? "No description provided."}
+              </p>
+              <Card>
+                <CardContent className="space-y-2 py-4 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Scheduled Start</span>
+                    <span className="font-medium text-foreground">
+                      {formatDate(selectedJob.scheduled_start)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Scheduled End</span>
+                    <span className="font-medium text-foreground">
+                      {formatDate(selectedJob.scheduled_end)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Project</span>
+                    <span className="font-medium text-foreground">
+                      {selectedJob.project_name ?? "—"}
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+              <DialogFooter className="flex-col gap-2 sm:flex-row">
+                <Button
+                  variant="outline"
+                  onClick={() => setSelectedJob(null)}
+                  className="w-full sm:w-auto"
+                >
+                  Close
+                </Button>
+                {isPlatformAdmin && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => openEditEditor(selectedJob)}
+                      className="w-full sm:w-auto"
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={() => void handleArchiveJob(selectedJob.id)}
+                      className="w-full sm:w-auto"
+                    >
+                      Archive
+                    </Button>
+                  </>
+                )}
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
-        {filtered.length === 0 && (
-          <div
-            style={{
-              padding: "64px",
-              textAlign: "center",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-            }}
-          >
-            <h3 style={{ margin: "0 0 4px", color: "var(--text-h)" }}>
-              No jobs found
-            </h3>
-            <p
-              style={{ margin: 0, color: "var(--text)", fontSize: "13px" }}
+      <Dialog open={jobEditorOpen} onOpenChange={setJobEditorOpen}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>{editingJobId ? "Edit job" : "Add job"}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2 space-y-2">
+              <Label htmlFor="job-editor-title">Title</Label>
+              <Input
+                id="job-editor-title"
+                value={jobTitle}
+                onChange={(e) => setJobTitle(e.target.value)}
+                placeholder="Job title"
+              />
+            </div>
+            <div className="sm:col-span-2 space-y-2">
+              <Label htmlFor="job-editor-desc">Description</Label>
+              <textarea
+                id="job-editor-desc"
+                className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1"
+                value={jobDescription}
+                onChange={(e) => setJobDescription(e.target.value)}
+                placeholder="Optional description"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Job type</Label>
+              <SelectDropdown
+                className="input-field w-full"
+                value={jobType}
+                onChange={setJobType}
+                placeholder="Type"
+                options={[
+                  { value: "", label: "—" },
+                  { value: "Topographical", label: "Topographical" },
+                  { value: "Cadastral", label: "Cadastral" },
+                  { value: "Engineering", label: "Engineering" },
+                  { value: "Mining", label: "Mining" },
+                  { value: "Monitoring", label: "Monitoring" },
+                ]}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="job-editor-location">Location</Label>
+              <Input
+                id="job-editor-location"
+                value={jobLocation}
+                onChange={(e) => setJobLocation(e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <SelectDropdown
+                className="input-field w-full"
+                value={jobStatus}
+                onChange={(v) => setJobStatus(v as JobStatus)}
+                options={[
+                  { value: "planned", label: "Planned" },
+                  { value: "scheduled", label: "Scheduled" },
+                  { value: "in_progress", label: "In progress" },
+                  { value: "completed", label: "Completed" },
+                  { value: "cancelled", label: "Cancelled" },
+                ]}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Project (optional)</Label>
+              <SelectDropdown
+                className="input-field w-full"
+                value={jobProjectId}
+                onChange={setJobProjectId}
+                options={[
+                  { value: "", label: "No project" },
+                  ...projects.map((p) => ({
+                    value: p.id,
+                    label: p.name || "Untitled project",
+                  })),
+                ]}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="job-editor-start">Scheduled start</Label>
+              <Input
+                id="job-editor-start"
+                type="datetime-local"
+                value={jobScheduledStart}
+                onChange={(e) => setJobScheduledStart(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="job-editor-end">Scheduled end</Label>
+              <Input
+                id="job-editor-end"
+                type="datetime-local"
+                value={jobScheduledEnd}
+                onChange={(e) => setJobScheduledEnd(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setJobEditorOpen(false)}
+              disabled={savingJob}
             >
+              Cancel
+            </Button>
+            <Button onClick={() => void saveJobEditor()} disabled={savingJob}>
+              {savingJob ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {filtered.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+            <Briefcase className="h-12 w-12 text-muted-foreground/50" />
+            <p className="font-medium text-foreground">No jobs found</p>
+            <p className="text-sm text-muted-foreground">
               {jobs.length === 0
                 ? "No jobs available in the system yet."
                 : "Try adjusting your search criteria."}
             </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {paginated.map((job) => {
+              const statusLabel = mapStatus(job.status);
+              return (
+                <Card
+                  key={job.id}
+                  className="cursor-pointer transition-all hover:border-primary hover:shadow-md"
+                  onClick={() => setSelectedJob(job)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedJob(job);
+                    }
+                  }}
+                >
+                  <CardContent className="flex flex-1 flex-col gap-4 p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div
+                        className={cn(
+                          "flex h-11 w-11 shrink-0 items-center justify-center rounded-lg",
+                          jobTypeColors[job.job_type ?? ""] ?? "bg-muted text-primary",
+                        )}
+                      >
+                        <JobTypeIcon type={job.job_type} />
+                      </div>
+                      <Badge variant={statusVariant(job.status)}>{statusLabel}</Badge>
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-foreground">{job.title}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {job.project_name ?? "No project"}
+                        {job.job_type && (
+                          <>
+                            {" "}
+                            · <span>{job.job_type}</span>
+                          </>
+                        )}
+                      </p>
+                    </div>
+                    <div className="mt-auto space-y-1.5 text-xs text-muted-foreground">
+                      {job.location && (
+                        <span className="flex items-center gap-1.5">
+                          <MapPin className="h-3.5 w-3.5" /> {job.location}
+                        </span>
+                      )}
+                      {job.scheduled_start && (
+                        <span className="flex items-center gap-1.5">
+                          <CalendarDays className="h-3.5 w-3.5" />{" "}
+                          {formatDate(job.scheduled_start)}
+                          {job.scheduled_end ? ` – ${formatDate(job.scheduled_end)}` : ""}
+                        </span>
+                      )}
+                    </div>
+                    <Separator />
+                    {isPlatformAdmin ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEditEditor(job);
+                        }}
+                      >
+                        Edit
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">View details</span>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
-        )}
-        {filtered.length > pageSize && (
-          <div className="list-pagination">
-            <button className="btn btn-outline btn-sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
-              Previous
-            </button>
-            <span className="list-pagination-label">Page {page} / {totalPages}</span>
-            <button className="btn btn-outline btn-sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
-              Next
-            </button>
-          </div>
-        )}
-      </div>
+
+          {filtered.length > pageSize && (
+            <div className="flex items-center justify-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+              >
+                <ChevronLeft className="mr-1 h-4 w-4" /> Previous
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                Page {page} / {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+              >
+                Next <ChevronRight className="ml-1 h-4 w-4" />
+              </Button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

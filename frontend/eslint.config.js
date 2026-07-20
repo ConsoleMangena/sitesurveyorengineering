@@ -30,6 +30,11 @@ export default defineConfig([
         },
       ],
       'react-hooks/exhaustive-deps': 'warn',
+      // On-mount data loaders (`useEffect(() => { void load() }, [])`) are a
+      // legitimate, intentional pattern throughout this app. The v7 preset
+      // flags every such loader as an error; downgrade to a warning so real
+      // build-breaking issues stay distinguishable from this design choice.
+      'react-hooks/set-state-in-effect': 'warn',
       'no-empty': ['warn', { allowEmptyCatch: true }],
     },
   },

@@ -1,5 +1,15 @@
-import { useState, useCallback, useEffect } from "react";
+import { useCallback, useEffect } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import SplashScreen from "./components/SplashScreen";
+import ErrorBoundary from "./components/ErrorBoundary";
+import SessionExpiredBanner from "./components/SessionExpiredBanner";
+import ProtectedRoute from "./components/ProtectedRoute";
+import WorkspaceRouter from "./components/WorkspaceRouter";
+import GlobalLoader from "./components/GlobalLoader";
+import { LicenseProvider } from "./contexts/LicenseContext";
+import { EmbeddedWalletProvider } from "./contexts/EmbeddedWalletContext.tsx";
+import LicenseGate from "./components/license/LicenseGate";
+import BuildConfigBanner from "./components/license/BuildConfigBanner";
 import LoginPage from "./pages/auth/LoginPage";
 import SignupPage from "./pages/auth/SignupPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
@@ -11,21 +21,9 @@ import {
 import {
   getCurrentSession,
   onAuthStateChange,
-  signOut as signOutSession,
 } from "./lib/auth/session.ts";
 import { mapAppUserToUiUser } from "./features/workspace/account.ts";
-import type { UiUser } from "./features/workspace/types.ts";
-import PersonalWorkspaceShell from "./features/personal/PersonalWorkspaceShell";
-import BusinessWorkspaceShell from "./features/business/BusinessWorkspaceShell";
-import PlatformOperatorWorkspaceShell from "./features/platform/PlatformOperatorWorkspaceShell";
-
-type AuthPage = "login" | "signup" | "forgot" | "resetPassword";
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
+import { useAuthStore } from "./lib/auth/auth-store";
 
 function anyFetchFailed(d: AppUserLoadDiagnostics): boolean {
   return (
@@ -52,9 +50,15 @@ function workspaceNotReadyMessage(diagnostics: AppUserLoadDiagnostics): string {
   return base;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 /** Four attempts with waits 0 / 400ms / 1s / 2s between rounds (handles trigger lag). */
 async function mapUserWithRetries(): Promise<{
-  user: UiUser | null;
+  user: ReturnType<typeof mapAppUserToUiUser>;
   diagnostics: AppUserLoadDiagnostics;
 }> {
   const delaysBeforeRetryMs = [400, 1000, 2000];
@@ -82,7 +86,12 @@ async function mapUserWithRetries(): Promise<{
   return { user: null, diagnostics: lastDiagnostics };
 }
 
-function App() {
+export default function App() {
+  const { setUser, setLoading, setAuthLoading, setError, setSessionExpired } =
+    useAuthStore();
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const user = useAuthStore((s) => s.user);
+
   const isPasswordRecoveryLink = useCallback(() => {
     const search = window.location.search.toLowerCase();
     const hash = window.location.hash.toLowerCase();
@@ -91,159 +100,138 @@ function App() {
     );
   }, []);
 
-  const [showSplash, setShowSplash] = useState(true);
-  const [user, setUser] = useState<UiUser | null>(null);
-  const [authPage, setAuthPage] = useState<AuthPage>("login");
-  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const syncUser = useCallback(async () => {
+    try {
+      const session = await getCurrentSession();
+      if (!session) {
+        setUser(null);
+        setLoading(false);
+        return;
+      }
 
-  const handleSplashFinish = useCallback(() => {
-    setShowSplash(false);
-  }, []);
-
-  const syncAuthenticatedUser = useCallback(async () => {
-    const session = await getCurrentSession();
-
-    if (!session) {
+      const { user: mappedUser, diagnostics } = await mapUserWithRetries();
+      if (mappedUser) {
+        setUser(mappedUser);
+      } else {
+        setError(workspaceNotReadyMessage(diagnostics));
+        setUser(null);
+      }
+    } catch (err) {
       setUser(null);
-      return;
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unexpected error while loading your workspace.",
+      );
+    } finally {
+      setLoading(false);
     }
-
-    const { user: mappedUser, diagnostics } = await mapUserWithRetries();
-
-    if (!mappedUser) {
-      throw new Error(workspaceNotReadyMessage(diagnostics));
-    }
-
-    setUser(mappedUser);
-  }, []);
-
-  const handleLoginSuccess = useCallback(async () => {
-    await syncAuthenticatedUser();
-  }, [syncAuthenticatedUser]);
-
-  const handleSignupComplete = useCallback(async () => {
-    await handleLoginSuccess();
-  }, [handleLoginSuccess]);
-
-  const handleLogout = useCallback(async () => {
-    await signOutSession();
-    setUser(null);
-    setAuthPage("login");
-  }, []);
+  }, [setUser, setLoading, setError]);
 
   useEffect(() => {
     let isMounted = true;
 
-    const syncUser = async () => {
-      try {
-        if (isPasswordRecoveryLink()) {
-          setAuthPage("resetPassword");
-        }
-        const session = await getCurrentSession();
-        if (!isMounted) return;
-
-        if (!session) {
-          setUser(null);
-          setBootstrapError(null);
-          return;
-        }
-
-        const { user: mappedUser, diagnostics } = await mapUserWithRetries();
-        if (!isMounted) return;
-
-        if (mappedUser) {
-          setUser(mappedUser);
-          setBootstrapError(null);
-        } else {
-          setUser(null);
-          setBootstrapError(workspaceNotReadyMessage(diagnostics));
-        }
-      } catch (err) {
-        if (isMounted) {
-          setUser(null);
-          setBootstrapError(
-            err instanceof Error
-              ? err.message
-              : "Unexpected error while loading your workspace.",
-          );
-        }
+    const bootstrap = async () => {
+      if (isPasswordRecoveryLink()) {
+        window.history.replaceState({}, "", "/reset-password");
       }
+      await syncUser();
     };
 
-    void syncUser();
+    void bootstrap();
 
     const subscription = onAuthStateChange((event) => {
+      if (!isMounted) return;
       if (event === "PASSWORD_RECOVERY") {
-        setAuthPage("resetPassword");
+        window.history.replaceState({}, "", "/reset-password");
+        return;
       }
-      void syncUser();
+      if (event === "SIGNED_OUT") {
+        setSessionExpired(true);
+        return;
+      }
+      if (event === "SIGNED_IN") {
+        setSessionExpired(false);
+        // Keep the full-screen loader visible while the profile and workspace
+        // are fetched, so the login screen does not flash before the
+        // authenticated workspace is ready.
+        setAuthLoading(true);
+        void syncUser().finally(() => setAuthLoading(false));
+      }
     });
 
     return () => {
       isMounted = false;
       subscription.unsubscribe();
     };
-  }, [isPasswordRecoveryLink]);
+  }, [isPasswordRecoveryLink, syncUser, setSessionExpired, setAuthLoading]);
 
-  if (showSplash) {
-    return <SplashScreen onFinish={handleSplashFinish} />;
+  if (isLoading) {
+    return <SplashScreen onFinish={() => {}} />;
   }
 
-  if (!user) {
-    if (authPage === "signup") {
-      return (
-        <SignupPage
-          onSignup={handleSignupComplete}
-          onGoToLogin={() => setAuthPage("login")}
-        />
-      );
-    }
-
-    if (authPage === "forgot") {
-      return <ForgotPasswordPage onGoToLogin={() => setAuthPage("login")} />;
-    }
-
-    if (authPage === "resetPassword") {
-      return <ResetPasswordPage onGoToLogin={() => setAuthPage("login")} />;
-    }
-
-    return (
-      <>
-        {bootstrapError ? (
-          <div
-            role="alert"
-            style={{
-              padding: "0.75rem 1rem",
-              background: "#fef2f2",
-              color: "#991b1b",
-              borderBottom: "1px solid #fecaca",
-              fontSize: "0.875rem",
-              textAlign: "center",
-            }}
-          >
-            {bootstrapError}
-          </div>
-        ) : null}
-        <LoginPage
-          onLoginSuccess={handleLoginSuccess}
-          onGoToSignup={() => setAuthPage("signup")}
-          onForgotPassword={() => setAuthPage("forgot")}
-        />
-      </>
-    );
-  }
-
-  if (user.signupAccountType === "platform_admin") {
-    return (
-      <PlatformOperatorWorkspaceShell user={user} onLogout={handleLogout} />
-    );
-  }
-
-  if (user.accountType === "business") {
-    return <BusinessWorkspaceShell user={user} onLogout={handleLogout} />;
-  }
-
-  return <PersonalWorkspaceShell user={user} onLogout={handleLogout} />;
+  return (
+    <ErrorBoundary>
+      <BuildConfigBanner />
+      <GlobalLoader />
+      <BrowserRouter>
+        <SessionExpiredBanner />
+        <Routes>
+          <Route
+            path="/login"
+            element={
+              user ? (
+                <Navigate to="/" replace />
+              ) : (
+                <LoginPage />
+              )
+            }
+          />
+          <Route
+            path="/signup"
+            element={
+              user ? (
+                <Navigate to="/" replace />
+              ) : (
+                <SignupPage />
+              )
+            }
+          />
+          <Route
+            path="/forgot-password"
+            element={
+              user ? (
+                <Navigate to="/" replace />
+              ) : (
+                <ForgotPasswordPage />
+              )
+            }
+          />
+          <Route
+            path="/reset-password"
+            element={
+              user ? (
+                <Navigate to="/" replace />
+              ) : (
+                <ResetPasswordPage />
+              )
+            }
+          />
+          <Route element={<ProtectedRoute />}>
+            <Route path="/" element={
+              <LicenseProvider>
+                <LicenseGate>
+                  <EmbeddedWalletProvider>
+                    <WorkspaceRouter />
+                  </EmbeddedWalletProvider>
+                </LicenseGate>
+              </LicenseProvider>
+            } />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </ErrorBoundary>
+  );
 }
-
-export default App;

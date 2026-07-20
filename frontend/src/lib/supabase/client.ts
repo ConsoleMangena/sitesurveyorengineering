@@ -18,5 +18,10 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
+    flowType: "pkce",
   },
 });
+
+export const isOnline = (): boolean => {
+  return typeof navigator !== 'undefined' && navigator.onLine;
+};

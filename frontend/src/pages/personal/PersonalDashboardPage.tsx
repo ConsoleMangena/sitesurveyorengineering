@@ -1,6 +1,26 @@
-import { useState, useEffect } from "react";
-import "../../styles/pages.css";
-import "../../styles/project-hub.css";
+import React, { useState, useEffect } from "react";
+import {
+  Briefcase,
+  FileText,
+  Clock,
+  Plus,
+  Gauge,
+  CalendarDays,
+  ListTodo,
+} from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { MetricStrip } from "@/components/dashboard/MetricStrip.tsx";
+import {
+  DashboardColumn,
+  DashboardGrid,
+  DashboardHeader,
+  DashboardShell,
+} from "@/components/dashboard/DashboardShell.tsx";
+import { DashboardCard } from "@/components/dashboard/DashboardCard.tsx";
+
 import { listProjects, type ProjectWithOrg } from "../../lib/repositories/projects.ts";
 import { listInvoices, type InvoiceWithDetails } from "../../lib/repositories/invoices.ts";
 import { listCalibrations, listAssets } from "../../lib/repositories/assets.ts";
@@ -10,11 +30,11 @@ import { listQuotes } from "../../lib/repositories/quotes.ts";
 interface PersonalDashboardPageProps {
   userName?: string;
   workspaceId: string;
+  onNavigate?: (view: string) => void;
 }
 
 function getGreeting(): string {
   const hour = new Date().getHours();
-
   if (hour < 12) return "Good Morning";
   if (hour < 17) return "Good Afternoon";
   return "Good Evening";
@@ -29,6 +49,7 @@ function getFirstName(name?: string): string {
 export default function PersonalDashboardPage({
   userName,
   workspaceId,
+  onNavigate,
 }: PersonalDashboardPageProps) {
   const [projects, setProjects] = useState<ProjectWithOrg[]>([]);
   const [invoices, setInvoices] = useState<InvoiceWithDetails[]>([]);
@@ -38,10 +59,10 @@ export default function PersonalDashboardPage({
   const [assetSnapshot, setAssetSnapshot] = useState<
     { name: string; status: string; color: string }[]
   >([]);
-  
+
   useEffect(() => {
     if (!workspaceId) return;
-    
+
     Promise.all([
       listProjects(workspaceId).catch(() => []),
       listInvoices(workspaceId).catch(() => []),
@@ -108,18 +129,23 @@ export default function PersonalDashboardPage({
                   : "Unavailable",
           color:
             asset.status === "available"
-              ? "#15803d"
+              ? "#16a34a"
               : asset.status === "maintenance"
-                ? "#b45309"
-                : "#475569",
+                ? "#d97706"
+                : "#64748b",
         })),
       );
     });
   }, [workspaceId]);
 
-  const activeProjectsCount = projects.filter(p => p.status === 'active').length;
-  const pendingInvoices = invoices.filter(i => i.status === 'draft' || i.status === 'sent' || i.status === 'overdue');
-  const pendingInvoicesTotal = pendingInvoices.reduce((sum, inv) => sum + Number(inv.total || 0), 0);
+  const activeProjectsCount = projects.filter((p) => p.status === "active").length;
+  const pendingInvoices = invoices.filter(
+    (i) => i.status === "draft" || i.status === "sent" || i.status === "overdue",
+  );
+  const pendingInvoicesTotal = pendingInvoices.reduce(
+    (sum, inv) => sum + Number(inv.total || 0),
+    0,
+  );
 
   const currentDate = new Date().toLocaleDateString("en-US", {
     weekday: "long",
@@ -129,393 +155,176 @@ export default function PersonalDashboardPage({
   });
 
   return (
-    <div className="hub-body">
-      <header
-        className="page-header"
-        style={{ padding: 0, marginBottom: "24px" }}
-      >
-        <div>
-          <span
-            className="hub-account-badge personal"
-            style={{ marginBottom: "10px" }}
-          >
-            Personal account
-          </span>
-          <h1 style={{ fontSize: "22px", letterSpacing: "-0.4px", margin: 0 }}>
-            {getGreeting()}, {getFirstName(userName)}
-          </h1>
-          <p className="page-subtitle" style={{ marginTop: "6px" }}>
-            {currentDate}
-          </p>
-          <p
-            style={{
-              margin: "8px 0 0 0",
-              fontSize: "13px",
-              color: "var(--text)",
-              maxWidth: "760px",
-              lineHeight: 1.5,
-            }}
-          >
-            Your personal dashboard is focused on your own schedule, projects,
-            invoices, contacts, and field equipment so you can manage solo work
-            efficiently.
-          </p>
-        </div>
-
-        <div className="header-actions">
-          <button
-            className="btn btn-primary"
-            style={{ display: "flex", gap: "8px", alignItems: "center" }}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-            >
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
+    <DashboardShell className="hub-body">
+      <DashboardHeader
+        badge={<Badge variant="secondary">Personal account</Badge>}
+        title={`${getGreeting()}, ${getFirstName(userName)}`}
+        subtitle={currentDate}
+        description="Your personal dashboard is focused on your own schedule, projects, invoices, contacts, and field equipment so you can manage solo work efficiently."
+        actions={
+          <Button className="gap-2">
+            <Plus size={16} />
             Create Quote
-          </button>
-        </div>
-      </header>
+          </Button>
+        }
+      />
 
-      <div className="invoice-summary-row" style={{ marginBottom: "32px" }}>
-        <div
-          className="invoice-summary-card"
-          style={{ borderLeftColor: "var(--accent)" }}
-        >
-          <span className="invoice-summary-label">Open Projects</span>
-          <span className="invoice-summary-value">{activeProjectsCount}</span>
-          <p
-            style={{
-              margin: "4px 0 0 0",
-              fontSize: "12px",
-              color: "var(--text)",
-            }}
-          >
-            {projects.length} total projects
-          </p>
-        </div>
+      <MetricStrip
+        metrics={[
+          {
+            label: "Open Projects",
+            value: activeProjectsCount.toString(),
+            subtext: `${projects.length} total projects`,
+            accentColor: "#8b5cf6",
+            icon: <Briefcase size={18} />,
+          },
+          {
+            label: "Pending Invoices",
+            value: `$${pendingInvoicesTotal.toLocaleString()}`,
+            subtext: `${pendingInvoices.length} invoices awaiting payment`,
+            accentColor: "#f59e0b",
+            icon: <FileText size={18} />,
+          },
+          {
+            label: "Next Calibration",
+            value: nextCalibrationDays == null ? "-- Days" : `${nextCalibrationDays} Days`,
+            subtext:
+              nextCalibrationDays == null
+                ? "No calibration schedule found"
+                : "until next calibration",
+            accentColor: "#22c55e",
+            icon: <Clock size={18} />,
+          },
+        ]}
+      />
 
-        <div
-          className="invoice-summary-card"
-          style={{ borderLeftColor: "#f59e0b" }}
-        >
-          <span className="invoice-summary-label">Pending Invoices</span>
-          <span className="invoice-summary-value">
-            ${pendingInvoicesTotal.toLocaleString()}
-          </span>
-          <p
-            style={{
-              margin: "4px 0 0 0",
-              fontSize: "12px",
-              color: "var(--text)",
-            }}
-          >
-            {pendingInvoices.length} invoices awaiting payment
-          </p>
-        </div>
-
-        <div
-          className="invoice-summary-card"
-          style={{ borderLeftColor: "#22c55e" }}
-        >
-          <span className="invoice-summary-label">Next Calibration</span>
-          <span className="invoice-summary-value" style={{ color: "var(--text-h)" }}>
-            {nextCalibrationDays == null ? "-- Days" : `${nextCalibrationDays} Days`}
-          </span>
-          <p
-            style={{
-              margin: "4px 0 0 0",
-              fontSize: "12px",
-              color: "var(--text)",
-            }}
-          >
-            {nextCalibrationDays == null ? "No calibration schedule found" : "until next calibration"}
-          </p>
-        </div>
-      </div>
-
-      <div className="project-dashboard-unified-grid">
-        <div style={{ display: "flex", flexDirection: "column", gap: "24px", minWidth: 0 }}>
-          <div className="card">
-            <div
-              className="card-header"
-              style={{
-                paddingBottom: "16px",
-                borderBottom: "1px solid var(--border)",
-              }}
-            >
-              <h2 style={{ fontSize: "16px", margin: 0 }}>Recent Projects</h2>
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
-              {projects.slice(0, 3).map((project, idx) => (
-                <div
-                  key={project.id}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    padding: "16px",
-                    borderBottom: idx < 2 ? "1px solid var(--border)" : "none",
-                    alignItems: "center",
-                  }}
-                >
-                  <div>
-                    <h3
-                      style={{
-                        fontSize: "15px",
-                        color: "var(--text-h)",
-                        margin: "0 0 4px 0",
-                      }}
-                    >
-                      {project.name}
-                    </h3>
-                    <span style={{ fontSize: "13px", color: "var(--text)" }}>
-                      {project.organization_name || "Private Client"}
-                    </span>
-                  </div>
-                  <span
-                    className="status-badge"
-                    style={
-                      project.status === "completed"
-                        ? { background: "#dcfce7", color: "#15803d" }
-                        : { background: "#dbeafe", color: "#1d4ed8" }
-                    }
+      <DashboardGrid>
+        <DashboardColumn>
+          <DashboardCard title="Recent Projects" icon={<Briefcase size={16} />}>
+            <div className="flex flex-col">
+              {projects.slice(0, 3).map((project) => (
+                <React.Fragment key={project.id}>
+                  <button
+                    type="button"
+                    className="flex items-center justify-between gap-4 w-full text-left py-3 px-1 rounded-lg transition-colors hover:bg-muted/60"
                   >
-                    {project.status === "completed" ? "Completed" : "Active"}
-                  </span>
-                </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">
+                        {project.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {project.organization_name || "Private Client"}
+                      </p>
+                    </div>
+                    <Badge
+                      variant={
+                        project.status === "completed" ? "default" : "secondary"
+                      }
+                    >
+                      {project.status === "completed" ? "Completed" : "Active"}
+                    </Badge>
+                  </button>
+                  <Separator />
+                </React.Fragment>
               ))}
               {projects.length === 0 && (
-                <div style={{ padding: "16px", color: "var(--text)", fontSize: "14px" }}>
+                <div className="py-6 text-center text-sm text-muted-foreground">
                   No recent projects found.
                 </div>
               )}
             </div>
+          </DashboardCard>
 
-            <button
-              style={{
-                width: "100%",
-                padding: "12px",
-                background: "var(--surface-muted)",
-                border: "none",
-                color: "var(--accent)",
-                fontWeight: 600,
-                cursor: "pointer",
-                borderTop: "1px solid var(--border)",
-                borderBottomLeftRadius: "12px",
-                borderBottomRightRadius: "12px",
-              }}
-            >
-              View All Projects
-            </button>
-          </div>
-
-          <div className="card">
-            <div
-              className="card-header"
-              style={{
-                paddingBottom: "16px",
-                borderBottom: "1px solid var(--border)",
-              }}
-            >
-              <h2 style={{ fontSize: "16px", margin: 0 }}>Priority Tasks</h2>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "12px",
-                padding: "16px",
-              }}
-            >
+          <DashboardCard title="Priority Tasks" icon={<ListTodo size={16} />}>
+            <div className="flex flex-col gap-3">
               {taskItems.map((task) => (
-                <div
-                  key={task}
-                  style={{
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: "10px",
-                  }}
-                >
-                  <span
-                    style={{
-                      width: "8px",
-                      height: "8px",
-                      borderRadius: "50%",
-                      background: "var(--accent)",
-                      marginTop: "6px",
-                      flexShrink: 0,
-                    }}
-                  />
-                  <span
-                    style={{
-                      fontSize: "13px",
-                      color: "var(--text-h)",
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {task}
-                  </span>
+                <div key={task} className="flex items-start gap-3">
+                  <span className="mt-1.5 h-2 w-2 rounded-full bg-primary shrink-0" />
+                  <span className="text-sm text-foreground">{task}</span>
                 </div>
               ))}
               {taskItems.length === 0 && (
-                <div style={{ fontSize: "13px", color: "var(--text)" }}>
+                <p className="text-sm text-muted-foreground">
                   No priority tasks available.
-                </div>
+                </p>
               )}
             </div>
-          </div>
-        </div>
+          </DashboardCard>
+        </DashboardColumn>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "24px", minWidth: 0 }}>
-          <div
-            className="card"
-            style={{ background: "var(--surface-muted)", borderColor: "var(--accent-border)" }}
-          >
-            <div
-              className="card-header"
-              style={{
-                paddingBottom: "16px",
-                borderBottom: "1px solid var(--accent-border)",
-              }}
-            >
-              <h2
-                style={{ fontSize: "16px", margin: 0, color: "var(--accent)" }}
+        <DashboardColumn>
+          <DashboardCard
+            title="Today's Schedule"
+            icon={<CalendarDays size={16} />}
+            accent
+            footer={
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => onNavigate?.("schedule")}
               >
-                Today&apos;s Schedule
-              </h2>
-            </div>
-
-            <div
-              style={{
-                padding: "16px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "16px",
-              }}
-            >
-              {todayEvents.map((event, idx) => (
-                <div key={event.id} style={{ display: "flex", gap: "12px" }}>
-                  <div
-                    style={{
-                      color: idx === 0 ? "var(--accent)" : "var(--text)",
-                      fontWeight: idx === 0 ? 700 : 600,
-                      fontSize: "13px",
-                      paddingTop: "2px",
-                      minWidth: "50px",
-                    }}
-                  >
+                Open Full Schedule
+              </Button>
+            }
+          >
+            <div className="flex flex-col gap-3">
+              {todayEvents.map((event) => (
+                <div key={event.id} className="flex gap-4 items-start">
+                  <div className="text-xs font-semibold text-muted-foreground w-16 shrink-0 pt-0.5">
                     {event.start_time ? event.start_time.slice(0, 5) : "All day"}
                   </div>
-                  <div
-                    style={{
-                      background: "var(--surface)",
-                      border: idx === 0 ? "1px solid var(--accent-border)" : "1px solid var(--border)",
-                      padding: "12px",
-                      borderRadius: "8px",
-                      flex: 1,
-                      boxShadow: idx === 0 ? "0 1px 2px rgba(139, 92, 246, 0.05)" : "none",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontWeight: 600,
-                        color: "var(--text-h)",
-                        fontSize: "14px",
-                        marginBottom: "4px",
-                      }}
-                    >
+                  <div className="flex-1 rounded-lg bg-muted/60 p-3">
+                    <p className="text-sm font-medium text-foreground">
                       {event.title}
-                    </div>
-                    <div style={{ color: "var(--text)", fontSize: "12px" }}>
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       {event.notes || event.event_type || "Scheduled activity"}
-                    </div>
+                    </p>
                   </div>
                 </div>
               ))}
               {todayEvents.length === 0 && (
-                <div style={{ color: "var(--text)", fontSize: "13px" }}>
+                <div className="py-6 text-center text-sm text-muted-foreground">
                   No schedule events for today.
                 </div>
               )}
             </div>
+          </DashboardCard>
 
-            <button
-              style={{
-                width: "100%",
-                padding: "12px",
-                background: "transparent",
-                border: "none",
-                color: "var(--accent)",
-                fontWeight: 600,
-                cursor: "pointer",
-                borderTop: "1px solid var(--accent-border)",
-              }}
-            >
-              Open Full Schedule
-            </button>
-          </div>
-
-          <div className="card">
-            <div
-              className="card-header"
-              style={{
-                paddingBottom: "16px",
-                borderBottom: "1px solid var(--border)",
-              }}
-            >
-              <h2 style={{ fontSize: "16px", margin: 0 }}>
-                Equipment Snapshot
-              </h2>
-            </div>
-
-            <div
-              style={{
-                padding: "16px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "12px",
-              }}
-            >
+          <DashboardCard title="Equipment Snapshot" icon={<Gauge size={16} />}>
+            <div className="flex flex-col gap-3">
               {assetSnapshot.map((asset) => (
                 <div
                   key={asset.name}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: "12px",
-                  }}
+                  className="flex items-center justify-between gap-4"
                 >
-                  <span style={{ fontSize: "13px", color: "var(--text)" }}>
-                    {asset.name}
-                  </span>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Gauge
+                      size={16}
+                      className="shrink-0 text-muted-foreground"
+                    />
+                    <span className="text-sm font-medium text-foreground truncate">
+                      {asset.name}
+                    </span>
+                  </div>
                   <span
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: 600,
-                      color: asset.color,
-                    }}
+                    className="text-xs font-semibold shrink-0"
+                    style={{ color: asset.color }}
                   >
                     {asset.status}
                   </span>
                 </div>
               ))}
               {assetSnapshot.length === 0 && (
-                <div style={{ fontSize: "13px", color: "var(--text)" }}>
+                <div className="py-6 text-center text-sm text-muted-foreground">
                   No assets tracked yet.
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
+          </DashboardCard>
+        </DashboardColumn>
+      </DashboardGrid>
+    </DashboardShell>
   );
 }

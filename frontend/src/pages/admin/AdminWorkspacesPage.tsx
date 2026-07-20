@@ -1,36 +1,44 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import "../../styles/pages.css";
+import { RefreshCw, Search, Archive, ArchiveRestore, Loader2 } from "lucide-react";
+
+import PageLoader from "@/components/PageLoader.tsx";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  listWorkspacesWithLicenses,
-  pickWorkspaceLicense,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { ResponsiveTable } from "@/components/ui/responsive-table";
+import { DashboardHeader, DashboardShell } from "@/components/dashboard/DashboardShell.tsx";
+
+import {
+  listWorkspaces,
   listWorkspaceMembersAdmin,
   getWorkspaceSummary,
   archiveWorkspace,
   unarchiveWorkspace,
   listProfilesSummary,
-  type WorkspaceRowWithLicense,
+  type WorkspaceRowAdmin,
   type WorkspaceMemberAdmin,
   type WorkspaceSummary,
 } from "../../lib/repositories/adminPlatform.ts";
-import type { LicenseStatus, LicenseTier } from "../../lib/repositories/workspaceLicenses.ts";
 
 interface AdminWorkspacesPageProps {
   isPlatformAdmin: boolean;
-}
-
-function tierBadge(tier: LicenseTier) {
-  const cls = tier === "enterprise" ? "badge-purple" : tier === "pro" ? "badge-blue" : "badge-gray";
-  return <span className={`badge ${cls}`}>{tier.toUpperCase()}</span>;
-}
-
-function statusBadge(status: LicenseStatus) {
-  const cls =
-    status === "active" || status === "trialing"
-      ? "badge-green"
-      : status === "past_due"
-        ? "badge-yellow"
-        : "badge-gray";
-  return <span className={`badge ${cls}`}>{status.replaceAll("_", " ")}</span>;
 }
 
 function formatDate(iso: string): string {
@@ -41,10 +49,19 @@ function formatDate(iso: string): string {
   }
 }
 
+function StatBox({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-lg border bg-muted/40 p-3">
+      <span className="text-xl font-bold text-foreground">{value}</span>
+      <span className="text-xs text-muted-foreground capitalize">{label}</span>
+    </div>
+  );
+}
+
 export default function AdminWorkspacesPage({
   isPlatformAdmin,
 }: AdminWorkspacesPageProps) {
-  const [rows, setRows] = useState<WorkspaceRowWithLicense[]>([]);
+  const [rows, setRows] = useState<WorkspaceRowAdmin[]>([]);
   const [ownerLabels, setOwnerLabels] = useState<Map<string, string>>(new Map());
   const [query, setQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
@@ -63,7 +80,7 @@ export default function AdminWorkspacesPage({
     setLoading(true);
     setError(null);
     try {
-      const data = await listWorkspacesWithLicenses();
+      const data = await listWorkspaces();
       setRows(data);
       const owners = await listProfilesSummary(data.map((r) => r.owner_user_id));
       setOwnerLabels(owners);
@@ -84,12 +101,10 @@ export default function AdminWorkspacesPage({
     const q = query.trim().toLowerCase();
     if (q) {
       result = result.filter((r) => {
-        const lic = pickWorkspaceLicense(r);
         const owner = ownerLabels.get(r.owner_user_id) ?? "";
         return (
           r.name.toLowerCase().includes(q) ||
           (r.slug ?? "").toLowerCase().includes(q) ||
-          (lic?.tier ?? "").includes(q) ||
           owner.toLowerCase().includes(q)
         );
       });
@@ -97,7 +112,9 @@ export default function AdminWorkspacesPage({
     return result;
   }, [rows, query, showArchived, ownerLabels]);
 
-  const selectedRow = selectedWsId ? rows.find((r) => r.id === selectedWsId) ?? null : null;
+  const selectedRow = selectedWsId
+    ? rows.find((r) => r.id === selectedWsId) ?? null
+    : null;
 
   const openDetail = async (wsId: string) => {
     setSelectedWsId(wsId);
@@ -143,239 +160,248 @@ export default function AdminWorkspacesPage({
   if (!isPlatformAdmin) return null;
 
   return (
-    <div className="hub-body admin-console-page">
-      <header className="page-header">
-        <div>
-          <h1>Workspace details</h1>
-          <p className="page-subtitle">
-            Inspect any workspace — members, entity counts, archive status
-          </p>
-        </div>
-        <div className="header-actions">
-          <button type="button" className="btn btn-outline btn-sm" onClick={() => void load()}>
+    <DashboardShell className="hub-body admin-console-page">
+      <DashboardHeader
+        badge={<Badge variant="secondary">Platform admin</Badge>}
+        title="Workspaces"
+        subtitle="Inspect any workspace — members, entity counts, archive status"
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void load()}
+            disabled={loading}
+            className="gap-2"
+          >
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             Refresh
-          </button>
+          </Button>
+        }
+      />
+
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
         </div>
-      </header>
+      )}
+      {notice && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+          {notice}
+        </div>
+      )}
 
-      {error && <div className="alert-bar alert-warning">{error}</div>}
-      {notice && <div className="alert-bar alert-success">{notice}</div>}
-
-      <div className="admin-console-toolbar" style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-        <input
-          type="search"
-          className="input-field admin-console-search"
-          placeholder="Filter by name, slug, tier, or owner…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label="Filter workspaces"
-        />
-        <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", cursor: "pointer" }}>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[220px] max-w-md">
+          <Search
+            size={16}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            type="search"
+            placeholder="Filter by name, slug, or owner…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Filter workspaces"
+            className="pl-9"
+          />
+        </div>
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
           <input
             type="checkbox"
             checked={showArchived}
             onChange={(e) => setShowArchived(e.target.checked)}
+            className="h-4 w-4 rounded border-border text-primary accent-primary"
           />
           Show archived
         </label>
       </div>
 
       {loading ? (
-        <p className="admin-console-muted">Loading…</p>
+        <PageLoader compact />
       ) : (
-        <div className="card admin-console-card admin-console-table-wrap">
-          <table className="invoice-table admin-console-table admin-console-table--stacked">
-            <thead>
-              <tr>
-                <th>Workspace</th>
-                <th>Type</th>
-                <th>Owner</th>
-                <th>Tier</th>
-                <th>Status</th>
-                <th>Created</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: "2rem" }}>
-                    No workspaces found.
-                  </td>
-                </tr>
-              ) : (
-                filtered.map((row) => {
-                  const lic = pickWorkspaceLicense(row);
-                  return (
-                    <tr key={row.id}>
-                      <td data-label="Workspace">
-                        <div className="admin-console-cell-title">{row.name}</div>
-                        {row.archived_at && (
-                          <span className="admin-console-muted">Archived</span>
-                        )}
-                      </td>
-                      <td data-label="Type">{row.type}</td>
-                      <td data-label="Owner">{ownerLabels.get(row.owner_user_id) ?? "—"}</td>
-                      <td data-label="Tier">{tierBadge(lic?.tier ?? "free")}</td>
-                      <td data-label="Status">{statusBadge(lic?.status ?? "active")}</td>
-                      <td data-label="Created">{formatDate(row.created_at)}</td>
-                      <td data-label="Actions">
-                        <button
-                          type="button"
-                          className="btn btn-outline btn-sm admin-console-row-action"
-                          onClick={() => void openDetail(row.id)}
-                          disabled={detailLoading}
-                        >
-                          Inspect
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+        <Card className="border-border/60 overflow-hidden">
+          <CardContent className="p-0">
+            <ResponsiveTable>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Workspace</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Owner</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={5}
+                        className="text-center py-8 text-muted-foreground"
+                      >
+                        No workspaces found.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filtered.map((row) => (
+                      <TableRow key={row.id}>
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span className="font-medium text-foreground">{row.name}</span>
+                            {row.archived_at && (
+                              <Badge variant="outline" className="mt-1 w-fit text-xs">
+                                Archived
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="capitalize">{row.type}</TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {ownerLabels.get(row.owner_user_id) ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {formatDate(row.created_at)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void openDetail(row.id)}
+                            disabled={detailLoading}
+                          >
+                            Inspect
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </ResponsiveTable>
+          </CardContent>
+        </Card>
       )}
 
-      {selectedRow && (
-        <div className="billing-modal-overlay" role="dialog" aria-modal="true">
-          <div className="billing-modal admin-console-modal" style={{ maxWidth: "600px" }}>
-            <div className="billing-modal-header">
-              <h3>{selectedRow.name}</h3>
-              <button
-                type="button"
-                className="billing-modal-close"
-                onClick={() => setSelectedWsId(null)}
-              >
-                Close
-              </button>
-            </div>
+      <Dialog open={!!selectedRow} onOpenChange={(open) => !open && setSelectedWsId(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{selectedRow?.name ?? "Workspace"}</DialogTitle>
+            <DialogDescription>
+              Members, entity counts, and archive status for this workspace.
+            </DialogDescription>
+          </DialogHeader>
 
-            {detailLoading ? (
-              <p className="admin-console-muted" style={{ padding: "20px" }}>Loading…</p>
-            ) : (
-              <div style={{ padding: "16px 20px" }}>
-                <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
-                  <div>
-                    <span style={{ fontSize: "12px", color: "var(--text-m)" }}>Type</span>
-                    <div>{selectedRow.type}</div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: "12px", color: "var(--text-m)" }}>Owner</span>
-                    <div>{ownerLabels.get(selectedRow.owner_user_id) ?? "—"}</div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: "12px", color: "var(--text-m)" }}>Slug</span>
-                    <div>{selectedRow.slug ?? "—"}</div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: "12px", color: "var(--text-m)" }}>Created</span>
-                    <div>{formatDate(selectedRow.created_at)}</div>
-                  </div>
-                  {selectedRow.archived_at && (
-                    <div>
-                      <span style={{ fontSize: "12px", color: "var(--text-m)" }}>Archived</span>
-                      <div>{formatDate(selectedRow.archived_at)}</div>
-                    </div>
-                  )}
+          {detailLoading ? (
+            <PageLoader compact />
+          ) : selectedRow ? (
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="space-y-0.5">
+                  <span className="text-xs text-muted-foreground">Type</span>
+                  <p className="text-sm font-medium capitalize">{selectedRow.type}</p>
                 </div>
-
-                {summary && (
-                  <>
-                    <h4 style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px" }}>
-                      Entity counts
-                    </h4>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))",
-                        gap: "8px",
-                        marginBottom: "16px",
-                      }}
-                    >
-                      {(Object.entries(summary) as [string, number][]).map(([key, val]) => (
-                        <div
-                          key={key}
-                          style={{
-                            background: "var(--bg-card, #f9fafb)",
-                            borderRadius: "8px",
-                            padding: "10px 12px",
-                            textAlign: "center",
-                          }}
-                        >
-                          <div style={{ fontSize: "18px", fontWeight: 700 }}>{val}</div>
-                          <div style={{ fontSize: "12px", color: "var(--text-m)", textTransform: "capitalize" }}>
-                            {key}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-
-                <h4 style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px" }}>
-                  Members ({members.length})
-                </h4>
-                {members.length === 0 ? (
-                  <p className="admin-console-muted">No members.</p>
-                ) : (
-                  <div style={{ maxHeight: "200px", overflowY: "auto" }}>
-                    <table className="invoice-table admin-console-table" style={{ fontSize: "13px" }}>
-                      <thead>
-                        <tr>
-                          <th>Name</th>
-                          <th>Email</th>
-                          <th>Role</th>
-                          <th>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {members.map((m) => (
-                          <tr key={m.id}>
-                            <td>{m.full_name ?? "—"}</td>
-                            <td>{m.email ?? "—"}</td>
-                            <td>
-                              <span className="badge badge-gray">{m.role}</span>
-                            </td>
-                            <td>
-                              <span className={`badge ${m.status === "active" ? "badge-green" : "badge-gray"}`}>
-                                {m.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                <div className="space-y-0.5">
+                  <span className="text-xs text-muted-foreground">Owner</span>
+                  <p className="text-sm font-medium">
+                    {ownerLabels.get(selectedRow.owner_user_id) ?? "—"}
+                  </p>
+                </div>
+                <div className="space-y-0.5">
+                  <span className="text-xs text-muted-foreground">Slug</span>
+                  <p className="text-sm font-medium">{selectedRow.slug ?? "—"}</p>
+                </div>
+                <div className="space-y-0.5">
+                  <span className="text-xs text-muted-foreground">Created</span>
+                  <p className="text-sm font-medium">{formatDate(selectedRow.created_at)}</p>
+                </div>
+                {selectedRow.archived_at && (
+                  <div className="space-y-0.5">
+                    <span className="text-xs text-muted-foreground">Archived</span>
+                    <p className="text-sm font-medium">{formatDate(selectedRow.archived_at)}</p>
                   </div>
                 )}
               </div>
-            )}
 
-            <div className="billing-modal-actions">
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() => setSelectedWsId(null)}
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                className={`btn ${selectedRow.archived_at ? "btn-primary" : "btn-outline"}`}
+              {summary && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold">Entity counts</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {(Object.entries(summary) as [string, number][]).map(([key, val]) => (
+                      <StatBox key={key} label={key.replace(/_/g, " ")} value={val} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold">Members ({members.length})</h4>
+                {members.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No members.</p>
+                ) : (
+                  <div className="max-h-[220px] overflow-auto rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-xs">Name</TableHead>
+                          <TableHead className="text-xs">Email</TableHead>
+                          <TableHead className="text-xs">Role</TableHead>
+                          <TableHead className="text-xs">Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {members.map((m) => (
+                          <TableRow key={m.id}>
+                            <TableCell className="text-sm">{m.full_name ?? "—"}</TableCell>
+                            <TableCell className="text-sm">{m.email ?? "—"}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-xs">
+                                {m.role}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              <Badge
+                                variant={m.status === "active" ? "default" : "secondary"}
+                              >
+                                {m.status}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setSelectedWsId(null)}>
+              Close
+            </Button>
+            {selectedRow && (
+              <Button
+                variant={selectedRow.archived_at ? "default" : "outline"}
                 onClick={() => void handleArchiveToggle()}
                 disabled={archiving}
+                className="gap-2"
               >
-                {archiving
-                  ? "Saving…"
-                  : selectedRow.archived_at
-                    ? "Unarchive"
-                    : "Archive"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+                {selectedRow.archived_at ? (
+                  <>
+                    {archiving ? <Loader2 size={14} className="animate-spin" /> : <ArchiveRestore size={16} />}
+                    Unarchive
+                  </>
+                ) : (
+                  <>
+                    {archiving ? <Loader2 size={14} className="animate-spin" /> : <Archive size={16} />}
+                    Archive
+                  </>
+                )}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </DashboardShell>
   );
 }

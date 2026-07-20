@@ -1,4 +1,30 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--text-h);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--text-h);
+  --color-popover: var(--surface);
+  --color-popover-foreground: var(--text-h);
+  --color-primary: var(--accent);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--surface-muted);
+  --color-secondary-foreground: var(--text-h);
+  --color-muted: var(--surface-muted);
+  --color-muted-foreground: var(--text);
+  --color-accent: var(--surface-muted);
+  --color-accent-foreground: var(--text-h);
+  --color-destructive: var(--color-error);
+  --color-destructive-foreground: #ffffff;
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-ring: var(--accent);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: calc(var(--radius-lg) + 4px);
+}
 
 :root {
   --text: #6b6375;
@@ -18,7 +44,27 @@
   --accent: #2563eb;
   --accent-bg: rgba(37, 99, 235, 0.1);
   --accent-border: rgba(37, 99, 235, 0.5);
+  --accent-purple: #7c3aed;
+  --accent-purple-bg: rgba(124, 58, 237, 0.1);
   --social-bg: rgba(244, 243, 236, 0.5);
+
+  /* Semantic status colors */
+  --color-error: #dc2626;
+  --color-error-bg: #fef2f2;
+  --color-error-border: #fecaca;
+  --color-success: #16a34a;
+  --color-success-bg: #f0fdf4;
+  --color-success-border: #bbf7d0;
+  --color-warning: #d97706;
+  --color-warning-bg: #fffbeb;
+  --color-warning-border: #fde68a;
+  --color-info: #2563eb;
+  --color-info-bg: #eff6ff;
+  --color-info-border: #bfdbfe;
+
+  /* Text */
+  --placeholder: #b8b5bd;
+  --text-secondary: #6b6375;
 
   /* Radii */
   --radius-sm: 8px;
@@ -80,7 +126,28 @@
   --accent: #60a5fa;
   --accent-bg: rgba(96, 165, 250, 0.2);
   --accent-border: rgba(96, 165, 250, 0.45);
+  --accent-purple: #a78bfa;
+  --accent-purple-bg: rgba(167, 139, 250, 0.15);
   --social-bg: rgba(35, 41, 56, 0.6);
+
+  /* Semantic status colors */
+  --color-error: #f87171;
+  --color-error-bg: rgba(248, 113, 113, 0.12);
+  --color-error-border: rgba(248, 113, 113, 0.25);
+  --color-success: #4ade80;
+  --color-success-bg: rgba(74, 222, 128, 0.12);
+  --color-success-border: rgba(74, 222, 128, 0.25);
+  --color-warning: #fbbf24;
+  --color-warning-bg: rgba(251, 191, 36, 0.12);
+  --color-warning-border: rgba(251, 191, 36, 0.25);
+  --color-info: #60a5fa;
+  --color-info-bg: rgba(96, 165, 250, 0.12);
+  --color-info-border: rgba(96, 165, 250, 0.25);
+
+  /* Text */
+  --placeholder: #8b8fa0;
+  --text-secondary: #b5b2c0;
+
   --table-head-bg: #1f2430;
   --table-row-hover-bg: #212735;
   --shadow: rgba(0, 0, 0, 0.4) 0 10px 20px -4px;
@@ -225,7 +292,7 @@ select.input-field {
 }
 
 .input-field::placeholder {
-  color: #b8b5bd;
+  color: var(--placeholder);
 }
 
 [data-theme="dark"] .input-field,
@@ -245,7 +312,7 @@ select.input-field {
 [data-theme="dark"] .form-input::placeholder,
 [data-theme="dark"] .setting-input::placeholder,
 [data-theme="dark"] .search-input::placeholder {
-  color: #8b8fa0;
+  color: var(--placeholder);
 }
 
 textarea.input-field {
@@ -279,5 +346,115 @@ textarea.input-field {
   max-width: 70vw;
   object-fit: contain;
   display: block;
+}
+
+/* ── Professional UI polish layer ── */
+:root {
+  --bg: #f6f8fb;
+  --surface: #ffffff;
+  --surface-muted: #f3f6fb;
+  --border: #e2e8f0;
+  --border-heavy: #cbd5e1;
+  --text: #64748b;
+  --text-h: #0f172a;
+  --accent: #1d4ed8;
+  --accent-bg: rgba(29, 78, 216, 0.09);
+  --accent-border: rgba(29, 78, 216, 0.32);
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  --shadow-hover: 0 18px 42px rgba(15, 23, 42, 0.12);
+  --focus-ring: 0 0 0 4px color-mix(in oklab, var(--accent) 18%, transparent);
+}
+
+[data-theme="dark"] {
+  --bg: #0b1020;
+  --surface: #111827;
+  --surface-muted: #172033;
+  --border: #273449;
+  --border-heavy: #3b4a64;
+  --text: #aab6c8;
+  --text-h: #f8fafc;
+  --accent: #60a5fa;
+  --accent-bg: rgba(96, 165, 250, 0.16);
+  --accent-border: rgba(96, 165, 250, 0.38);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow: 0 16px 34px rgba(0, 0, 0, 0.38);
+  --shadow-hover: 0 20px 46px rgba(0, 0, 0, 0.48);
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  min-width: 320px;
+  background:
+    radial-gradient(circle at top left, color-mix(in oklab, var(--accent) 8%, transparent), transparent 34rem),
+    var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent) 22%, transparent);
+  color: var(--text-h);
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+.input-field:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.input-field {
+  min-height: 40px;
+  border-radius: var(--radius-sm);
+  border-color: var(--border);
+  box-shadow: inset 0 1px 0 rgba(15, 23, 42, 0.02);
+}
+
+.input-field:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--accent) 32%, var(--border));
+}
+
+.input-field:focus {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.input-field:disabled,
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+h1,
+h2 {
+  font-weight: 750;
+}
+
+h1 {
+  font-size: clamp(22px, 2vw, 28px);
+  letter-spacing: -0.035em;
+}
+
+h2 {
+  letter-spacing: -0.025em;
 }
 

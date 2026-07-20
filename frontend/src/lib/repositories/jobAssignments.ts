@@ -1,6 +1,7 @@
 import { getCurrentUser } from "../auth/session.ts";
 import { supabase } from "../supabase/client.ts";
 import type { Tables, TablesInsert, TablesUpdate } from "../supabase/types.ts";
+import { notifyJobAssigned } from "./notificationEvents.ts";
 
 export type JobAssignmentRow = Tables<"job_assignments">;
 export type JobAssignmentInsert = TablesInsert<"job_assignments">;
@@ -121,6 +122,36 @@ export async function createJobAssignment(
     if (assetError) throw assetError;
   }
 
+  if (memberIds.length > 0) {
+    let jobTitle: string | null = null;
+    let projectName: string | null = null;
+    if (data.job_id || data.project_id) {
+      const [jobRes, projectRes] = await Promise.all([
+        data.job_id
+          ? supabase.from("jobs").select("title").eq("id", data.job_id).maybeSingle()
+          : Promise.resolve({ data: null }),
+        data.project_id
+          ? supabase
+              .from("projects")
+              .select("name")
+              .eq("id", data.project_id)
+              .maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
+      jobTitle = (jobRes.data as { title?: string } | null)?.title ?? null;
+      projectName =
+        (projectRes.data as { name?: string } | null)?.name ?? null;
+    }
+
+    void notifyJobAssigned({
+      workspaceId,
+      memberIds,
+      jobTitle,
+      projectName,
+      assignmentId: data.id,
+    });
+  }
+
   return data;
 }
 
@@ -151,6 +182,15 @@ export async function replaceAssignmentMembers(
   const user = await getCurrentUser();
   if (!user) throw new Error("You must be signed in.");
 
+  // Capture existing members so we only notify newly added ones.
+  const { data: existingMembers } = await supabase
+    .from("job_assignment_members")
+    .select("workspace_member_id")
+    .eq("assignment_id", assignmentId);
+  const previousIds = new Set(
+    (existingMembers ?? []).map((m) => m.workspace_member_id),
+  );
+
   const { error: deleteError } = await supabase
     .from("job_assignment_members")
     .delete()
@@ -168,6 +208,25 @@ export async function replaceAssignmentMembers(
         })),
       );
     if (insertError) throw insertError;
+  }
+
+  const addedMemberIds = memberIds.filter((id) => !previousIds.has(id));
+  if (addedMemberIds.length > 0) {
+    const { data: assignment } = await supabase
+      .from("job_assignments")
+      .select("id, jobs(title), projects(name)")
+      .eq("id", assignmentId)
+      .maybeSingle();
+    const job = assignment?.jobs as { title?: string } | null;
+    const project = assignment?.projects as { name?: string } | null;
+
+    void notifyJobAssigned({
+      workspaceId,
+      memberIds: addedMemberIds,
+      jobTitle: job?.title ?? null,
+      projectName: project?.name ?? null,
+      assignmentId,
+    });
   }
 }
 

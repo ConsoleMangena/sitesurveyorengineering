@@ -11,49 +11,41 @@ import {
 import type { UiUser } from "./types.ts";
 
 describe("workspace account access helpers", () => {
-  it("blocks premium views on free tier", () => {
-    expect(getAllowedViews("personal", "free", "active").has("timeTracking")).toBe(
-      false,
-    );
-    expect(getAllowedViews("business", "free", "active").has("dispatch")).toBe(
-      false,
-    );
+  it("makes all account features available (no license gating)", () => {
+    expect(getAllowedViews("personal").has("timeTracking")).toBe(true);
+    expect(getAllowedViews("business").has("dispatch")).toBe(true);
+    expect(getAllowedViews("business").has("team")).toBe(true);
   });
 
-  it("allows premium views on pro tier", () => {
-    expect(getAllowedViews("personal", "pro", "active").has("timeTracking")).toBe(
-      true,
-    );
-    expect(getAllowedViews("business", "pro", "active").has("dispatch")).toBe(
-      true,
-    );
+  it("scopes views by account type only", () => {
+    // Personal-only views are not available to business and vice versa.
+    expect(getAllowedViews("personal").has("contacts")).toBe(true);
+    expect(getAllowedViews("business").has("contacts")).toBe(false);
+    expect(getAllowedViews("business").has("dispatch")).toBe(true);
+    expect(getAllowedViews("personal").has("dispatch")).toBe(false);
   });
 
-  it("falls back to dashboard for forbidden or inactive-license views", () => {
-    expect(getAccessibleView("personal", "dispatch", "pro", "active")).toBe(
-      "dashboard",
-    );
-    expect(getAccessibleView("business", "projects", "enterprise", "past_due")).toBe(
-      "dashboard",
-    );
+  it("falls back to dashboard for views outside the account type", () => {
+    expect(getAccessibleView("personal", "dispatch")).toBe("dashboard");
+    expect(getAccessibleView("business", "contacts")).toBe("dashboard");
   });
 
   it("exposes platform admin views only when isPlatformAdmin is true", () => {
-    const inactiveNoAdmin = getAllowedViews("business", "free", "suspended", false);
-    expect(inactiveNoAdmin.has("admin_licenses")).toBe(false);
-    expect(inactiveNoAdmin.has("billing")).toBe(true);
+    const noAdmin = getAllowedViews("business", false);
+    expect(noAdmin.has("admin_overview")).toBe(false);
+    expect(noAdmin.has("billing")).toBe(true);
 
-    const inactiveAdmin = getAllowedViews("business", "free", "suspended", true);
+    const admin = getAllowedViews("business", true);
     for (const view of ADMIN_PLATFORM_VIEWS) {
-      expect(inactiveAdmin.has(view)).toBe(true);
+      expect(admin.has(view)).toBe(true);
     }
 
-    expect(
-      getAccessibleView("business", "admin_licenses", "free", "suspended", false),
-    ).toBe("dashboard");
-    expect(
-      getAccessibleView("business", "admin_licenses", "free", "suspended", true),
-    ).toBe("admin_licenses");
+    expect(getAccessibleView("business", "admin_overview", false)).toBe(
+      "dashboard",
+    );
+    expect(getAccessibleView("business", "admin_overview", true)).toBe(
+      "admin_overview",
+    );
   });
 
   it("maps platform admin with no workspace rows using placeholder workspace id", () => {
@@ -73,7 +65,6 @@ describe("workspace account access helpers", () => {
       },
       defaultWorkspace: null,
       workspaces: [],
-      workspaceLicense: null,
     } as unknown as AppUserContext;
 
     const user = mapAppUserToUiUser(ctx);
@@ -113,7 +104,6 @@ describe("workspace account access helpers", () => {
           },
         },
       ],
-      workspaceLicense: null,
     } as unknown as AppUserContext;
 
     const user = mapAppUserToUiUser(ctx);
@@ -151,7 +141,6 @@ describe("workspace account access helpers", () => {
           },
         },
       ],
-      workspaceLicense: null,
     } as unknown as AppUserContext;
 
     expect(mapAppUserToUiUser(ctx)?.signupAccountType).toBe("business");
@@ -159,14 +148,13 @@ describe("workspace account access helpers", () => {
 
   it("labels platform signup shell distinctly from personal/business", () => {
     const base: UiUser = {
+      id: "11111111-1111-1111-1111-111111111111",
       workspaceId: "w",
       name: "U",
       email: "u@e.com",
       company: "c",
       accountType: "personal",
       signupAccountType: "platform_admin",
-      licenseTier: "free",
-      licenseStatus: "active",
       isPlatformAdmin: true,
     };
     expect(getWorkspaceShellAccountLabel(base)).toBe("Platform administration");

@@ -1,14 +1,23 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import PasswordField from "../../components/PasswordField";
 import { getCurrentSession, updatePassword } from "../../lib/auth/session.ts";
+import { useAuthStore } from "../../lib/auth/auth-store";
+import { Button } from "../../components/ui/button.tsx";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "../../components/ui/card.tsx";
+import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
 import "../../styles/auth.css";
 
-interface ResetPasswordPageProps {
-  onGoToLogin: () => void;
-}
-
-export default function ResetPasswordPage({
-  onGoToLogin,
-}: ResetPasswordPageProps) {
+export default function ResetPasswordPage() {
+  const navigate = useNavigate();
+  const setAuthLoading = useAuthStore((s) => s.setAuthLoading);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -49,6 +58,7 @@ export default function ResetPasswordPage({
 
     try {
       setIsSubmitting(true);
+      setAuthLoading(true);
       await updatePassword(password);
       setNotice("Password updated successfully. You can now log in.");
       setPassword("");
@@ -61,100 +71,104 @@ export default function ResetPasswordPage({
       );
     } finally {
       setIsSubmitting(false);
+      setAuthLoading(false);
     }
   };
 
-  if (checkingSession) {
-    return (
-      <div className="auth-screen">
-        <div className="auth-card">
-          <p className="auth-tagline">Checking reset session...</p>
-        </div>
-      </div>
-    );
-  }
+  const renderChecking = () => (
+    <Card className="mx-auto w-full max-w-[380px]">
+      <CardContent className="py-8 text-center text-muted-foreground">
+        Checking reset session...
+      </CardContent>
+    </Card>
+  );
 
-  if (!isRecoveryValid) {
-    return (
-      <div className="auth-screen">
-        <div className="auth-card">
-          <div className="auth-header">
-            <img src="/logo.svg" alt="SiteSurveyor" className="auth-logo" />
-            <h1 className="auth-brand">Reset Link Invalid</h1>
-            <p className="auth-tagline">
-              This reset link is invalid or expired. Request a new one.
-            </p>
-          </div>
-          <button className="auth-btn auth-btn-primary" onClick={onGoToLogin}>
-            Back to login
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const renderInvalid = () => (
+    <Card className="mx-auto w-full max-w-[380px] auth-animate-card">
+      <CardHeader className="text-center auth-animate-header">
+        <img
+          src="/logo.svg"
+          alt="SiteSurveyor"
+          className="mx-auto mb-2 h-16 w-auto object-contain"
+        />
+        <CardTitle>Reset Link Invalid</CardTitle>
+        <CardDescription>
+          This reset link is invalid or expired. Request a new one.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button className="w-full" onClick={() => navigate("/login")}>
+          Back to login
+        </Button>
+      </CardContent>
+    </Card>
+  );
 
   return (
-    <div className="auth-screen">
-      <div className="auth-card">
-        <div className="auth-header">
-          <img src="/logo.svg" alt="SiteSurveyor" className="auth-logo" />
-          <h1 className="auth-brand">Set New Password</h1>
-          <p className="auth-tagline">Choose a secure password for your account.</p>
-        </div>
+    <div className="auth-screen px-4 py-8">
+      {checkingSession
+        ? renderChecking()
+        : !isRecoveryValid
+          ? renderInvalid()
+          : (
+            <Card className="mx-auto w-full max-w-[380px] auth-animate-card">
+              <CardHeader className="text-center auth-animate-header">
+                <img
+                  src="/logo.svg"
+                  alt="SiteSurveyor"
+                  className="mx-auto mb-2 h-16 w-auto object-contain"
+                />
+                <CardTitle>Set New Password</CardTitle>
+                <CardDescription>
+                  Choose a secure password for your account.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form className="space-y-4 auth-animate-stagger" onSubmit={handleSubmit}>
+                  <PasswordField
+                    id="reset-password"
+                    label="New Password"
+                    value={password}
+                    onChange={setPassword}
+                    placeholder="Min. 8 characters"
+                    autoComplete="new-password"
+                    showPassword={showPassword}
+                    onToggleShowPassword={() => setShowPassword((v) => !v)}
+                  />
 
-        <form className="auth-form" onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label">New Password</label>
-            <div className="password-wrapper">
-              <input
-                className="form-input"
-                type={showPassword ? "text" : "password"}
-                placeholder="Min. 8 characters"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
-              />
-              <button
-                type="button"
-                className="password-toggle"
-                onClick={() => setShowPassword(!showPassword)}
-                tabIndex={-1}
-              >
-                {showPassword ? "Hide" : "Show"}
-              </button>
-            </div>
-          </div>
+                  <PasswordField
+                    id="reset-confirm-password"
+                    label="Confirm New Password"
+                    value={confirmPassword}
+                    onChange={setConfirmPassword}
+                    placeholder="Re-enter your new password"
+                    autoComplete="new-password"
+                    showPassword={showPassword}
+                  />
 
-          <div className="form-group">
-            <label className="form-label">Confirm New Password</label>
-            <input
-              className="form-input"
-              type={showPassword ? "text" : "password"}
-              placeholder="Re-enter your new password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              autoComplete="new-password"
-            />
-          </div>
+                  {error && (
+                    <Alert variant="destructive">
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                  )}
+                  {notice && (
+                    <Alert variant="success">
+                      <AlertDescription>{notice}</AlertDescription>
+                    </Alert>
+                  )}
 
-          {error && <p className="form-error">{error}</p>}
-          {notice && <p className="form-success">{notice}</p>}
-
-          <button
-            type="submit"
-            className="auth-btn auth-btn-primary"
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? "Updating..." : "Update Password"}
-          </button>
-        </form>
-
-        <div className="auth-footer">
-          <button className="auth-footer-link" onClick={onGoToLogin}>
-            Back to login
-          </button>
-        </div>
-      </div>
+                  <Button type="submit" className="w-full" disabled={isSubmitting}>
+                    {isSubmitting ? "Updating..." : "Update Password"}
+                  </Button>
+                </form>
+              </CardContent>
+              <CardFooter className="justify-center text-sm text-muted-foreground">
+                <Button variant="link" className="h-auto p-0" onClick={() => navigate("/login")}>
+                  Back to login
+                </Button>
+              </CardFooter>
+            </Card>
+          )}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import FileManagerPage from "../../pages/shared/FileManagerPage";
 import InvoicesPage from "../../pages/shared/InvoicesPage";
 import JobsPage from "../../pages/shared/JobsPage";
 import MarketplacePage from "../../pages/shared/MarketplacePage";
+import NotificationsPage from "../../pages/shared/NotificationsPage";
 import ProfileSettingsPage from "../../pages/shared/ProfileSettingsPage";
 import ProjectHubPage from "../../pages/shared/ProjectHubPage";
 import QuotesPage from "../../pages/shared/QuotesPage";
@@ -17,22 +18,24 @@ import TimeTrackingPage from "../../pages/shared/TimeTrackingPage";
 import type { UiUser, WorkspaceView } from "../workspace/types";
 import AdminActivityPage from "../../pages/admin/AdminActivityPage";
 import AdminAuditPage from "../../pages/admin/AdminAuditPage";
-import AdminLicensesPage from "../../pages/admin/AdminLicensesPage";
 import AdminOverviewPage from "../../pages/admin/AdminOverviewPage";
 import AdminUsersPage from "../../pages/admin/AdminUsersPage";
 import AdminWorkspacesPage from "../../pages/admin/AdminWorkspacesPage";
+import AdminFeatureRequestsPage from "../../pages/admin/AdminFeatureRequestsPage";
+import AdminLicensesPage from "../../pages/admin/AdminLicensesPage";
 
 interface BusinessViewRegistryOptions {
   user: UiUser;
   onEnterFullscreenProject: () => void;
   onExitFullscreenProject: () => void;
+  onNavigate?: (view: string) => void;
 }
 
 export function renderBusinessView(
   activeView: WorkspaceView,
   options: BusinessViewRegistryOptions,
 ) {
-  const { user, onEnterFullscreenProject, onExitFullscreenProject } = options;
+  const { user, onEnterFullscreenProject, onExitFullscreenProject, onNavigate } = options;
 
   switch (activeView) {
     case "dashboard":
@@ -40,6 +43,9 @@ export function renderBusinessView(
 
     case "files":
       return <FileManagerPage workspaceId={user.workspaceId} />;
+
+    case "notifications":
+      return <NotificationsPage workspaceId={user.workspaceId} onNavigate={onNavigate} />;
 
     case "quotes":
       return <QuotesPage workspaceId={user.workspaceId} />;
@@ -49,8 +55,6 @@ export function renderBusinessView(
         <ProjectHubPage
           userName={user.name}
           workspaceId={user.workspaceId}
-          licenseTier={user.licenseTier}
-          licenseStatus={user.licenseStatus}
           onEnterFullscreenProject={onEnterFullscreenProject}
           onExitFullscreenProject={onExitFullscreenProject}
         />
@@ -70,6 +74,7 @@ export function renderBusinessView(
         <MarketplacePage
           workspaceId={user.workspaceId}
           isPlatformAdmin={user.isPlatformAdmin}
+          onNavigate={onNavigate}
         />
       );
 
@@ -93,7 +98,7 @@ export function renderBusinessView(
       );
 
     case "schedule":
-      return <SchedulePage workspaceId={user.workspaceId} />;
+      return <SchedulePage workspaceId={user.workspaceId} workspaceType={user.accountType} />;
 
     case "billing":
       return (
@@ -112,9 +117,6 @@ export function renderBusinessView(
     case "admin_overview":
       return <AdminOverviewPage isPlatformAdmin={user.isPlatformAdmin} />;
 
-    case "admin_licenses":
-      return <AdminLicensesPage isPlatformAdmin={user.isPlatformAdmin} />;
-
     case "admin_activity":
       return <AdminActivityPage isPlatformAdmin={user.isPlatformAdmin} />;
 
@@ -124,8 +126,14 @@ export function renderBusinessView(
     case "admin_workspaces":
       return <AdminWorkspacesPage isPlatformAdmin={user.isPlatformAdmin} />;
 
+    case "admin_feature_requests":
+      return <AdminFeatureRequestsPage isPlatformAdmin={user.isPlatformAdmin} />;
+
     case "admin_audit":
       return <AdminAuditPage isPlatformAdmin={user.isPlatformAdmin} />;
+
+    case "admin_licenses":
+      return <AdminLicensesPage isPlatformAdmin={user.isPlatformAdmin} />;
 
     case "profile":
     default:
