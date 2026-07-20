@@ -85,7 +85,7 @@ jobs:
           restore-keys: cargo-${{ matrix.platform }}-${{ matrix.target || 'default' }}-
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
         working-directory: frontend
 
       - name: Write frontend .env
@@ -252,7 +252,7 @@ jobs:
           restore-keys: cargo-android-
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
         working-directory: frontend
 
       - name: Write frontend .env
