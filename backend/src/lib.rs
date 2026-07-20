@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod license;
+mod solana_rpc;
 mod survey;
 
 #[tauri::command]
@@ -50,6 +51,7 @@ pub fn run() {
             license::license_deactivate,
             license::license_is_valid,
             license::license_selfcheck,
+            solana_rpc::solana_rpc_request,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

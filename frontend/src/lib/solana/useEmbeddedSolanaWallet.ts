@@ -35,6 +35,12 @@ import {
   SOLANA_USDC_MINT,
   USDC_DECIMALS,
 } from "./config";
+import {
+  isTauri,
+  tauriGetBalance,
+  tauriGetAccountInfo,
+  tauriGetTokenAccountBalance,
+} from "./tauriRpc";
 
 const TOKEN_PROGRAM_ID = new PublicKey(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
@@ -222,6 +228,48 @@ export function useEmbeddedSolanaWallet(): UseEmbeddedSolanaWalletResult {
 
     setBalances((b) => ({ ...b, solLoading: true, usdcLoading: true }));
     setBalanceError(null);
+
+    if (isTauri()) {
+      try {
+        const sol = await tauriGetBalance(address);
+
+        try {
+          const mint = new PublicKey(SOLANA_USDC_MINT);
+          const owner = new PublicKey(address);
+          const ata = getAssociatedTokenAddress(mint, owner);
+          const { exists } = await tauriGetAccountInfo(ata.toBase58());
+          if (!exists) {
+            setBalances({ sol, solLoading: false, usdc: 0, usdcLoading: false });
+            return;
+          }
+          const tokenBalance = await tauriGetTokenAccountBalance(ata.toBase58());
+          const usdc = Number(tokenBalance.amount) / 10 ** USDC_DECIMALS;
+          setBalances({ sol, solLoading: false, usdc, usdcLoading: false });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error("[embedded-wallet] Failed to fetch USDC balance:", msg, {
+            address,
+            mint: SOLANA_USDC_MINT,
+            rpcUrl: SOLANA_RPC_URL,
+          });
+          setBalanceError(`USDC balance unavailable: ${msg}`);
+          setBalances({ sol, solLoading: false, usdc: 0, usdcLoading: false });
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[embedded-wallet] Failed to fetch SOL balance:", msg, {
+          address,
+          rpcUrl: SOLANA_RPC_URL,
+        });
+        setBalanceError(`SOL balance unavailable: ${msg}`);
+        setBalances((b) => ({
+          ...b,
+          solLoading: false,
+          usdcLoading: false,
+        }));
+      }
+      return;
+    }
 
     const owner = new PublicKey(address);
     let conn: Connection;
