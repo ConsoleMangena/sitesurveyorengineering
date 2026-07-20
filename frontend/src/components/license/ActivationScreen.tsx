@@ -28,6 +28,42 @@ function distributeKey(raw: string): string[] {
   return segments
 }
 
+async function readClipboardText(): Promise<string> {
+  if (navigator.clipboard?.readText) {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (text != null) return text
+    } catch {
+      // Permission denied or API unavailable — fall through.
+    }
+  }
+
+  const input = document.createElement('textarea')
+  input.setAttribute('readonly', 'true')
+  input.setAttribute('aria-hidden', 'true')
+  input.style.position = 'fixed'
+  input.style.opacity = '0'
+  input.style.pointerEvents = 'none'
+  input.style.left = '-9999px'
+  input.style.top = '0'
+  input.tabIndex = -1
+  document.body.appendChild(input)
+
+  let text = ''
+  try {
+    input.focus()
+    input.select()
+    if (document.execCommand('paste')) {
+      text = input.value
+    }
+  } finally {
+    document.body.removeChild(input)
+  }
+
+  if (text != null) return text
+  throw new Error('Clipboard unavailable')
+}
+
 export function ActivationScreen({ mismatch = false }: { mismatch?: boolean }) {
   const { state, status, activate } = useLicense()
   const [segments, setSegments] = useState<string[]>(Array(SEGMENT_LENGTHS.length).fill(''))
@@ -107,7 +143,7 @@ export function ActivationScreen({ mismatch = false }: { mismatch?: boolean }) {
   const handlePasteButton = async () => {
     setError('')
     try {
-      const text = await navigator.clipboard.readText()
+      const text = await readClipboardText()
       if (!text.trim()) {
         setError('Clipboard is empty')
         return
@@ -116,7 +152,8 @@ export function ActivationScreen({ mismatch = false }: { mismatch?: boolean }) {
       setSegments(distributed)
       focusSegmentAfter(distributed)
     } catch {
-      setError('Could not read from clipboard. Try pasting into a box with Ctrl+V.')
+      setError('Could not read clipboard. Long-press a box and choose Paste, or press Ctrl+V / Cmd+V.')
+      segmentRefs.current[0]?.focus()
     }
   }
 
