@@ -463,6 +463,22 @@ jobs:
         shell: bash
         run: find artifacts -type f | sort
 
+      - name: Delete previous releases
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Fetching existing releases..."
+          tags=$(gh release list --limit 100 --json tagName -q '.[].tagName')
+          if [ -z "$tags" ]; then
+            echo "No existing releases to delete."
+            exit 0
+          fi
+          for tag in $tags; do
+            echo "Deleting release and tag: $tag"
+            gh release delete "$tag" --yes --cleanup-tag || true
+          done
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
