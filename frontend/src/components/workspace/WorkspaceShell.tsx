@@ -1291,7 +1291,7 @@ export default function WorkspaceShell({
         <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
           <SheetContent
             side="left"
-            className="w-[260px] overflow-y-auto p-0 sm:w-[280px]"
+            className="w-[260px] overflow-y-auto px-0 pt-0 pb-[env(safe-area-inset-bottom)] sm:w-[280px]"
           >
             <SheetHeader className="border-b p-4 text-left">
               <SheetTitle>SiteSurveyor</SheetTitle>

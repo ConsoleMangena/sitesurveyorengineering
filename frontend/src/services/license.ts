@@ -72,18 +72,25 @@ export async function getSelfCheck(): Promise<LicenseSelfCheck> {
 }
 
 /** Current, locally-verified license status. Safe to call frequently. */
-export async function getLicenseStatus(): Promise<LicenseStatus> {
-  return invoke<LicenseStatus>('license_status');
+export async function getLicenseStatus(accountId?: string): Promise<LicenseStatus> {
+  return invoke<LicenseStatus>('license_status', {
+    expectedAccountId: accountId ?? null,
+  });
 }
 
 /** True only when Active or in offline Grace. */
-export async function isLicenseValid(): Promise<boolean> {
-  return invoke<boolean>('license_is_valid');
+export async function isLicenseValid(accountId?: string): Promise<boolean> {
+  return invoke<boolean>('license_is_valid', {
+    expectedAccountId: accountId ?? null,
+  });
 }
 
 /** Install a signed token into the Rust verifier + tamper-evident cache. */
-async function installToken(token: string): Promise<LicenseStatus> {
-  return invoke<LicenseStatus>('license_activate', { token });
+async function installToken(token: string, accountId?: string): Promise<LicenseStatus> {
+  return invoke<LicenseStatus>('license_activate', {
+    token,
+    expectedAccountId: accountId ?? null,
+  });
 }
 
 /** Remove the local license (explicit deactivation). */
@@ -103,8 +110,13 @@ interface EdgeTokenResponse {
  * so the server binds the seat, then verifies the returned token locally.
  *
  * @param licenseKey Optional human-entered key for key-based activation.
+ * @param accountId Current signed-in user's id. When provided, the returned
+ *   token is rejected if it belongs to a different account.
  */
-export async function activateLicense(licenseKey?: string): Promise<LicenseStatus> {
+export async function activateLicense(
+  licenseKey?: string,
+  accountId?: string
+): Promise<LicenseStatus> {
   if (!supabase) {
     throw new Error('Activation requires a configured Supabase connection.');
   }
@@ -128,7 +140,7 @@ export async function activateLicense(licenseKey?: string): Promise<LicenseStatu
     throw new Error(humanizeEdgeError(serverMsg));
   }
 
-  return installToken(data.token);
+  return installToken(data.token, accountId);
 }
 
 /**
@@ -153,10 +165,12 @@ const DEFINITIVE_REVOCATION =
  *   - Offline or a transient/unknown error → keep the cached token; offline
  *     grace covers temporary loss of connectivity.
  *
- * Returns the resulting status.
+ * @param accountId Current signed-in user's id. When provided, cached and
+ *   refreshed tokens for a different account are rejected.
+ * @returns The resulting status.
  */
-export async function refreshLicense(): Promise<LicenseStatus> {
-  const current = await getLicenseStatus();
+export async function refreshLicense(accountId?: string): Promise<LicenseStatus> {
+  const current = await getLicenseStatus(accountId);
 
   // Nothing to refresh if we were never activated.
   if (current.state === 'unlicensed') return current;
@@ -182,7 +196,10 @@ export async function refreshLicense(): Promise<LicenseStatus> {
     );
 
     if (data?.token) {
-      return await invoke<LicenseStatus>('license_refresh', { token: data.token });
+      return await invoke<LicenseStatus>('license_refresh', {
+        token: data.token,
+        expectedAccountId: accountId ?? null,
+      });
     }
 
     // No token returned. Decide whether this is a definitive server rejection

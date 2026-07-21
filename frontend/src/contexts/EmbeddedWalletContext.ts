@@ -20,6 +20,7 @@ export interface EmbeddedWalletContextValue {
   failedAttempts: number;
   lockoutSeconds: number;
   error: string | null;
+  balanceError: string | null;
   balances: {
     sol: number;
     solLoading: boolean;

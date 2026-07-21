@@ -74,6 +74,12 @@ CREATE INDEX IF NOT EXISTS idx_license_seats_fingerprint ON license_seats(finger
 -- every admin function; RLS read policies use the shared
 -- `public.is_platform_admin()` helper defined in the core schema.
 
+-- Drop the old admin policies first so the legacy is_superadmin() function can
+-- be removed without dependency errors. New policies are recreated below.
+DROP POLICY IF EXISTS "Admins can view all licenses" ON licenses;
+DROP POLICY IF EXISTS "Admins can view all seats" ON license_seats;
+DROP POLICY IF EXISTS "Admins can view audit" ON license_audit;
+
 GRANT EXECUTE ON FUNCTION public.is_platform_admin() TO authenticated;
 DROP FUNCTION IF EXISTS public.is_superadmin();
 
@@ -216,8 +222,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-REVOKE ALL ON FUNCTION public.bind_license_seat(UUID, TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.bind_license_seat(UUID, TEXT) TO authenticated;
+REVOKE ALL ON FUNCTION public.bind_license_seat(UUID, TEXT, BOOLEAN) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.bind_license_seat(UUID, TEXT, BOOLEAN) TO authenticated;
 
 -- ─── Helper: server-side license validity check ─────────────────
 -- Used by the `require_active_license` trigger so cloud writes are refused
@@ -245,53 +251,12 @@ REVOKE ALL ON FUNCTION public.has_active_license(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.has_active_license(TEXT) TO authenticated;
 
 -- ─── Defense-in-depth: gate cloud writes by per-device license ──
--- The desktop LicenseGate already blocks the UI when unlicensed, but a
--- trigger on core data tables prevents direct Supabase API writes as well.
--- Service-role requests (auth.uid() IS NULL) and platform admins are exempt.
--- Reads (SELECT) are intentionally unaffected so unlicensed users can still
--- view shared/public data and complete onboarding.
-
-CREATE OR REPLACE FUNCTION public.require_active_license()
-RETURNS TRIGGER AS $$
-BEGIN
-  IF auth.uid() IS NOT NULL AND NOT public.has_active_license(auth.uid()::text) THEN
-    RAISE EXCEPTION 'An active subscription is required for this operation.';
-  END IF;
-  RETURN COALESCE(NEW, OLD);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-REVOKE ALL ON FUNCTION public.require_active_license() FROM PUBLIC;
-
-DO $$
-DECLARE
-  tbl TEXT;
-  tables TEXT[] := ARRAY[
-    'projects',
-    'jobs',
-    'job_events',
-    'job_assignments',
-    'attachments',
-    'project_cad_drawings',
-    'quotes',
-    'quote_items',
-    'invoices',
-    'invoice_items',
-    'payments',
-    'time_entries',
-    'expense_entries',
-    'project_activities',
-    'marketplace_listings',
-    'marketplace_orders'
-  ];
-BEGIN
-  FOREACH tbl IN ARRAY tables LOOP
-    EXECUTE format(
-      'DROP TRIGGER IF EXISTS trg_require_active_license ON public.%I;
-       CREATE TRIGGER trg_require_active_license
-       BEFORE INSERT OR UPDATE OR DELETE ON public.%I
-       FOR EACH ROW EXECUTE FUNCTION public.require_active_license();',
-      tbl, tbl
-    );
-  END LOOP;
-END $$;
+-- The desktop LicenseGate already blocks the UI when unlicensed, but the
+-- server-side layer prevents a patched desktop client from pushing business
+-- data to the cloud without an active license.
+--
+-- The older trigger-based enforcement has been replaced by RESTRICTIVE RLS
+-- policies in 07_licensing_enforcement.sql. Run that file AFTER this one.
+-- It gates INSERT/UPDATE while leaving SELECT/DELETE ungated so lapsed
+-- customers can still read their data and clean up. Service-role requests
+-- and platform admins remain exempt via public.has_active_license().
