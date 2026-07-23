@@ -45,8 +45,13 @@ type SyncTable = (typeof SYNC_TABLES)[number]
 const activeIntervals = new Map<string, ReturnType<typeof setInterval>>()
 const pendingSyncs = new Map<string, Promise<void>>()
 
+/** Time cap for a single sync pull/push run before we abort the UI wait. */
+const SYNC_TIMEOUT_MS = 30000
+
 function recomputeStatus(lastError?: string) {
-  const anyActive = activeIntervals.size > 0 || pendingSyncs.size > 0
+  // The interval timer is not an active sync; only pending sync runs should
+  // keep the UI indicator in the "syncing" state.
+  const anyActive = pendingSyncs.size > 0
 
   if (lastError) {
     offlineSyncStatus$.next({ status: 'error', lastError })
@@ -54,6 +59,11 @@ function recomputeStatus(lastError?: string) {
   }
 
   offlineSyncStatus$.next({ status: anyActive ? 'syncing' : 'synced' })
+}
+
+function isAppVisible(): boolean {
+  if (typeof document === 'undefined') return true
+  return !document.hidden
 }
 
 function nowTs(): Timestamp {
@@ -123,12 +133,15 @@ function supabaseTable(tableName: string) {
 async function runSync(wmDatabase: Database, workspaceId: string): Promise<void> {
   offlineSyncStatus$.next({ status: 'syncing' })
 
-  await synchronize({
+  const syncPromise = synchronize({
     database: wmDatabase,
     pullChanges: async (args: SyncPullArgs): Promise<SyncPullResult> => {
       const lastPulledAt = args.lastPulledAt ?? 0
       const since = tsToIso(lastPulledAt)
       const changes: SyncDatabaseChangeSet = {}
+
+      // eslint-disable-next-line no-console
+      console.log(`[sync] pulling workspace ${workspaceId} changes since ${since ?? 'beginning'}`)
 
       await Promise.all(
         SYNC_TABLES.map(async (tableName) => {
@@ -152,7 +165,13 @@ async function runSync(wmDatabase: Database, workspaceId: string): Promise<void>
             }
 
             const raw = cleanServerRow(tableName, row)
-            const isNew = since && row.created_at && typeof row.created_at === 'string' && row.created_at > since
+            // On the very first pull (since === null) every non-deleted record is
+            // new to this local database and must be reported as `created`.
+            const isNew =
+              !since ||
+              (row.created_at &&
+                typeof row.created_at === 'string' &&
+                row.created_at > since)
             if (isNew) {
               created.push(raw)
             } else {
@@ -201,7 +220,37 @@ async function runSync(wmDatabase: Database, workspaceId: string): Promise<void>
     },
   })
 
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Sync timed out after ${SYNC_TIMEOUT_MS}ms`))
+    }, SYNC_TIMEOUT_MS)
+  })
+
+  try {
+    await Promise.race([syncPromise, timeoutPromise])
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId)
+  }
+
   recomputeStatus()
+}
+
+function runWorkspaceSync(wmDatabase: Database, workspaceId: string): Promise<void> {
+  const key = workspaceId
+  return (async () => {
+    let lastError: string | undefined
+    try {
+      await runSync(wmDatabase, workspaceId)
+    } catch (err: unknown) {
+      lastError = err instanceof Error ? err.message : String(err)
+      // eslint-disable-next-line no-console
+      console.error(`[sync] workspace ${workspaceId} sync failed:`, err)
+    } finally {
+      pendingSyncs.delete(key)
+      recomputeStatus(lastError)
+    }
+  })()
 }
 
 /**
@@ -214,21 +263,13 @@ export function startWorkspaceSync(db: LocalDb, workspaceId: string) {
 
   const wmDatabase = db._wmDatabase
 
-  pendingSyncs.set(
-    key,
-    runSync(wmDatabase, workspaceId).catch((err: unknown) => {
-      recomputeStatus(String(err))
-    }).finally(() => pendingSyncs.delete(key)),
-  )
+  pendingSyncs.set(key, runWorkspaceSync(wmDatabase, workspaceId))
 
   const interval = setInterval(() => {
+    // Don't keep chewing network/IndexedDB while the window is hidden.
+    if (!isAppVisible()) return
     if (pendingSyncs.has(key)) return
-    pendingSyncs.set(
-      key,
-      runSync(wmDatabase, workspaceId).catch((err: unknown) => {
-        recomputeStatus(String(err))
-      }).finally(() => pendingSyncs.delete(key)),
-    )
+    pendingSyncs.set(key, runWorkspaceSync(wmDatabase, workspaceId))
   }, 10000)
 
   activeIntervals.set(key, interval)
