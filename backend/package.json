@@ -1,0 +1,9 @@
+{
+  "name": "sitesurveyor-backend-runner",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix ../frontend run build",
+    "dev": "npm --prefix ../frontend run dev",
+    "tauri": "npm --prefix ../frontend exec --no -- tauri"
+  }
+}

@@ -1,0 +1,443 @@
+/* ===========================================================================
+   Survey computation tools — full-screen workspace layout.
+   Spreadsheet-style data grids with live summation footers and visual output.
+   =========================================================================== */
+
+.svt-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+}
+
+/* Tool host: a sticky top bar guarantees the "Back to tools" button is always
+   visible for every computation tool, even when scrolled. */
+.svt-host {
+  height: 100%;
+  min-height: 0;
+}
+
+.svt-host-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.svt-host-body {
+  padding: 16px;
+}
+
+@media (max-width: 640px) {
+  .svt-host-body { padding: 12px; }
+}
+
+.svt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.svt-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-h);
+}
+
+.svt-header p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 720px;
+}
+
+.svt-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.svt-toolbar .form-label {
+  margin: 0 6px 0 0;
+  font-size: 12px;
+}
+
+/* Two-column work area: data grid + side panel (summary / plot). */
+.svt-grid-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .svt-grid-layout { grid-template-columns: 1fr; }
+}
+
+.svt-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.svt-card-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* ── Editable data grid ──────────────────────────────────────────────────── */
+.svt-table-wrap { overflow-x: auto; }
+
+.svt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.svt-table th,
+.svt-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.svt-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  position: sticky;
+  top: 0;
+}
+
+.svt-table th:first-child,
+.svt-table td:first-child { text-align: left; }
+
+.svt-table tfoot td,
+.svt-table tfoot td {
+  font-weight: 700;
+  background: var(--surface-muted);
+  color: var(--text-h);
+  border-top: 2px solid var(--border);
+}
+
+.svt-cell-input {
+  width: 100%;
+  min-width: 64px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-h);
+  font: inherit;
+  text-align: right;
+  padding: 3px 4px;
+  border-radius: 4px;
+}
+
+.svt-cell-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+.svt-cell-input.text { text-align: left; }
+
+.svt-cell-derived { color: var(--text); }
+.svt-cell-muted { color: var(--text-muted); }
+
+.svt-row-del {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.svt-row-del:hover { background: var(--color-error-bg); color: var(--color-error); }
+
+.svt-grid-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+/* ── Summary panel ───────────────────────────────────────────────────────── */
+.svt-summary {
+  display: grid;
+  gap: 0;
+}
+
+.svt-summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+
+.svt-summary-row:last-child { border-bottom: none; }
+
+.svt-summary-label { color: var(--text-muted); }
+.svt-summary-val { font-weight: 700; color: var(--text-h); font-variant-numeric: tabular-nums; }
+
+.svt-check {
+  margin: 12px 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.svt-check.pass { background: var(--color-success-bg); color: var(--color-success); }
+.svt-check.fail { background: var(--color-error-bg); color: var(--color-error); }
+
+/* ── Result/plot card ────────────────────────────────────────────────────── */
+.svt-plot {
+  width: 100%;
+  display: block;
+  background: var(--surface);
+}
+
+.svt-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  padding: 14px;
+}
+
+.svt-form .form-group { margin: 0; }
+
+/* Keep an X / Y (or two related) input pair side by side, spanning the full
+   row so the values are visually grouped rather than scattered by auto-fit. */
+.svt-pair {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.svt-pair .form-group { margin: 0; }
+
+.svt-result {
+  margin: 0;
+  padding: 14px;
+  background: var(--surface-muted);
+  border-top: 1px solid var(--border);
+  white-space: pre-wrap;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-h);
+}
+
+.svt-error {
+  margin: 10px 14px;
+  padding: 8px 12px;
+  background: var(--color-error-bg);
+  color: var(--color-error);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+/* ── Angle entry (DMS / packed DD.MMSS / decimal / gon) ──────────────────── */
+.svt-angle-input .form-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.svt-angle-mode {
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  color: var(--text);
+  font-size: 11px;
+  border-radius: 6px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.svt-dms-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1.2fr auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.svt-dms-row .input-field {
+  text-align: center;
+  padding-left: 6px;
+  padding-right: 6px;
+  min-width: 0;
+}
+
+.svt-dms-sep {
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 0 1px;
+}
+
+/* ── Interactive "How to use this tool" guide ────────────────────────────── */
+.svt-guide {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.svt-guide.open {
+  border-color: var(--accent);
+}
+
+.svt-guide-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--surface-muted);
+  border: none;
+  color: var(--text-h);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.svt-guide-toggle:hover { background: var(--surface); }
+
+.svt-guide-toggle-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.svt-guide-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  flex: none;
+}
+
+.svt-guide-chevron {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.svt-guide-body {
+  padding: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.svt-guide-summary {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-h);
+  line-height: 1.5;
+}
+
+.svt-guide-steps {
+  margin: 0;
+  padding: 0 0 0 4px;
+  list-style: none;
+  counter-reset: svt-guide;
+  display: grid;
+  gap: 10px;
+}
+
+.svt-guide-steps li {
+  counter-increment: svt-guide;
+  position: relative;
+  padding-left: 32px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.svt-guide-steps li::before {
+  content: counter(svt-guide);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  color: var(--text-h);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.svt-guide-step-title {
+  display: block;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.svt-guide-step-body {
+  display: block;
+  color: var(--text-muted);
+}
+
+.svt-guide-tips {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+
+.svt-guide-tips-title {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.svt-guide-tips ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.svt-guide-tips li {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
