@@ -25,6 +25,13 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache GDAL SDK download
+        uses: actions/cache@v4
+        with:
+          path: backend/gdal-sdk
+          key: gdal-sdk-${{ runner.os }}-${{ hashFiles('scripts/download-gdal.mjs') }}
+          restore-keys: gdal-sdk-${{ runner.os }}-
+
       - name: Build Tauri Windows installer
         run: npm run tauri:build:win
         env:

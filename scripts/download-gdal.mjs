@@ -57,6 +57,22 @@ function looksLikeSdk(path) {
   return existsSync(join(path, "include", "gdal.h"));
 }
 
+function isRetryableError(err) {
+  const retryableCodes = new Set([
+    "ETIMEDOUT",
+    "ECONNRESET",
+    "ECONNREFUSED",
+    "EPIPE",
+    "ENOTFOUND",
+    "EAI_AGAIN",
+  ]);
+  return retryableCodes.has(err.code) || err.message === "socket hang up";
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function downloadFile(url, dest) {
   return new Promise((resolve, reject) => {
     const request = (currentUrl, redirectsLeft) => {
@@ -113,6 +129,21 @@ function downloadFile(url, dest) {
 
     request(url, 10);
   });
+}
+
+async function downloadFileWithRetry(url, dest, attempts = 3) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await downloadFile(url, dest);
+      return;
+    } catch (err) {
+      if (attempt === attempts || !isRetryableError(err)) {
+        throw err;
+      }
+      log(`download attempt ${attempt} failed (${err.code || err.message}); retrying in ${attempt * 5}s...`);
+      await sleep(attempt * 5000);
+    }
+  }
 }
 
 function findPython() {
@@ -209,8 +240,8 @@ async function main() {
   const libsZip = join(SDK_DIR, "libs.zip");
 
   try {
-    await downloadFile(URLS.runtime, runtimeZip);
-    await downloadFile(URLS.libs, libsZip);
+    await downloadFileWithRetry(URLS.runtime, runtimeZip);
+    await downloadFileWithRetry(URLS.libs, libsZip);
   } catch (err) {
     fatal(`Download failed: ${err.message}\nCheck your network connection or install GDAL manually.`);
   }

@@ -117,6 +117,14 @@ jobs:
           key: cargo-${{ matrix.platform }}-${{ matrix.target || 'default' }}-${{ hashFiles('backend/Cargo.lock') }}
           restore-keys: cargo-${{ matrix.platform }}-${{ matrix.target || 'default' }}-
 
+      - name: Cache GDAL SDK download
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: backend/gdal-sdk
+          key: gdal-sdk-${{ runner.os }}-${{ hashFiles('scripts/download-gdal.mjs') }}
+          restore-keys: gdal-sdk-${{ runner.os }}-
+
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
         working-directory: frontend
