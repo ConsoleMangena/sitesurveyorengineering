@@ -176,19 +176,13 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      - name: Bundle GDAL runtime (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        working-directory: backend
-        run: npm run bundle:gdal
-
       - name: Build Tauri app (unsigned)
         if: steps.apple.outputs.enabled != 'true'
         shell: bash
         working-directory: backend
         run: |
           if [ "$RUNNER_OS" == "Windows" ]; then
-            node ../frontend/node_modules/@tauri-apps/cli/tauri.js build ${{ matrix.args }} --features gdal
+            npm run tauri:build:win -- ${{ matrix.args }}
           else
             node ../frontend/node_modules/@tauri-apps/cli/tauri.js build ${{ matrix.args }}
           fi

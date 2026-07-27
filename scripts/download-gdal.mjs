@@ -16,12 +16,11 @@
  */
 
 import {
+  copyFileSync,
   createWriteStream,
   existsSync,
   mkdirSync,
   readdirSync,
-  renameSync,
-  rmdirSync,
   rmSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -170,39 +169,70 @@ function unzip(zipPath, dest) {
   }
 }
 
-function flattenSingleTopLevelDir(dir) {
-  // GISInternals SDK archives extract into a single directory like
-  // release-1930-x64-.../; hoist its contents so include/gdal.h lives at dest.
-  const entries = readdirSync(dir, { withFileTypes: true });
-  const dirs = entries.filter((e) => e.isDirectory());
-  const loose = entries.filter((e) => !e.isDirectory());
-  if (loose.length === 0 && dirs.length === 1) {
-    const nested = join(dir, dirs[0].name);
-    for (const child of readdirSync(nested)) {
-      renameSync(join(nested, child), join(dir, child));
+/**
+ * Recursively search `dir` for the deepest directory that contains one of the
+ * marker files. Marker paths are given as arrays of path parts, e.g.
+ * `["include", "gdal.h"]`. This handles any archive layout: a single top-level
+ * folder, nested folders, or loose files.
+ */
+function findSdkRoot(dir, markerPaths) {
+  function walk(current) {
+    if (!existsSync(current)) return null;
+
+    for (const parts of markerPaths) {
+      if (existsSync(join(current, ...parts))) {
+        return current;
+      }
     }
-    rmdirSync(nested);
-    log(`hoisted ${dirs[0].name} contents to ${dir}`);
+
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        const found = walk(join(current, entry.name));
+        if (found) return found;
+      }
+    }
+
+    return null;
   }
+
+  return walk(dir);
 }
 
-function mergeDirContents(src, dst) {
-  // Recursively move src entries into dst, merging directories and overwriting
-  // files. This lets us combine the runtime and dev SDK packages into one
-  // flat prefix without losing any entries.
+function copyDirContents(src, dst) {
   mkdirSync(dst, { recursive: true });
   for (const entry of readdirSync(src, { withFileTypes: true })) {
     const srcPath = join(src, entry.name);
     const dstPath = join(dst, entry.name);
     if (entry.isDirectory()) {
-      mergeDirContents(srcPath, dstPath);
-      rmdirSync(srcPath);
+      copyDirContents(srcPath, dstPath);
     } else {
-      if (existsSync(dstPath)) {
-        rmSync(dstPath, { force: true });
-      }
-      renameSync(srcPath, dstPath);
+      copyFileSync(srcPath, dstPath);
     }
+  }
+}
+
+/**
+ * Extract a GISInternals archive into a staging directory, locate the actual SDK
+ * root inside it, and copy its contents into the destination prefix. This is
+ * more reliable than the old hoisting/merge approach which assumed a single
+ * top-level directory and used cross-directory renames.
+ */
+function extractArchiveInto(archivePath, dest, markerPaths, label) {
+  const stage = join(dest, `.${label}-stage-${Date.now()}`);
+  try {
+    rmSync(stage, { recursive: true, force: true });
+    unzip(archivePath, stage);
+    const root = findSdkRoot(stage, markerPaths);
+    if (!root) {
+      fatal(
+        `Could not locate ${label} SDK root in ${archivePath}. ` +
+          `Expected a directory containing one of: ${markerPaths.map((p) => p.join("/")).join(", ")}`,
+      );
+    }
+    log(`${label} SDK root: ${root}`);
+    copyDirContents(root, dest);
+  } finally {
+    rmSync(stage, { recursive: true, force: true });
   }
 }
 
@@ -246,29 +276,37 @@ async function main() {
     fatal(`Download failed: ${err.message}\nCheck your network connection or install GDAL manually.`);
   }
 
-  // Extract each archive into its own staging directory so that flattening the
-  // archive's top-level folder does not conflict with files already present in
-  // SDK_DIR from the other archive.
-  const runtimeStage = join(SDK_DIR, ".runtime-stage");
-  const libsStage = join(SDK_DIR, ".libs-stage");
-
-  try {
-    rmSync(runtimeStage, { recursive: true, force: true });
-    rmSync(libsStage, { recursive: true, force: true });
-
-    unzip(runtimeZip, runtimeStage);
-    flattenSingleTopLevelDir(runtimeStage);
-    unzip(libsZip, libsStage);
-    flattenSingleTopLevelDir(libsStage);
-
-    mergeDirContents(runtimeStage, SDK_DIR);
-    mergeDirContents(libsStage, SDK_DIR);
-  } finally {
-    rmSync(runtimeStage, { recursive: true, force: true });
-    rmSync(libsStage, { recursive: true, force: true });
-    rmSync(runtimeZip, { force: true });
-    rmSync(libsZip, { force: true });
+  // Start from a clean slate inside SDK_DIR so stale partial extractions from
+  // previous runs don't hide missing headers.
+  for (const entry of readdirSync(SDK_DIR)) {
+    if (entry === "runtime.zip" || entry === "libs.zip") continue;
+    rmSync(join(SDK_DIR, entry), { recursive: true, force: true });
   }
+
+  extractArchiveInto(
+    runtimeZip,
+    SDK_DIR,
+    [
+      ["bin", "gdalinfo.exe"],
+      ["bin", "ogrinfo.exe"],
+      ["bin", "gdal309.dll"],
+      ["bin", "gdal.dll"],
+    ],
+    "runtime",
+  );
+
+  extractArchiveInto(
+    libsZip,
+    SDK_DIR,
+    [
+      ["include", "gdal.h"],
+      ["lib", "gdal_i.lib"],
+    ],
+    "dev",
+  );
+
+  rmSync(runtimeZip, { force: true });
+  rmSync(libsZip, { force: true });
 
   if (!looksLikeSdk(SDK_DIR)) {
     fatal(`Extracted SDK is missing include/gdal.h at ${SDK_DIR}`);
