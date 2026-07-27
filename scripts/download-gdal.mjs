@@ -15,7 +15,15 @@
  * this script prints manual install instructions instead.
  */
 
-import { createWriteStream, existsSync, mkdirSync, rmSync } from "node:fs";
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  rmdirSync,
+  rmSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import https from "node:https";
@@ -131,6 +139,22 @@ function unzip(zipPath, dest) {
   }
 }
 
+function flattenSingleTopLevelDir(dir) {
+  // GISInternals SDK archives extract into a single directory like
+  // release-1930-x64-.../; hoist its contents so include/gdal.h lives at dest.
+  const entries = readdirSync(dir, { withFileTypes: true });
+  const dirs = entries.filter((e) => e.isDirectory());
+  const loose = entries.filter((e) => !e.isDirectory());
+  if (loose.length === 0 && dirs.length === 1) {
+    const nested = join(dir, dirs[0].name);
+    for (const child of readdirSync(nested)) {
+      renameSync(join(nested, child), join(dir, child));
+    }
+    rmdirSync(nested);
+    log(`hoisted ${dirs[0].name} contents to ${dir}`);
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const ifMissing = args.includes("--if-missing");
@@ -172,7 +196,9 @@ async function main() {
   }
 
   unzip(runtimeZip, SDK_DIR);
+  flattenSingleTopLevelDir(SDK_DIR);
   unzip(libsZip, SDK_DIR);
+  flattenSingleTopLevelDir(SDK_DIR);
 
   rmSync(runtimeZip, { force: true });
   rmSync(libsZip, { force: true });
