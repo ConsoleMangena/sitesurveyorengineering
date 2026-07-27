@@ -107,16 +107,27 @@ function downloadFile(url, dest) {
   });
 }
 
+function findPython() {
+  for (const exe of ["python", "py", "python3"]) {
+    if (!spawnSync(exe, ["--version"], { shell: false }).error) return exe;
+  }
+  return null;
+}
+
 function unzip(zipPath, dest) {
   log(`extracting ${zipPath}`);
   mkdirSync(dest, { recursive: true });
   // Python's zipfile is available on every platform and avoids needing unzip.exe.
-  const result = spawnSync(process.execPath, ["-m", "zipfile", "-e", zipPath, dest], {
+  const python = findPython();
+  if (!python) {
+    fatal("Python is required to extract the GDAL SDK but was not found in PATH.");
+  }
+  const result = spawnSync(python, ["-m", "zipfile", "-e", zipPath, dest], {
     stdio: "inherit",
     timeout: 120000,
   });
   if (result.status !== 0) {
-    fatal(`Failed to extract ${zipPath}. Ensure Python is installed.`);
+    fatal(`Failed to extract ${zipPath} with Python zipfile.`);
   }
 }
 
