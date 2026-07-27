@@ -155,6 +155,26 @@ function flattenSingleTopLevelDir(dir) {
   }
 }
 
+function mergeDirContents(src, dst) {
+  // Recursively move src entries into dst, merging directories and overwriting
+  // files. This lets us combine the runtime and dev SDK packages into one
+  // flat prefix without losing any entries.
+  mkdirSync(dst, { recursive: true });
+  for (const entry of readdirSync(src, { withFileTypes: true })) {
+    const srcPath = join(src, entry.name);
+    const dstPath = join(dst, entry.name);
+    if (entry.isDirectory()) {
+      mergeDirContents(srcPath, dstPath);
+      rmdirSync(srcPath);
+    } else {
+      if (existsSync(dstPath)) {
+        rmSync(dstPath, { force: true });
+      }
+      renameSync(srcPath, dstPath);
+    }
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const ifMissing = args.includes("--if-missing");
@@ -195,13 +215,29 @@ async function main() {
     fatal(`Download failed: ${err.message}\nCheck your network connection or install GDAL manually.`);
   }
 
-  unzip(runtimeZip, SDK_DIR);
-  flattenSingleTopLevelDir(SDK_DIR);
-  unzip(libsZip, SDK_DIR);
-  flattenSingleTopLevelDir(SDK_DIR);
+  // Extract each archive into its own staging directory so that flattening the
+  // archive's top-level folder does not conflict with files already present in
+  // SDK_DIR from the other archive.
+  const runtimeStage = join(SDK_DIR, ".runtime-stage");
+  const libsStage = join(SDK_DIR, ".libs-stage");
 
-  rmSync(runtimeZip, { force: true });
-  rmSync(libsZip, { force: true });
+  try {
+    rmSync(runtimeStage, { recursive: true, force: true });
+    rmSync(libsStage, { recursive: true, force: true });
+
+    unzip(runtimeZip, runtimeStage);
+    flattenSingleTopLevelDir(runtimeStage);
+    unzip(libsZip, libsStage);
+    flattenSingleTopLevelDir(libsStage);
+
+    mergeDirContents(runtimeStage, SDK_DIR);
+    mergeDirContents(libsStage, SDK_DIR);
+  } finally {
+    rmSync(runtimeStage, { recursive: true, force: true });
+    rmSync(libsStage, { recursive: true, force: true });
+    rmSync(runtimeZip, { force: true });
+    rmSync(libsZip, { force: true });
+  }
 
   if (!looksLikeSdk(SDK_DIR)) {
     fatal(`Extracted SDK is missing include/gdal.h at ${SDK_DIR}`);
