@@ -30,6 +30,7 @@ import { listQuotes } from "../../lib/repositories/quotes.ts";
 interface BusinessDashboardPageProps {
   userName?: string;
   workspaceId: string;
+  onNavigate?: (view: string) => void;
 }
 
 function getGreeting(): string {
@@ -48,6 +49,7 @@ function getFirstName(name?: string): string {
 export default function BusinessDashboardPage({
   userName,
   workspaceId,
+  onNavigate,
 }: BusinessDashboardPageProps) {
   const [projects, setProjects] = useState<ProjectWithOrg[]>([]);
   const [invoices, setInvoices] = useState<InvoiceWithDetails[]>([]);
@@ -134,54 +136,54 @@ export default function BusinessDashboardPage({
       />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-12">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:col-span-12">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:col-span-12">
           <KpiCard
             title="Active Projects"
             value={activeProjectsCount.toString()}
             subtext={`${projects.length} total projects`}
-            icon={<Briefcase className="size-3.5" />}
+            icon={<Briefcase className="size-4" />}
           />
           <KpiCard
             title="Dispatches Today"
             value={todaysEvents.length.toString()}
             subtext={`${todaysEvents.filter((item) => item.start_time).length} time-slotted events`}
-            icon={<CalendarDays className="size-3.5" />}
+            icon={<CalendarDays className="size-4" />}
           />
           <KpiCard
             title="Outstanding Billing"
             value={`$${pendingInvoicesTotal.toLocaleString()}`}
             subtext={`${pendingInvoices.length} invoices awaiting payment`}
-            icon={<FileText className="size-3.5" />}
+            icon={<FileText className="size-4" />}
           />
           <KpiCard
             title="Quotes Pipeline"
             value={quotesPendingCount.toString()}
             subtext="awaiting approval"
-            icon={<FileCheck className="size-3.5" />}
+            icon={<FileCheck className="size-4" />}
           />
           <KpiCard
             title="Active Staff"
             value={memberCount.toString()}
             subtext="workspace members"
-            icon={<Users className="size-3.5" />}
+            icon={<Users className="size-4" />}
           />
           <KpiCard
             title="Ready Assets"
             value={assetsAvailableCount.toString()}
             subtext="available for deployment"
-            icon={<Gauge className="size-3.5" />}
+            icon={<Gauge className="size-4" />}
           />
           <KpiCard
             title="Calibrations Due"
             value={calibrationsDueCount.toString()}
             subtext="due this week"
-            icon={<AlertTriangle className="size-3.5" />}
+            icon={<AlertTriangle className="size-4" />}
           />
           <KpiCard
             title="Pending Invoices"
             value={pendingInvoices.length.toString()}
             subtext="awaiting payment"
-            icon={<FileText className="size-3.5" />}
+            icon={<FileText className="size-4" />}
           />
         </div>
 
@@ -192,7 +194,19 @@ export default function BusinessDashboardPage({
           <ProjectStatusChart projects={projects} />
         </div>
         <div className="xl:col-span-3">
-          <TodaysSchedule events={jobEvents} />
+          <TodaysSchedule
+            events={jobEvents}
+            footer={
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => onNavigate?.("schedule")}
+              >
+                Open Full Schedule
+              </Button>
+            }
+          />
         </div>
 
         <div className="xl:col-span-12">

@@ -10,7 +10,7 @@ export default function MobileProjectsPlaceholder() {
       <PageLoader />
       <h2 className="mt-4 text-lg font-semibold">Projects &amp; CAD</h2>
       <p className="mt-2 max-w-sm text-muted-foreground">
-        The CAD workspace is only available on desktop. Use a PC or Mac to open projects.
+        The CAD workspace is only available on the Windows desktop app.
       </p>
     </div>
   );

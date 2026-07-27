@@ -12,19 +12,13 @@ import {
 } from "lucide-react";
 
 import PageLoader from "@/components/PageLoader.tsx";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
 import {
   Sheet,
   SheetContent,
@@ -122,17 +116,14 @@ function formatDuration(start: string | null, end: string | null): string {
 
 interface SchedulePageProps {
   workspaceId: string;
-  workspaceType?: "personal" | "business";
 }
 
 function EventDetail({
   event,
-  isBusiness,
   onEdit,
   onDelete,
 }: {
   event: JobEventRow;
-  isBusiness: boolean;
   onEdit: (event: JobEventRow) => void;
   onDelete: () => void;
 }) {
@@ -174,10 +165,10 @@ function EventDetail({
         <p className="text-sm text-muted-foreground mt-1">{event.notes ?? "No notes."}</p>
       </div>
       <div className="flex gap-2 pt-2">
-        <Button variant="outline" size="sm" onClick={() => onEdit(event)} disabled={!isBusiness}>
+        <Button variant="outline" size="sm" onClick={() => onEdit(event)}>
           Edit
         </Button>
-        <Button variant="outline" size="sm" onClick={onDelete} disabled={!isBusiness}>
+        <Button variant="outline" size="sm" onClick={onDelete}>
           Delete
         </Button>
       </div>
@@ -185,8 +176,7 @@ function EventDetail({
   );
 }
 
-export default function SchedulePage({ workspaceId, workspaceType }: SchedulePageProps) {
-  const isBusiness = workspaceType === "business";
+export default function SchedulePage({ workspaceId }: SchedulePageProps) {
   const today = useMemo(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -230,9 +220,7 @@ export default function SchedulePage({ workspaceId, workspaceType }: SchedulePag
     }
   }, [workspaceId]);
 
-  useEffect(() => {
-    void fetchEvents();
-  }, [fetchEvents]);
+  useAsyncAction(fetchEvents, [fetchEvents]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -270,7 +258,7 @@ export default function SchedulePage({ workspaceId, workspaceType }: SchedulePag
       (e) => e.event_date >= toIsoDate(startOfWeekMonday(today)) && e.event_date < weekEnd,
     ).length;
     return { upcoming, thisWeek, total: events.length, filtered: filteredEvents.length };
-  }, [events, todayStr, filteredEvents]);
+  }, [events, todayStr, today, filteredEvents]);
 
   const selectedEvent = selectedEventId ? (events.find((e) => e.id === selectedEventId) ?? null) : null;
 
@@ -408,19 +396,13 @@ export default function SchedulePage({ workspaceId, workspaceType }: SchedulePag
                 <TabsTrigger value="month">Month</TabsTrigger>
               </TabsList>
             </Tabs>
-            <Button onClick={() => openCreate()} disabled={!isBusiness} className="gap-2">
+            <Button onClick={() => openCreate()} className="gap-2">
               <Plus size={16} />
               New Event
             </Button>
           </div>
         }
       />
-
-      {!isBusiness && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-          Scheduling is only available for business workspaces. Upgrade to a business workspace to create and manage events.
-        </div>
-      )}
 
       {error && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -433,25 +415,25 @@ export default function SchedulePage({ workspaceId, workspaceType }: SchedulePag
           title="Total events"
           value={scheduleStats.total.toString()}
           subtext="all time"
-          icon={<CalendarIcon className="size-3.5" />}
+          icon={<CalendarIcon className="size-4" />}
         />
         <KpiCard
           title="This week"
           value={scheduleStats.thisWeek.toString()}
           subtext="scheduled"
-          icon={<CalendarDays className="size-3.5" />}
+          icon={<CalendarDays className="size-4" />}
         />
         <KpiCard
           title="Upcoming"
           value={scheduleStats.upcoming.toString()}
           subtext="from today"
-          icon={<Clock className="size-3.5" />}
+          icon={<Clock className="size-4" />}
         />
         <KpiCard
           title="Shown"
           value={scheduleStats.filtered.toString()}
           subtext="matching filters"
-          icon={<Search className="size-3.5" />}
+          icon={<Search className="size-4" />}
         />
       </div>
 
@@ -562,11 +544,9 @@ export default function SchedulePage({ workspaceId, workspaceType }: SchedulePag
                         {dayEvents.length === 0 && (
                           <div className="text-xs text-muted-foreground text-center py-4">No events</div>
                         )}
-                        {isBusiness && (
-                          <Button variant="ghost" size="sm" className="w-full h-7 text-xs" onClick={() => openCreate(date)}>
-                            + Add
-                          </Button>
-                        )}
+                        <Button variant="ghost" size="sm" className="w-full h-7 text-xs" onClick={() => openCreate(date)}>
+                          + Add
+                        </Button>
                       </div>
                     </div>
                   );
@@ -581,13 +561,11 @@ export default function SchedulePage({ workspaceId, workspaceType }: SchedulePag
             <DashboardCard
               title="Event Details"
               icon={<CalendarIcon size={16} />}
-              accent
               contentClassName="p-0"
             >
               {selectedEvent ? (
                 <EventDetail
                   event={selectedEvent}
-                  isBusiness={isBusiness}
                   onEdit={openEdit}
                   onDelete={handleDelete}
                 />
@@ -602,7 +580,7 @@ export default function SchedulePage({ workspaceId, workspaceType }: SchedulePag
                       ? "Try changing filters or add a new event."
                       : "Click on any scheduled event to see details."}
                   </p>
-                  {filteredEvents.length === 0 && isBusiness && (
+                  {filteredEvents.length === 0 && (
                     <Button size="sm" onClick={() => openCreate()}>New Event</Button>
                   )}
                 </div>
@@ -675,7 +653,6 @@ export default function SchedulePage({ workspaceId, workspaceType }: SchedulePag
               {selectedEvent ? (
                 <EventDetail
                   event={selectedEvent}
-                  isBusiness={isBusiness}
                   onEdit={(ev) => {
                     setMobileDetailOpen(false);
                     openEdit(ev);
@@ -762,111 +739,111 @@ export default function SchedulePage({ workspaceId, workspaceType }: SchedulePag
       </Card>
     )}
 
-      <Dialog open={isModalOpen} onOpenChange={(open) => !open && setIsModalOpen(false)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{modalMode === "edit" ? "Edit Event" : "New Event"}</DialogTitle>
-            <DialogDescription>Plan a site visit or appointment.</DialogDescription>
-          </DialogHeader>
-
-          <div className="grid grid-cols-1 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="event-title">Title</Label>
-              <Input
-                id="event-title"
-                placeholder="Event title"
-                value={draft.title}
-                onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="event-location">Location</Label>
-              <div className="relative">
-                <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="event-location"
-                  placeholder="Site or address"
-                  value={draft.location}
-                  onChange={(e) => setDraft((prev) => ({ ...prev, location: e.target.value }))}
-                  className="pl-9"
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Type</Label>
-              <Select
-                value={draft.event_type}
-                onValueChange={(val) => setDraft((prev) => ({ ...prev, event_type: val }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="boundary">{TYPE_LABELS.boundary}</SelectItem>
-                  <SelectItem value="topo">{TYPE_LABELS.topo}</SelectItem>
-                  <SelectItem value="construction">{TYPE_LABELS.construction}</SelectItem>
-                  <SelectItem value="pegging">{TYPE_LABELS.pegging}</SelectItem>
-                  <SelectItem value="other">{TYPE_LABELS.other}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="event-date">Date</Label>
-                <Input
-                  id="event-date"
-                  type="date"
-                  value={draft.event_date}
-                  onChange={(e) => setDraft((prev) => ({ ...prev, event_date: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="event-start">Start</Label>
-                <Input
-                  id="event-start"
-                  type="time"
-                  value={draft.start_time}
-                  onChange={(e) => setDraft((prev) => ({ ...prev, start_time: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="event-end">End</Label>
-                <Input
-                  id="event-end"
-                  type="time"
-                  placeholder="End time"
-                  value={draft.end_time}
-                  onChange={(e) => setDraft((prev) => ({ ...prev, end_time: e.target.value }))}
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="event-notes">Notes</Label>
-              <textarea
-                id="event-notes"
-                placeholder="Add any extra details..."
-                value={draft.notes}
-                onChange={(e) => setDraft((prev) => ({ ...prev, notes: e.target.value }))}
-                rows={3}
-                className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-              />
-            </div>
-          </div>
-
-          {formError && (
-            <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {formError}
-            </div>
-          )}
-
-          <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+      <DialogTemplate
+        open={isModalOpen}
+        onOpenChange={(open) => !open && setIsModalOpen(false)}
+        title={modalMode === "edit" ? "Edit Event" : "New Event"}
+        description="Plan a site visit or appointment."
+        size="md"
+        footer={
+          <>
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>
               Cancel
             </Button>
             <Button onClick={saveDraft}>Save</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 gap-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="event-title">Title</Label>
+            <Input
+              id="event-title"
+              placeholder="Event title"
+              value={draft.title}
+              onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="event-location">Location</Label>
+            <div className="relative">
+              <MapPin size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="event-location"
+                placeholder="Site or address"
+                value={draft.location}
+                onChange={(e) => setDraft((prev) => ({ ...prev, location: e.target.value }))}
+                className="pl-9"
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Type</Label>
+            <Select
+              value={draft.event_type}
+              onValueChange={(val) => setDraft((prev) => ({ ...prev, event_type: val }))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="boundary">{TYPE_LABELS.boundary}</SelectItem>
+                <SelectItem value="topo">{TYPE_LABELS.topo}</SelectItem>
+                <SelectItem value="construction">{TYPE_LABELS.construction}</SelectItem>
+                <SelectItem value="pegging">{TYPE_LABELS.pegging}</SelectItem>
+                <SelectItem value="other">{TYPE_LABELS.other}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="event-date">Date</Label>
+              <Input
+                id="event-date"
+                type="date"
+                value={draft.event_date}
+                onChange={(e) => setDraft((prev) => ({ ...prev, event_date: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="event-start">Start</Label>
+              <Input
+                id="event-start"
+                type="time"
+                value={draft.start_time}
+                onChange={(e) => setDraft((prev) => ({ ...prev, start_time: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="event-end">End</Label>
+              <Input
+                id="event-end"
+                type="time"
+                placeholder="End time"
+                value={draft.end_time}
+                onChange={(e) => setDraft((prev) => ({ ...prev, end_time: e.target.value }))}
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="event-notes">Notes</Label>
+            <textarea
+              id="event-notes"
+              placeholder="Add any extra details..."
+              value={draft.notes}
+              onChange={(e) => setDraft((prev) => ({ ...prev, notes: e.target.value }))}
+              rows={3}
+              className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            />
+          </div>
+        </div>
+
+        {formError && (
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {formError}
+          </div>
+        )}
+      </DialogTemplate>
     </DashboardShell>
   );
 }

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CadModelState, CadSelection, CadToolId, SelectedItem, Viewport } from "./cadModel.ts";
-import { isSelected, resolveColor, selectionFromItems } from "./cadModel.ts";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CadModelState, CadSelection, CadToolId, SelectedItem, SurveyEllipse, Viewport } from "./cadModel.ts";
+import { canvasColor, isSelected, resolveColor, selectionFromItems } from "./cadModel.ts";
 import {
   fitToBox,
   niceGridSpacing,
@@ -100,7 +100,18 @@ const TOOL_LABELS: Record<CadToolId, string> = {
 };
 const CROSSHAIR_GAP = 4;
 
-export function CadViewport({
+/** Clamp label font size so text stays legible at high zoom but does not
+ *  dominate the canvas when zoomed out. */
+function labelFontSize(scale: number, base: number): number {
+  return Math.max(7, Math.min(base, base * Math.min(1, scale / 4)));
+}
+
+function formatGridLabel(value: number, spacing: number): string {
+  const decimals = spacing >= 1 ? 0 : 1;
+  return value.toFixed(decimals);
+}
+
+const CadViewportComponent = memo(function CadViewport({
   model,
   tool,
   selection,
@@ -167,39 +178,92 @@ export function CadViewport({
   const bbox = useMemo<BBox | null>(() => {
     const ns: number[] = [];
     const es: number[] = [];
-    for (const p of model.points) { ns.push(p.n); es.push(p.e); }
+    const push = (n: number, e: number) => {
+      if (!Number.isFinite(n) || !Number.isFinite(e)) return;
+      ns.push(n);
+      es.push(e);
+    };
+    for (const p of model.points) { push(p.n, p.e); }
     for (const lw of model.linework) {
-      for (const v of lw.vertices) { ns.push(v.n); es.push(v.e); }
+      for (const v of lw.vertices) { push(v.n, v.e); }
     }
-    for (const t of model.texts) { ns.push(t.n); es.push(t.e); }
+    for (const t of model.texts) { push(t.n, t.e); }
     for (const srf of model.surfaces) {
       if (!Array.isArray(srf.points)) continue;
-      for (const v of srf.points) { ns.push(v.n); es.push(v.e); }
+      for (const v of srf.points) { push(v.n, v.e); }
+    }
+    for (const a of model.arcs) {
+      if (!Number.isFinite(a.radius)) continue;
+      // Approximate tight bbox by sampling the arc; use 16 segments for fit.
+      const r = a.radius;
+      let s = a.startAngle;
+      while (s < 0) s += 360;
+      let e = a.endAngle;
+      while (e < s) e += 360;
+      const steps = Math.max(2, Math.floor((e - s) / 30));
+      for (let i = 0; i <= steps; i++) {
+        const ang = (s + (e - s) * (i / steps)) * (Math.PI / 180);
+        push(a.center.n + Math.sin(ang) * r, a.center.e + Math.cos(ang) * r);
+      }
+      push(a.center.n, a.center.e);
+    }
+    for (const c of model.circles) {
+      if (!Number.isFinite(c.radius)) continue;
+      push(c.center.n - c.radius, c.center.e - c.radius);
+      push(c.center.n + c.radius, c.center.e + c.radius);
+    }
+    for (const el of model.ellipses) {
+      if (!Number.isFinite(el.semiMajor) || !Number.isFinite(el.semiMinor)) continue;
+      const rot = el.rotation * (Math.PI / 180);
+      const cosR = Math.cos(rot);
+      const sinR = Math.sin(rot);
+      for (let i = 0; i < 16; i++) {
+        const t = (i / 16) * Math.PI * 2;
+        const x = el.semiMajor * Math.cos(t);
+        const y = el.semiMinor * Math.sin(t);
+        push(el.center.n + x * sinR + y * cosR, el.center.e + x * cosR - y * sinR);
+      }
+      push(el.center.n, el.center.e);
+    }
+    for (const d of model.dimensions) {
+      push(d.textPosition.n, d.textPosition.e);
+      for (const v of d.defPoints) push(v.n, v.e);
+    }
+    for (const h of model.hatches) {
+      for (const v of h.vertices) push(v.n, v.e);
+      for (const hole of h.holes ?? []) {
+        for (const v of hole) push(v.n, v.e);
+      }
     }
     if (!ns.length) return null;
     return {
       minN: Math.min(...ns), maxN: Math.max(...ns),
       minE: Math.min(...es), maxE: Math.max(...es),
     };
-  }, [model.points, model.linework, model.texts, model.surfaces]);
+  }, [model.points, model.linework, model.texts, model.surfaces, model.arcs, model.circles, model.ellipses, model.dimensions, model.hatches]);
 
   useEffect(() => {
     if (didInitialFit.current) return;
     if (size.width < 10 || size.height < 10) return;
-    if (bbox) {
+    if (!bbox) return;
+    const id = window.setTimeout(() => {
       setVp(fitToBox(bbox, size));
       didInitialFit.current = true;
-    }
+    }, 0);
+    return () => window.clearTimeout(id);
   }, [bbox, size]);
 
   useEffect(() => {
     if (fitSignal === 0) return;
-    if (bbox) {
-      setVp(fitToBox(bbox, size));
-    } else {
-      setVp({ scale: 4, centerN: 0, centerE: 0 });
-    }
-    didInitialFit.current = true;
+    const id = window.setTimeout(() => {
+      if (bbox) {
+        setVp(fitToBox(bbox, size));
+      } else {
+        setVp({ scale: 4, centerN: 0, centerE: 0 });
+      }
+      didInitialFit.current = true;
+    }, 0);
+    return () => window.clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitSignal]);
 
@@ -207,7 +271,10 @@ export function CadViewport({
   // centre, keeping the current centre fixed.
   useEffect(() => {
     if (scaleSignal === 0 || !scaleTarget || scaleTarget <= 0) return;
-    setVp((v) => ({ ...v, scale: scaleTarget }));
+    const id = window.setTimeout(() => {
+      setVp((v) => ({ ...v, scale: scaleTarget }));
+    }, 0);
+    return () => window.clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scaleSignal]);
 
@@ -295,9 +362,36 @@ export function CadViewport({
           consider({ n: (a.n + b.n) / 2, e: (a.e + b.e) / 2 }, "midpoint");
         }
       }
+      for (const a of model.arcs) {
+        if (!visibleLayer(a.layerId)) continue;
+        const r = a.radius;
+        const toWorld = (deg: number) => {
+          const rad = deg * (Math.PI / 180);
+          return { n: a.center.n + Math.sin(rad) * r, e: a.center.e + Math.cos(rad) * r };
+        };
+        consider(toWorld(a.startAngle), "endpoint");
+        consider(toWorld(a.endAngle), "endpoint");
+        consider(toWorld((a.startAngle + a.endAngle) / 2), "midpoint");
+      }
+      for (const c of model.circles) {
+        if (!visibleLayer(c.layerId)) continue;
+        consider(c.center, "node");
+      }
+      for (const el of model.ellipses) {
+        if (!visibleLayer(el.layerId)) continue;
+        consider(el.center, "node");
+      }
+      for (const d of model.dimensions) {
+        if (!visibleLayer(d.layerId)) continue;
+        for (const v of d.defPoints) consider(v, "endpoint");
+      }
+      for (const h of model.hatches) {
+        if (!visibleLayer(h.layerId)) continue;
+        for (const v of h.vertices) consider(v, "endpoint");
+      }
       return best;
     },
-    [osnap, model.points, model.linework, visibleLayer, vp, size],
+    [osnap, model.points, model.linework, model.arcs, model.circles, model.ellipses, model.dimensions, model.hatches, visibleLayer, vp, size],
   );
 
   const resolveWorld = useCallback(
@@ -339,8 +433,66 @@ export function CadViewport({
     return !(hasNeg && hasPos);
   };
 
-  /** Hit-test the surfaces: a surface is picked when the cursor is over any of
-   * its triangles (interior) or close to a triangle edge. Returns the id. */
+  /** True when screen point (px,py) lies inside a simple polygon. */
+  const pointInPolygon = (px: number, py: number, pts: { x: number; y: number }[]): boolean => {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const pi = pts[i];
+      const pj = pts[j];
+      const intersect = pi.y > py !== pj.y > py &&
+        px < ((pj.x - pi.x) * (py - pi.y)) / (pj.y - pi.y) + pi.x;
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  };
+
+  /** Sample an arc/circle into screen-space polyline points for hit testing. */
+  const sampleArcScreen = useCallback((
+    center: { n: number; e: number },
+    radius: number,
+    startAngle: number,
+    endAngle: number,
+    steps: number,
+  ): { x: number; y: number }[] => {
+    const pts: { x: number; y: number }[] = [];
+    if (!(Number.isFinite(radius) && radius > 0)) return pts;
+    const s = startAngle;
+    let e = endAngle;
+    while (e < s) e += 360;
+    const count = Math.max(steps, 2);
+    for (let i = 0; i <= count; i++) {
+      const deg = s + (e - s) * (i / count);
+      const rad = deg * (Math.PI / 180);
+      pts.push(worldToScreen(center.n + Math.sin(rad) * radius, center.e + Math.cos(rad) * radius, vp, size));
+    }
+    return pts;
+  }, [vp, size]);
+
+  /** Sample an ellipse into screen-space polyline points for rendering / picking. */
+  const sampleEllipseScreen = useCallback((
+    el: SurveyEllipse,
+    steps: number,
+  ): { x: number; y: number }[] => {
+    const pts: { x: number; y: number }[] = [];
+    if (!(Number.isFinite(el.semiMajor) && Number.isFinite(el.semiMinor))) return pts;
+    const rot = el.rotation * (Math.PI / 180);
+    const cosR = Math.cos(rot);
+    const sinR = Math.sin(rot);
+    const count = Math.max(steps, 8);
+    for (let i = 0; i < count; i++) {
+      const t = (i / count) * Math.PI * 2;
+      const x = el.semiMajor * Math.cos(t);
+      const y = el.semiMinor * Math.sin(t);
+      pts.push(worldToScreen(
+        el.center.n + x * sinR + y * cosR,
+        el.center.e + x * cosR - y * sinR,
+        vp,
+        size,
+      ));
+    }
+    return pts;
+  }, [vp, size]);
+
   const hitSurface = useCallback(
     (x: number, y: number): string | null => {
       // Iterate back-to-front so the most recently added surface wins ties.
@@ -411,9 +563,74 @@ export function CadViewport({
       const srfId = hitSurface(x, y);
       if (srfId) return { type: "surface", id: srfId };
 
+      let bestArc: { id: string; d: number } | null = null;
+      for (const a of model.arcs) {
+        if (!selectableLayer(a.layerId)) continue;
+        const pts = sampleArcScreen(a.center, a.radius, a.startAngle, a.endAngle, 32);
+        for (let i = 1; i < pts.length; i++) {
+          const d = distToSegment(x, y, pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y);
+          if (d <= HIT_TOL && (!bestArc || d < bestArc.d)) bestArc = { id: a.id, d };
+        }
+      }
+      if (bestArc) return { type: "arc", id: bestArc.id };
+
+      let bestCir: { id: string; d: number } | null = null;
+      for (const c of model.circles) {
+        if (!selectableLayer(c.layerId)) continue;
+        const center = worldToScreen(c.center.n, c.center.e, vp, size);
+        const rim = worldToScreen(c.center.n, c.center.e + c.radius, vp, size);
+        const r = Math.hypot(rim.x - center.x, rim.y - center.y);
+        const d = Math.abs(Math.hypot(x - center.x, y - center.y) - r);
+        if (d <= HIT_TOL && (!bestCir || d < bestCir.d)) bestCir = { id: c.id, d };
+      }
+      if (bestCir) return { type: "circle", id: bestCir.id };
+
+      let bestEll: { id: string; d: number } | null = null;
+      for (const el of model.ellipses) {
+        if (!selectableLayer(el.layerId)) continue;
+        const pts = sampleEllipseScreen(el, 32);
+        for (let i = 1; i < pts.length; i++) {
+          const d = distToSegment(x, y, pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y);
+          if (d <= HIT_TOL && (!bestEll || d < bestEll.d)) bestEll = { id: el.id, d };
+        }
+      }
+      if (bestEll) return { type: "ellipse", id: bestEll.id };
+
+      for (const d of model.dimensions) {
+        if (!selectableLayer(d.layerId)) continue;
+        const pts = d.defPoints.map((v) => worldToScreen(v.n, v.e, vp, size));
+        let near = false;
+        for (let i = 1; i < pts.length; i++) {
+          if (distToSegment(x, y, pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y) <= HIT_TOL) {
+            near = true;
+            break;
+          }
+        }
+        if (!near) {
+          const ts = worldToScreen(d.textPosition.n, d.textPosition.e, vp, size);
+          const w = Math.max(20, (d.text?.length ?? 0) * 7);
+          near = x >= ts.x - 2 && x <= ts.x + w && y >= ts.y - 12 && y <= ts.y + 4;
+        }
+        if (near) return { type: "dimension", id: d.id };
+      }
+
+      for (const h of model.hatches) {
+        if (!selectableLayer(h.layerId)) continue;
+        const outer = h.vertices.map((v) => worldToScreen(v.n, v.e, vp, size));
+        if (outer.length < 3) continue;
+        if (pointInPolygon(x, y, outer)) return { type: "hatch", id: h.id };
+        let near = false;
+        for (let i = 0; !near && i < outer.length; i++) {
+          const a = outer[i];
+          const b = outer[(i + 1) % outer.length];
+          if (distToSegment(x, y, a.x, a.y, b.x, b.y) <= HIT_TOL) near = true;
+        }
+        if (near) return { type: "hatch", id: h.id };
+      }
+
       return { type: null, id: null };
     },
-    [model.points, model.linework, model.texts, hitSurface, selectableLayer, vp, size],
+    [model.points, model.linework, model.texts, model.arcs, model.circles, model.ellipses, model.dimensions, model.hatches, hitSurface, selectableLayer, vp, size, sampleArcScreen, sampleEllipseScreen],
   );
 
   /**
@@ -506,9 +723,58 @@ export function CadViewport({
         }
         if (crossing ? touches : allIn) items.push({ type: "surface", id: srf.id });
       }
+
+      const polylineInBox = (pts: { x: number; y: number }[]) => {
+        if (!pts.length) return false;
+        const allIn = pts.every((s) => inBox(s.x, s.y));
+        if (!crossing) return allIn;
+        if (allIn) return true;
+        for (let i = 0; i < pts.length; i++) {
+          const a = pts[i];
+          const b = pts[(i + 1) % pts.length];
+          if (segCrossesBox(a.x, a.y, b.x, b.y)) return true;
+        }
+        return false;
+      };
+
+      for (const a of model.arcs) {
+        if (!selectableLayer(a.layerId)) continue;
+        const pts = sampleArcScreen(a.center, a.radius, a.startAngle, a.endAngle, 16);
+        if (polylineInBox(pts)) items.push({ type: "arc", id: a.id });
+      }
+      for (const c of model.circles) {
+        if (!selectableLayer(c.layerId)) continue;
+        const pts = sampleArcScreen(c.center, c.radius, 0, 360, 24);
+        if (polylineInBox(pts)) items.push({ type: "circle", id: c.id });
+      }
+      for (const el of model.ellipses) {
+        if (!selectableLayer(el.layerId)) continue;
+        const pts = sampleEllipseScreen(el, 24);
+        if (polylineInBox(pts)) items.push({ type: "ellipse", id: el.id });
+      }
+      for (const d of model.dimensions) {
+        if (!selectableLayer(d.layerId)) continue;
+        const pts = d.defPoints.map((v) => worldToScreen(v.n, v.e, vp, size));
+        if (polylineInBox(pts)) items.push({ type: "dimension", id: d.id });
+      }
+      for (const h of model.hatches) {
+        if (!selectableLayer(h.layerId)) continue;
+        const pts = h.vertices.map((v) => worldToScreen(v.n, v.e, vp, size));
+        if (pts.length < 3) continue;
+        const allIn = pts.every((s) => inBox(s.x, s.y));
+        let touches = allIn;
+        if (!touches && crossing) {
+          for (let i = 0; i < pts.length; i++) {
+            const a = pts[i];
+            const b = pts[(i + 1) % pts.length];
+            if (segCrossesBox(a.x, a.y, b.x, b.y)) { touches = true; break; }
+          }
+        }
+        if (crossing ? touches : allIn) items.push({ type: "hatch", id: h.id });
+      }
       return items;
     },
-    [model.points, model.linework, model.texts, model.surfaces, selectableLayer, vp, size],
+    [model.points, model.linework, model.texts, model.surfaces, model.arcs, model.circles, model.ellipses, model.dimensions, model.hatches, selectableLayer, vp, size, sampleArcScreen, sampleEllipseScreen],
   );
 
   const handleMouseDown = (ev: React.MouseEvent) => {
@@ -526,8 +792,20 @@ export function CadViewport({
     }
   };
 
-  const handleMouseMove = (ev: React.MouseEvent) => {
-    const { x, y } = localPoint(ev.clientX, ev.clientY);
+  // Keep transient pointer data in refs and throttle React updates to one
+  // requestAnimationFrame. This prevents the whole SVG from reconciling on
+  // every mousemove event while keeping cursor feedback snappy.
+  const latestMouseRef = useRef<{ x: number; y: number } | null>(null);
+  const rafQueuedRef = useRef(false);
+  const rafIdRef = useRef<number | null>(null);
+  const processMouseMoveRef = useRef<() => void>(() => {});
+
+  processMouseMoveRef.current = () => {
+    rafQueuedRef.current = false;
+    const pos = latestMouseRef.current;
+    if (!pos) return;
+    const { x, y } = pos;
+
     setCursor({ x, y });
 
     const press = pressRef.current;
@@ -589,6 +867,26 @@ export function CadViewport({
     }
 
     setCursorInfo(info);
+  };
+
+  const scheduleMouseUpdate = useCallback(() => {
+    if (rafQueuedRef.current) return;
+    rafQueuedRef.current = true;
+    rafIdRef.current = requestAnimationFrame(() => processMouseMoveRef.current());
+  }, []);
+
+  const cancelMouseUpdate = useCallback(() => {
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    rafQueuedRef.current = false;
+  }, []);
+
+  const handleMouseMove = (ev: React.MouseEvent) => {
+    const { x, y } = localPoint(ev.clientX, ev.clientY);
+    latestMouseRef.current = { x, y };
+    scheduleMouseUpdate();
   };
 
   /** Merge new items into the existing selection (additive when Shift held). */
@@ -664,6 +962,8 @@ export function CadViewport({
   };
 
   const handleMouseLeave = () => {
+    cancelMouseUpdate();
+    latestMouseRef.current = null;
     pressRef.current = null;
     selStartRef.current = null;
     setSelRect(null);
@@ -672,6 +972,9 @@ export function CadViewport({
     setResolvedWorld(null);
     setCursorInfo(null);
   };
+
+  // Cancel any pending cursor update when the component unmounts.
+  useEffect(() => () => cancelMouseUpdate(), [cancelMouseUpdate]);
 
   const handleWheel = (ev: React.WheelEvent) => {
     const { x, y } = localPoint(ev.clientX, ev.clientY);
@@ -711,58 +1014,96 @@ export function CadViewport({
     if (!showGrid) return null;
     const spacing = niceGridSpacing(vp);
     const majorEvery = 5;
-    const majorSpacing = spacing * majorEvery;
     const tl = screenToWorld(0, 0, vp, size);
     const br = screenToWorld(size.width, size.height, vp, size);
     const startE = Math.floor(Math.min(tl.e, br.e) / spacing) * spacing;
     const endE = Math.ceil(Math.max(tl.e, br.e) / spacing) * spacing;
     const startN = Math.floor(Math.min(tl.n, br.n) / spacing) * spacing;
     const endN = Math.ceil(Math.max(tl.n, br.n) / spacing) * spacing;
-    if ((endE - startE) / spacing > 500 || (endN - startN) / spacing > 500) return null;
+
+    // Draw full grid only up to a reasonable density so very tight zoom levels
+    // do not explode the DOM. Beyond that, fall back to just the major axes.
+    const eCount = (endE - startE) / spacing;
+    const nCount = (endN - startN) / spacing;
+    const maxLines = 2000;
+    const showMinor = eCount <= maxLines && nCount <= maxLines;
 
     const elements: React.ReactNode[] = [];
     const majorEs: number[] = [];
     const majorNs: number[] = [];
+    let minorVerticalD = "";
+    let minorHorizontalD = "";
 
     for (let e = startE; e <= endE; e += spacing) {
       const idx = Math.round(e / spacing);
       const major = idx % majorEvery === 0;
       const axis = Math.abs(e) < 1e-9;
-      if (!major && !axis) continue;
-      if (major) majorEs.push(e);
       const a = worldToScreen(startN, e, vp, size);
       const b = worldToScreen(endN, e, vp, size);
-      elements.push(
-        <line
-          key={`ve-${e}`}
-          x1={a.x}
-          y1={a.y}
-          x2={b.x}
-          y2={b.y}
-          stroke={axis ? "#6a6a70" : "#3e3e42"}
-          strokeWidth={axis ? 1.2 : 0.6}
-          opacity={axis ? 0.55 : 0.7}
-        />,
-      );
+      if (axis || major) {
+        if (major) majorEs.push(e);
+        elements.push(
+          <line
+            key={`ve-${e}`}
+            x1={a.x}
+            y1={a.y}
+            x2={b.x}
+            y2={b.y}
+            stroke={axis ? "var(--cad-text-dim)" : "var(--cad-grid-major)"}
+            strokeWidth={axis ? 1.5 : 0.9}
+            opacity={axis ? 0.9 : 0.85}
+          />,
+        );
+      } else if (showMinor) {
+        minorVerticalD += `M${a.x.toFixed(2)},${a.y.toFixed(2)} L${b.x.toFixed(2)},${b.y.toFixed(2)} `;
+      }
     }
     for (let n = startN; n <= endN; n += spacing) {
       const idx = Math.round(n / spacing);
       const major = idx % majorEvery === 0;
       const axis = Math.abs(n) < 1e-9;
-      if (!major && !axis) continue;
-      if (major) majorNs.push(n);
       const a = worldToScreen(n, startE, vp, size);
       const b = worldToScreen(n, endE, vp, size);
+      if (axis || major) {
+        if (major) majorNs.push(n);
+        elements.push(
+          <line
+            key={`hn-${n}`}
+            x1={a.x}
+            y1={a.y}
+            x2={b.x}
+            y2={b.y}
+            stroke={axis ? "var(--cad-text-dim)" : "var(--cad-grid-major)"}
+            strokeWidth={axis ? 1.5 : 0.9}
+            opacity={axis ? 0.9 : 0.85}
+          />,
+        );
+      } else if (showMinor) {
+        minorHorizontalD += `M${a.x.toFixed(2)},${a.y.toFixed(2)} L${b.x.toFixed(2)},${b.y.toFixed(2)} `;
+      }
+    }
+
+    if (showMinor && minorVerticalD) {
       elements.push(
-        <line
-          key={`hn-${n}`}
-          x1={a.x}
-          y1={a.y}
-          x2={b.x}
-          y2={b.y}
-          stroke={axis ? "#6a6a70" : "#3e3e42"}
-          strokeWidth={axis ? 1.2 : 0.6}
-          opacity={axis ? 0.55 : 0.7}
+        <path
+          key="minor-v"
+          d={minorVerticalD}
+          fill="none"
+          stroke="var(--cad-grid)"
+          strokeWidth={0.45}
+          opacity={0.55}
+        />,
+      );
+    }
+    if (showMinor && minorHorizontalD) {
+      elements.push(
+        <path
+          key="minor-h"
+          d={minorHorizontalD}
+          fill="none"
+          stroke="var(--cad-grid)"
+          strokeWidth={0.45}
+          opacity={0.55}
         />,
       );
     }
@@ -777,13 +1118,59 @@ export function CadViewport({
             key={`dot-${dotKey++}`}
             cx={s.x}
             cy={s.y}
-            r={1.2}
-            fill="#5a5a5e"
-            opacity={0.85}
+            r={1.4}
+            fill="var(--cad-grid-major)"
+            opacity={0.7}
           />,
         );
       }
     }
+
+    // Coordinate labels along the left and bottom edges. Density is throttled
+    // so labels do not overlap when zoomed out, and font size scales down with
+    // the viewport so the numbers stay readable without dominating the canvas.
+    const bottomN = Math.min(tl.n, br.n);
+    const leftE = Math.min(tl.e, br.e);
+    const maxAxisLabels = 24;
+    const labelStepE = Math.max(1, Math.ceil(majorEs.length / maxAxisLabels));
+    const labelStepN = Math.max(1, Math.ceil(majorNs.length / maxAxisLabels));
+    const gridFontSize = labelFontSize(vp.scale, 10);
+
+    for (let i = 0; i < majorEs.length; i += labelStepE) {
+      const e = majorEs[i];
+      const s = worldToScreen(bottomN, e, vp, size);
+      elements.push(
+        <text
+          key={`el-${e}`}
+          x={s.x}
+          y={size.height - 6}
+          fontSize={gridFontSize}
+          fill="var(--cad-text-dim)"
+          textAnchor="middle"
+          className="cad-grid-label"
+        >
+          {formatGridLabel(e, spacing)}
+        </text>,
+      );
+    }
+    for (let i = 0; i < majorNs.length; i += labelStepN) {
+      const n = majorNs[i];
+      const s = worldToScreen(n, leftE, vp, size);
+      elements.push(
+        <text
+          key={`nl-${n}`}
+          x={8}
+          y={s.y - 4}
+          fontSize={gridFontSize}
+          fill="var(--cad-text-dim)"
+          textAnchor="start"
+          className="cad-grid-label"
+        >
+          {formatGridLabel(n, spacing)}
+        </text>,
+      );
+    }
+
     return elements;
   }, [showGrid, vp, size]);
 
@@ -794,35 +1181,51 @@ export function CadViewport({
       if (!Array.isArray(srf.points) || !Array.isArray(srf.triangles)) return null;
       const layer = model.layers.find((l) => l.id === srf.layerId);
       const selected = isSelected(selection, "surface", srf.id);
-      const color = selected ? "#5cc3ff" : layer?.color ?? "#5cc3ff";
+      const color = canvasColor(selected ? "#5cc3ff" : layer?.color ?? "#5cc3ff");
       const screen = srf.points.map((v) => worldToScreen(v.n, v.e, vp, size));
+
+      // Batch all triangles into one fill path and one stroke path per surface.
+      // This avoids thousands of individual <polygon> DOM nodes, which is the
+      // main bottleneck when displaying dense TIN surfaces.
+      let fillD = "";
+      let strokeD = "";
+      for (const t of srf.triangles) {
+        const a = screen[t.a];
+        const b = screen[t.b];
+        const c = screen[t.c];
+        if (!a || !b || !c) continue;
+        const tri = `M${a.x.toFixed(2)},${a.y.toFixed(2)} L${b.x.toFixed(2)},${b.y.toFixed(2)} L${c.x.toFixed(2)},${c.y.toFixed(2)} Z`;
+        if (selected) fillD += tri;
+        strokeD += tri;
+      }
+
       return (
         <g key={srf.id} opacity={selected ? 0.85 : 0.5}>
-          {srf.triangles.map((t, i) => {
-            const a = screen[t.a];
-            const b = screen[t.b];
-            const c = screen[t.c];
-            if (!a || !b || !c) return null;
-            return (
-              <polygon
-                key={`${srf.id}-${i}`}
-                points={`${a.x},${a.y} ${b.x},${b.y} ${c.x},${c.y}`}
-                fill={selected ? "rgba(92, 195, 255, 0.08)" : "none"}
-                stroke={color}
-                strokeWidth={selected ? 1 : 0.5}
-              />
-            );
-          })}
+          {selected && fillD && (
+            <path
+              d={fillD}
+              fill="rgba(92, 195, 255, 0.08)"
+              stroke="none"
+            />
+          )}
+          {strokeD && (
+            <path
+              d={strokeD}
+              fill="none"
+              stroke={color}
+              strokeWidth={selected ? 1 : 0.5}
+            />
+          )}
         </g>
       );
     });
-  }, [model.surfaces, model.layers, selection, vp, size]);
+  }, [model.surfaces, model.layers, visibleLayer, selection, vp, size]);
 
   const lineworkElements = useMemo(() => {
     return model.linework.map((lw) => {
       if (!visibleLayer(lw.layerId)) return null;
       const layer = model.layers.find((l) => l.id === lw.layerId);
-      const color = resolveColor(lw.color, layer?.color, "#a0b0c8");
+      const color = canvasColor(resolveColor(lw.color, layer?.color, "#334155"));
       const pts = lw.vertices.map((v) => worldToScreen(v.n, v.e, vp, size));
       if (!pts.length) return null;
       const d =
@@ -849,8 +1252,8 @@ export function CadViewport({
           const offY = Math.cos(angle) * 10;
           labels.push(
             <text key={`${lw.id}-lbl-${i}`} x={mid.x + offX} y={mid.y + offY - 3}
-              fill="#90a5c4" stroke="rgba(10,14,20,0.85)" strokeWidth={1.5}
-              paintOrder="stroke fill" fontSize={11} fontFamily="Arial, 'Helvetica Neue', Helvetica, 'Liberation Sans', sans-serif"
+              fill="var(--cad-entity-text)" stroke="var(--cad-entity-stroke)" strokeWidth={1.5}
+              paintOrder="stroke fill" fontSize={labelFontSize(vp.scale, 11)} fontFamily="Arial, 'Helvetica Neue', Helvetica, 'Liberation Sans', sans-serif"
               textAnchor="middle" className="cad-seg-label">
               {fmtBearing(inv.azimuth, bearingFormat)} · {fmtDistance(inv.distance)}
             </text>,
@@ -876,10 +1279,10 @@ export function CadViewport({
               key={`${lw.id}-elev`}
               x={midPt.x}
               y={midPt.y - 4}
-              fill="#b0bfd0"
+              fill="var(--cad-entity-text)"
               stroke="rgba(10,14,20,0.85)" strokeWidth={1.5}
               paintOrder="stroke fill"
-              fontSize={10}
+              fontSize={labelFontSize(vp.scale, 10)}
               fontWeight={500}
               fontFamily="Arial, 'Helvetica Neue', Helvetica, 'Liberation Sans', sans-serif"
               textAnchor="middle"
@@ -913,13 +1316,13 @@ export function CadViewport({
         </g>
       );
     });
-  }, [model.linework, model.layers, selection, vp, size, showSegmentLabels, bearingFormat]);
+  }, [model.linework, model.layers, visibleLayer, selection, vp, size, showSegmentLabels, bearingFormat]);
 
   const pointElements = useMemo(() => {
     return model.points.map((p) => {
       if (!visibleLayer(p.layerId)) return null;
       const layer = model.layers.find((l) => l.id === p.layerId);
-      const color = resolveColor(p.color, layer?.color, "#5cc3ff");
+      const color = canvasColor(resolveColor(p.color, layer?.color, "#0ea5e9"));
       const s = worldToScreen(p.n, p.e, vp, size);
       const selected = isSelected(selection, "point", p.id);
       const feature = resolveFeature(p.code, VIEWPORT_CODE_TABLE);
@@ -943,8 +1346,8 @@ export function CadViewport({
             />
           )}
           {showPointLabels && (
-            <text x={s.x + 7} y={s.y - 5} fill="#a0b0c8" stroke="rgba(10,14,20,0.85)" strokeWidth={1.5}
-              paintOrder="stroke fill" fontSize={11}
+            <text x={s.x + 7} y={s.y - 5} fill="var(--cad-entity-text)" stroke="var(--cad-entity-stroke)" strokeWidth={1.5}
+              paintOrder="stroke fill" fontSize={labelFontSize(vp.scale, 11)}
               fontFamily="Arial, 'Helvetica Neue', Helvetica, 'Liberation Sans', sans-serif">
               {p.pointNo}{p.code ? ` ${p.code}` : ""}
             </text>
@@ -952,7 +1355,7 @@ export function CadViewport({
         </g>
       );
     });
-  }, [model.points, model.layers, selection, vp, size, showPointLabels]);
+  }, [model.points, model.layers, visibleLayer, selection, vp, size, showPointLabels]);
 
   const textElements = useMemo(() => {
     return model.texts.map((t) => {
@@ -960,19 +1363,149 @@ export function CadViewport({
       const layer = model.layers.find((l) => l.id === t.layerId);
       const s = worldToScreen(t.n, t.e, vp, size);
       const selected = isSelected(selection, "text", t.id);
-      const baseColor = resolveColor(t.color, layer?.color, "#d0d8e8");
+      const baseColor = canvasColor(resolveColor(t.color, layer?.color, "#334155"));
+      // DXF text height is in drawing/world units. Scale it by the viewport so
+      // text stays the correct size relative to the geometry. Clamp the screen
+      // size so labels never become huge when zoomed out or unreadably small.
+      const worldHeight = t.height && t.height > 0 ? t.height : 2.5;
+      const fontSize = Math.max(7, Math.min(24, worldHeight * vp.scale));
+      const rotation = t.rotation ?? 0;
+      const transform = rotation !== 0
+        ? `rotate(${(-rotation).toFixed(1)}, ${s.x.toFixed(1)}, ${s.y.toFixed(1)})`
+        : undefined;
       return (
         <text key={t.id} x={s.x} y={s.y}
           fill={selected ? "#5cc3ff" : baseColor}
           stroke="rgba(10,14,20,0.85)" strokeWidth={1.5}
           paintOrder="stroke fill"
-          fontSize={16} fontWeight={selected ? 600 : 400}
-          fontFamily="Arial, 'Helvetica Neue', Helvetica, 'Liberation Sans', sans-serif">
+          fontSize={fontSize} fontWeight={selected ? 600 : 400}
+          fontFamily="Arial, 'Helvetica Neue', Helvetica, 'Liberation Sans', sans-serif"
+          transform={transform}>
           {t.text}
         </text>
       );
     });
-  }, [model.texts, model.layers, selection, vp, size]);
+  }, [model.texts, model.layers, visibleLayer, selection, vp, size]);
+
+  const nativeEntityElements = useMemo(() => {
+    const arcToSvg = (a: { center: { n: number; e: number }; radius: number; startAngle: number; endAngle: number }) => {
+      const rPx = a.radius * vp.scale;
+      const start = worldToScreen(
+        a.center.n + Math.sin(a.startAngle * (Math.PI / 180)) * a.radius,
+        a.center.e + Math.cos(a.startAngle * (Math.PI / 180)) * a.radius,
+        vp,
+        size,
+      );
+      const end = worldToScreen(
+        a.center.n + Math.sin(a.endAngle * (Math.PI / 180)) * a.radius,
+        a.center.e + Math.cos(a.endAngle * (Math.PI / 180)) * a.radius,
+        vp,
+        size,
+      );
+      const center = worldToScreen(a.center.n, a.center.e, vp, size);
+      const sweep = end.x * (start.y - center.y) + start.x * (center.y - end.y) + center.x * (end.y - start.y);
+      let span = a.endAngle - a.startAngle;
+      while (span < 0) span += 360;
+      return `M ${start.x} ${start.y} A ${rPx} ${rPx} 0 ${span > 180 ? 1 : 0} ${sweep > 0 ? 0 : 1} ${end.x} ${end.y}`;
+    };
+
+    const el: React.ReactNode[] = [];
+    for (const h of model.hatches) {
+      if (!visibleLayer(h.layerId)) continue;
+      const layer = model.layers.find((l) => l.id === h.layerId);
+      const color = canvasColor(resolveColor(h.color, layer?.color, "#334155"));
+      const selected = isSelected(selection, "hatch", h.id);
+      const outer = h.vertices.map((v) => worldToScreen(v.n, v.e, vp, size));
+      if (outer.length < 3) continue;
+      const parts: string[] = [];
+      parts.push(outer.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ") + " Z");
+      for (const hole of h.holes ?? []) {
+        const pts = hole.map((v) => worldToScreen(v.n, v.e, vp, size));
+        if (pts.length < 3) continue;
+        parts.push(pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ") + " Z");
+      }
+      el.push(
+        <path
+          key={h.id}
+          d={parts.join(" ")}
+          fill={selected ? "rgba(92, 195, 255, 0.15)" : `${color}20`}
+          stroke={selected ? "#5cc3ff" : color}
+          strokeWidth={selected ? 1.5 : 1}
+        />,
+      );
+    }
+    for (const c of model.circles) {
+      if (!visibleLayer(c.layerId)) continue;
+      const layer = model.layers.find((l) => l.id === c.layerId);
+      const color = canvasColor(resolveColor(c.color, layer?.color, "#334155"));
+      const s = worldToScreen(c.center.n, c.center.e, vp, size);
+      const selected = isSelected(selection, "circle", c.id);
+      const rPx = c.radius * vp.scale;
+      el.push(
+        <g key={c.id}>
+          {selected && <circle cx={s.x} cy={s.y} r={rPx} fill="none" stroke="#5cc3ff" strokeWidth={2.5} opacity={0.55} />}
+          <circle cx={s.x} cy={s.y} r={rPx} fill="none" stroke={color} strokeWidth={selected ? 1.8 : 1.2} />
+        </g>,
+      );
+    }
+    for (const a of model.arcs) {
+      if (!visibleLayer(a.layerId)) continue;
+      const layer = model.layers.find((l) => l.id === a.layerId);
+      const color = canvasColor(resolveColor(a.color, layer?.color, "#334155"));
+      const selected = isSelected(selection, "arc", a.id);
+      const d = arcToSvg(a);
+      el.push(
+        <g key={a.id}>
+          {selected && <path d={d} fill="none" stroke="#5cc3ff" strokeWidth={2.5} opacity={0.55} strokeLinecap="round" />}
+          <path d={d} fill="none" stroke={color} strokeWidth={selected ? 1.8 : 1.2} strokeLinecap="round" />
+        </g>,
+      );
+    }
+    for (const ellipse of model.ellipses) {
+      if (!visibleLayer(ellipse.layerId)) continue;
+      const layer = model.layers.find((l) => l.id === ellipse.layerId);
+      const color = canvasColor(resolveColor(ellipse.color, layer?.color, "#334155"));
+      const selected = isSelected(selection, "ellipse", ellipse.id);
+      const pts = sampleEllipseScreen(ellipse, 48);
+      if (pts.length === 0) continue;
+      const d = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ") + " Z";
+      el.push(
+        <g key={ellipse.id}>
+          {selected && <path d={d} fill="none" stroke="#5cc3ff" strokeWidth={2.5} opacity={0.55} />}
+          <path d={d} fill="none" stroke={color} strokeWidth={selected ? 1.8 : 1.2} />
+        </g>,
+      );
+    }
+    for (const d of model.dimensions) {
+      if (!visibleLayer(d.layerId)) continue;
+      const layer = model.layers.find((l) => l.id === d.layerId);
+      const color = canvasColor(resolveColor(d.color, layer?.color, "#334155"));
+      const selected = isSelected(selection, "dimension", d.id);
+      const pts = d.defPoints.map((v) => worldToScreen(v.n, v.e, vp, size));
+      const path = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
+      const tp = worldToScreen(d.textPosition.n, d.textPosition.e, vp, size);
+      el.push(
+        <g key={d.id}>
+          {path && <path d={path} fill="none" stroke={selected ? "#5cc3ff" : color} strokeWidth={selected ? 2 : 1} strokeDasharray="6 4" />}
+          <text
+            x={tp.x}
+            y={tp.y}
+            fill={selected ? "#5cc3ff" : color}
+            stroke="rgba(10,14,20,0.85)"
+            strokeWidth={1.5}
+            paintOrder="stroke fill"
+            fontSize={12}
+            fontWeight={selected ? 600 : 400}
+            fontFamily="Arial, 'Helvetica Neue', Helvetica, 'Liberation Sans', sans-serif"
+            textAnchor="middle"
+          >
+            {d.text}
+          </text>
+        </g>,
+      );
+    }
+    return el;
+  }, [model.arcs, model.circles, model.ellipses, model.dimensions, model.hatches, model.layers, visibleLayer, selection, vp, size, sampleEllipseScreen]);
 
   const renderPending = () => {
     if (pendingVertices.length === 0) return null;
@@ -1002,7 +1535,7 @@ export function CadViewport({
         {pts.map((p, i) => (
           <g key={i}>
             <circle cx={p.x} cy={p.y} r={3} fill="#5cc3ff" stroke="#f0f0f8" strokeWidth={0.5} />
-            <text x={p.x + 5} y={p.y - 6} fill="#8aa0c0" fontSize={8}
+            <text x={p.x + 5} y={p.y - 6} fill="var(--cad-entity-text)" fontSize={8}
               textAnchor="start" className="cad-seg-label">
               {i + 1}
             </text>
@@ -1079,6 +1612,7 @@ export function CadViewport({
         {gridElements}
         {surfaceElements}
         {lineworkElements}
+        {nativeEntityElements}
         {textElements}
         {pointElements}
         {renderPending()}
@@ -1258,4 +1792,6 @@ export function CadViewport({
       </div>
     </div>
   );
-}
+});
+
+export const CadViewport = CadViewportComponent;

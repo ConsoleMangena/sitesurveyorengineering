@@ -21,11 +21,14 @@ export default function SplashScreen({ onFinish, duration = 3000 }: SplashScreen
   return (
     <div className={`splash-screen ${fadeOut ? 'splash-fade-out' : ''}`}>
       <div className="splash-content">
-        <img
-          src="/logo.svg"
-          alt="SiteSurveyor Logo"
-          className="splash-logo app-logo"
-        />
+        <div className="splash-logo-wrap" aria-hidden="true">
+          <span className="splash-logo-ring" />
+          <img
+            src="/logo.svg"
+            alt="SiteSurveyor Logo"
+            className="splash-logo app-logo"
+          />
+        </div>
         <p className="splash-tagline">SiteSurveyor</p>
         <p className="splash-subtitle">Engineering Survey Management</p>
         <div className="splash-dots" aria-label="Loading">

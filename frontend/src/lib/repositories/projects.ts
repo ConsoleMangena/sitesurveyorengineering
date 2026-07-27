@@ -4,6 +4,7 @@ import type { Tables, TablesInsert, TablesUpdate } from "../supabase/types.ts";
 import { getLocalDatabase, type LocalDb } from "../localDb/db.ts";
 import { startWorkspaceSync } from "../localDb/sync.ts";
 import { generateLocalId, nowIso, omitNullish } from "../localDb/utils.ts";
+import { PROJECT_DEFAULTS } from "../localDb/migrations.ts";
 import type { ProjectDocType } from "../localDb/schemas.ts";
 
 export type ProjectRow = Tables<"projects">;
@@ -112,6 +113,13 @@ export async function createProject(
     status: input.status ?? "draft",
     progress: input.progress ?? 0,
     points: input.points ?? 0,
+    axis_convention: input.axis_convention ?? PROJECT_DEFAULTS.axis_convention,
+    crs_type: input.crs_type ?? PROJECT_DEFAULTS.crs_type,
+    local_origin_e: input.local_origin_e ?? PROJECT_DEFAULTS.local_origin_e,
+    local_origin_n: input.local_origin_n ?? PROJECT_DEFAULTS.local_origin_n,
+    bearing_format: input.bearing_format ?? PROJECT_DEFAULTS.bearing_format,
+    angle_entry: input.angle_entry ?? PROJECT_DEFAULTS.angle_entry,
+    coord_decimals: input.coord_decimals ?? PROJECT_DEFAULTS.coord_decimals,
     ...omitNullish(input as unknown as Record<string, unknown>),
   });
 
@@ -182,10 +190,7 @@ export async function deleteProject(id: string): Promise<void> {
   const doc = await db.projects.findOne(id).exec();
   if (!doc) throw new Error(`Project not found: ${id}`);
 
-  await doc.incrementalPatch({
-    _deleted: true,
-    updated_at: nowIso(),
-  });
+  await doc.remove();
 }
 
 export async function listProjectMembers(

@@ -145,8 +145,16 @@ pub fn terrain_stats(tin: &Tin) -> Option<TerrainStats> {
         plan_area,
         surface_area,
         mean_slope_deg,
-        min_slope_deg: if min_slope.is_finite() { min_slope } else { 0.0 },
-        max_slope_deg: if max_slope.is_finite() { max_slope } else { 0.0 },
+        min_slope_deg: if min_slope.is_finite() {
+            min_slope
+        } else {
+            0.0
+        },
+        max_slope_deg: if max_slope.is_finite() {
+            max_slope
+        } else {
+            0.0
+        },
         min_elevation,
         max_elevation,
         triangles: tris.len(),

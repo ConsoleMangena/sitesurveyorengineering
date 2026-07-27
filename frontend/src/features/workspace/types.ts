@@ -26,8 +26,6 @@ export const WORKSPACE_VIEWS = [
   "admin_users",
   "admin_workspaces",
   "admin_audit",
-  "admin_feature_requests",
-  "admin_licenses",
 ] as const;
 
 export type WorkspaceView = (typeof WORKSPACE_VIEWS)[number];

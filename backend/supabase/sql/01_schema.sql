@@ -193,26 +193,6 @@ DO $$ BEGIN
 EXCEPTION
   WHEN duplicate_object THEN null;
 END $$;
-DO $$ BEGIN
-  create type public.license_tier as enum ('free', 'pro', 'enterprise');
-EXCEPTION
-  WHEN duplicate_object THEN null;
-END $$;
-DO $$ BEGIN
-  create type public.license_status as enum (
-    'trialing',
-    'active',
-    'past_due',
-    'suspended',
-    'cancelled'
-  );
-  asset_id uuid references public.assets(id) on delete set null,
-);
-EXCEPTION
-  WHEN duplicate_object THEN null;
-END $$;
-
-
 -- ===========================================================================
 -- tables_indexes
 -- ===========================================================================
@@ -287,29 +267,6 @@ create table if not exists public.workspace_settings (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
-create table if not exists public.workspace_licenses (
-  workspace_id uuid primary key references public.workspaces (id) on delete cascade,
-  tier public.license_tier not null default 'free',
-  status public.license_status not null default 'active',
-  starts_at timestamptz not null default now(),
-  ends_at timestamptz,
-  trial_ends_at timestamptz,
-  is_manual boolean not null default true,
-  seat_limit integer default 1,
-  project_cap integer default 12,
-  asset_cap integer default 60,
-  storage_cap_bytes bigint default 536870912,
-  notes text,
-  updated_by uuid references auth.users (id) on delete set null,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-comment on column public.workspace_licenses.seat_limit is 'Max active members + pending invites; NULL = unlimited.';
-comment on column public.workspace_licenses.project_cap is 'Max projects; NULL = unlimited.';
-comment on column public.workspace_licenses.asset_cap is 'Max assets; NULL = unlimited.';
-comment on column public.workspace_licenses.storage_cap_bytes is 'Max attachment bytes; NULL = unlimited.';
 
 create table if not exists public.workspace_members (
   id uuid primary key default gen_random_uuid(),
@@ -688,18 +645,6 @@ create table if not exists audit.activity_log (
   created_at timestamptz not null default now()
 );
 
-create table if not exists public.license_events (
-  id bigint generated always as identity primary key,
-  workspace_id uuid not null references public.workspaces (id) on delete cascade,
-  changed_by uuid references auth.users (id) on delete set null,
-  previous_tier public.license_tier,
-  new_tier public.license_tier,
-  previous_status public.license_status,
-  new_status public.license_status,
-  notes text,
-  created_at timestamptz not null default now()
-);
-
 create index if not exists idx_workspace_members_user_id on public.workspace_members (user_id);
 create index if not exists idx_workspace_members_workspace_id on public.workspace_members (workspace_id);
 create index if not exists idx_workspace_invitations_workspace_id on public.workspace_invitations (workspace_id);
@@ -723,8 +668,6 @@ create index if not exists idx_attachments_entity on public.attachments (workspa
 create index if not exists idx_attachments_workspace_chain_status on public.attachments (workspace_id, chain_status);
 create unique index if not exists attachments_chain_tx_signature_key on public.attachments (chain_tx_signature) where chain_tx_signature is not null;
 create index if not exists idx_audit_activity_workspace_created_at on audit.activity_log (workspace_id, created_at desc);
-create index if not exists idx_workspace_licenses_tier_status on public.workspace_licenses (tier, status);
-create index if not exists idx_license_events_workspace_created_at on public.license_events (workspace_id, created_at desc);
 
 -- ── Marketplace listings ──
 
@@ -875,21 +818,6 @@ create table if not exists public.expense_entries (
 create index if not exists idx_expense_entries_workspace_user_date
   on public.expense_entries (workspace_id, user_id, entry_date desc);
 
--- ── Promo code rules ──
-
-create table if not exists public.promo_code_rules (
-  code text primary key,
-  trial_days integer,
-  signup_tier public.license_tier,
-  signup_license_status public.license_status default 'trialing',
-  seat_bonus integer not null default 0,
-  project_cap_boost integer not null default 0,
-  asset_cap_boost integer not null default 0,
-  active boolean not null default true
-);
-
-comment on table public.promo_code_rules is 'Maps signup promo codes to license trials and cap boosts.';
-
 -- ── Payment methods ──
 
 create table if not exists public.payment_methods (
@@ -999,13 +927,6 @@ create table if not exists public.workspace_feature_entitlements (
   updated_at timestamptz not null default now(),
   primary key (workspace_id, feature_key)
 );
-
--- ── Seed workspace_licenses for existing workspaces ──
-
-insert into public.workspace_licenses (workspace_id)
-select w.id
-from public.workspaces w
-on conflict (workspace_id) do nothing;
 
 -- ── Embedded Solana wallets (open-source app wallet) ──
 -- The secret key and optional seed phrase are encrypted client-side with a

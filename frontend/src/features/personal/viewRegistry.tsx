@@ -6,16 +6,14 @@ import type { UiUser, WorkspaceView } from "../workspace/types";
 import PageLoader from "@/components/PageLoader.tsx";
 import PersonalDashboardPage from "../../pages/personal/PersonalDashboardPage";
 import SchedulePage from "../../pages/personal/SchedulePage";
-import AssetManagementPage from "../../pages/shared/AssetManagementPage";
 import ContactsPage from "../../pages/shared/ContactsPage";
 import InvoicesPage from "../../pages/shared/InvoicesPage";
 import JobsPage from "../../pages/shared/JobsPage";
-import MarketplacePage from "../../pages/shared/MarketplacePage";
 import NotificationsPage from "../../pages/shared/NotificationsPage";
 import ProfileSettingsPage from "../../pages/shared/ProfileSettingsPage";
 import QuotesPage from "../../pages/shared/QuotesPage";
 import ProfessionalsPage from "../../pages/business/ProfessionalsPage";
-import TimeTrackingPage from "../../pages/shared/TimeTrackingPage";
+import TeamPage from "../../pages/business/TeamPage";
 
 // Lazy-load heavy / infrequently-used pages so they do not bloat the shared
 // workspace chunk loaded for every view.
@@ -26,9 +24,11 @@ const AdminAuditPage = lazy(() => import("../../pages/admin/AdminAuditPage"));
 const AdminOverviewPage = lazy(() => import("../../pages/admin/AdminOverviewPage"));
 const AdminUsersPage = lazy(() => import("../../pages/admin/AdminUsersPage"));
 const AdminWorkspacesPage = lazy(() => import("../../pages/admin/AdminWorkspacesPage"));
-const AdminFeatureRequestsPage = lazy(() => import("../../pages/admin/AdminFeatureRequestsPage"));
-const AdminLicensesPage = lazy(() => import("../../pages/admin/AdminLicensesPage"));
+
 const ProjectHubPage = lazy(() => import("../../pages/shared/ProjectHubPage"));
+const TimeTrackingPage = lazy(() => import("../../pages/shared/TimeTrackingPage"));
+const AssetManagementPage = lazy(() => import("../../pages/shared/AssetManagementPage"));
+const MarketplacePage = lazy(() => import("../../pages/shared/MarketplacePage"));
 
 interface PersonalViewRendererOptions {
   user: UiUser;
@@ -48,7 +48,7 @@ export function renderPersonalView(
       return <PersonalDashboardPage userName={user.name} workspaceId={user.workspaceId} onNavigate={onNavigate} />;
 
     case "schedule":
-      return <SchedulePage workspaceId={user.workspaceId} workspaceType={user.accountType} />;
+      return <SchedulePage workspaceId={user.workspaceId} />;
 
     case "projects":
       return (
@@ -63,7 +63,14 @@ export function renderPersonalView(
       );
 
     case "timeTracking":
-      return <TimeTrackingPage workspaceId={user.workspaceId} />;
+      return (
+        <Suspense fallback={<PageLoader />}>
+          <TimeTrackingPage workspaceId={user.workspaceId} />
+        </Suspense>
+      );
+
+    case "team":
+      return <TeamPage workspaceId={user.workspaceId} />;
 
     case "files":
       return (
@@ -104,15 +111,20 @@ export function renderPersonalView(
 
     case "marketplace":
       return (
-        <MarketplacePage
-          workspaceId={user.workspaceId}
-          isPlatformAdmin={user.isPlatformAdmin}
-          onNavigate={onNavigate}
-        />
+        <Suspense fallback={<PageLoader />}>
+          <MarketplacePage
+            workspaceId={user.workspaceId}
+            isPlatformAdmin={user.isPlatformAdmin}
+          />
+        </Suspense>
       );
 
     case "assets":
-      return <AssetManagementPage workspaceId={user.workspaceId} />;
+      return (
+        <Suspense fallback={<PageLoader />}>
+          <AssetManagementPage workspaceId={user.workspaceId} />
+        </Suspense>
+      );
 
     case "professionals":
       return (
@@ -125,7 +137,11 @@ export function renderPersonalView(
     case "admin_overview":
       return (
         <Suspense fallback={<PageLoader />}>
-          <AdminOverviewPage isPlatformAdmin={user.isPlatformAdmin} />
+          <AdminOverviewPage
+            isPlatformAdmin={user.isPlatformAdmin}
+            workspaceId={user.workspaceId}
+            userName={user.name}
+          />
         </Suspense>
       );
 
@@ -150,24 +166,10 @@ export function renderPersonalView(
         </Suspense>
       );
 
-    case "admin_feature_requests":
-      return (
-        <Suspense fallback={<PageLoader />}>
-          <AdminFeatureRequestsPage isPlatformAdmin={user.isPlatformAdmin} />
-        </Suspense>
-      );
-
     case "admin_audit":
       return (
         <Suspense fallback={<PageLoader />}>
           <AdminAuditPage isPlatformAdmin={user.isPlatformAdmin} />
-        </Suspense>
-      );
-
-    case "admin_licenses":
-      return (
-        <Suspense fallback={<PageLoader />}>
-          <AdminLicensesPage isPlatformAdmin={user.isPlatformAdmin} />
         </Suspense>
       );
 

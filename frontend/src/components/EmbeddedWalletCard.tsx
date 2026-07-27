@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useAsyncAction } from "../hooks/useAsyncAction.ts";
 import { PublicKey } from "@solana/web3.js";
 import {
   AlertCircle,
@@ -137,46 +138,35 @@ export default function EmbeddedWalletCard() {
   const [sendAmount, setSendAmount] = useState("");
   const [sendSignature, setSendSignature] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [recentRecipients, setRecentRecipients] = useState<string[]>([]);
-
-  useEffect(() => {
-    setRecentRecipients(loadRecentRecipients());
-  }, []);
+  const [recentRecipients, setRecentRecipients] = useState<string[]>(() => loadRecentRecipients());
 
   const refreshActivity = useCallback(() => {
     setActivity(loadWalletHistory());
   }, []);
 
-  useEffect(() => {
-    refreshActivity();
-  }, [refreshActivity, wallet.unlocked, wallet.walletAddress]);
+  useAsyncAction(refreshActivity, [refreshActivity, wallet.unlocked, wallet.walletAddress]);
 
-  useEffect(() => {
+  const loadTxSignatures = useCallback(async () => {
     if (!wallet.unlocked || !wallet.walletAddress) {
       setTxSignatures([]);
       return;
     }
-    let cancelled = false;
     setTxLoading(true);
-    getConnection()
-      .getSignaturesForAddress(
+    try {
+      const sigs = await getConnection().getSignaturesForAddress(
         new PublicKey(wallet.walletAddress),
         { limit: 5 },
         "confirmed",
-      )
-      .then((sigs) => {
-        if (!cancelled) setTxSignatures(sigs.map((s) => s.signature));
-      })
-      .catch(() => {
-        if (!cancelled) setTxSignatures([]);
-      })
-      .finally(() => {
-        if (!cancelled) setTxLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      );
+      setTxSignatures(sigs.map((s) => s.signature));
+    } catch {
+      setTxSignatures([]);
+    } finally {
+      setTxLoading(false);
+    }
   }, [wallet.unlocked, wallet.walletAddress]);
+
+  useAsyncAction(loadTxSignatures, [loadTxSignatures]);
 
   const copyAddress = useCallback(async () => {
     if (!wallet.walletAddress) return;
@@ -831,7 +821,7 @@ export default function EmbeddedWalletCard() {
             disabled={wallet.importing}
             aria-busy={wallet.importing}
           >
-            {wallet.importing ? "Restoring…" : "Restore Wallet"}
+            {wallet.importing ? "Restoring…" : "Restore"}
           </button>
         </div>
       </div>
@@ -911,13 +901,13 @@ export default function EmbeddedWalletCard() {
           >
             Import Existing
           </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => setMode("create")}
-          >
-            <Plus size={16} /> Create Embedded Wallet
-          </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setMode("create")}
+            >
+              <Plus size={16} /> Create Wallet
+            </button>
         </div>
       </div>
     );

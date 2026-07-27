@@ -15,26 +15,28 @@ Open the **Supabase SQL editor** and paste/run these **in order**, one at a time
 | 1 | `01_schema.sql` | Extensions, internal schemas, enum types, all tables and indexes. |
 | 2 | `02_functions_triggers.sql` | Functions / RPCs and triggers. |
 | 3 | `03_rls_storage.sql` | RLS policies and storage buckets/policies. |
-| 4 | `04_seed.sql` | Seeds (feature catalog, promo codes) and idempotent backfills. |
-| 5 | `05_blockchain_anchoring.sql` | On-chain anchoring columns and triggers for `attachments`. |
-| 6 | `06_licensing.sql` | Per-device licensing tables (`licenses`, `license_seats`) and helpers. |
-| 7 | `07_licensing_enforcement.sql` | RESTRICTIVE RLS policies that gate business-data INSERT/UPDATE by active license. |
-| 8 | `12_attachment_versions.sql` | Attachment versions / soft-delete support. |
-| 9 | `20_offline_sync_support.sql` | Soft-delete / tombstone columns and sync indexes for offline-first WatermelonDB replication. |
+| 4 | `17_billing_payment_guards.sql` | Payment integrity trigger (invoice workspace match + over-payment guard). |
+| 5 | `04_seed.sql` | Seeds (feature catalog) and idempotent backfills. |
+| 6 | `05_blockchain_anchoring.sql` | On-chain anchoring columns and triggers for `attachments`. |
+| 7 | `07_file_manager_features.sql` | File-manager bucket and attachment columns. |
+| 8 | `08_remove_solana_auth.sql` | Remove Solana auth tables. |
+| 9 | `09_embedded_solana_wallet.sql` | Embedded Solana wallet table. |
+| 10 | `10_embedded_wallet_mnemonic.sql` | Encrypted mnemonic support. |
+| 11 | `11_account_deletion.sql` | Account-deletion request tables. |
+| 12 | `12_attachment_versions.sql` | Attachment versions / soft-delete support. |
+| 13 | `13_project_axis_convention.sql` | Per-project axis convention. |
+| 14 | `14_project_crs.sql` | Per-project coordinate reference system. |
+| 15 | `15_project_drafting_units.sql` | Per-project drafting units. |
+| 16 | `20_offline_sync_support.sql` | Soft-delete / tombstone columns and sync indexes for offline-first WatermelonDB replication. |
 
 The order matters: tables -> functions -> policies (policies call the
-functions) -> seeds -> licensing -> licensing enforcement. Each file is its own
-transaction, so if one fails nothing from that file is half-applied.
+functions) -> seeds -> later features. Each file is its own transaction, so if
+one fails nothing from that file is half-applied.
 
-## Option B — one file (currently incomplete)
+## Option B — one file
 
-`00_all_in_one.sql` is a legacy single-file convenience script. It currently
-contains only files `01-04` and does **not** include the licensing tables,
-licensing enforcement, attachment versions, or several later schema additions.
-
-> For new projects, use **Option A (split files)** and run them in order.
-> Only use `00_all_in_one.sql` if you know it matches the numbered files in
-> your branch.
+`00_all_in_one.sql` is regenerated from the split files above, in filename
+order. It should be equivalent to running all of Option A.
 
 ## After running
 
@@ -72,3 +74,63 @@ you need it:
 ```sh
 supabase functions deploy solana-pay-verify
 ```
+
+### `secure-field` — encrypted payment-method fields
+
+`../functions/secure-field/` encrypts/decrypts the Solana (`Crypto Wallet`)
+payment method fields at rest using AES-GCM. Card, mobile-money, and bank-
+transfer payment methods are intentionally left plaintext.
+
+#### Generate the key
+
+Use the setup script:
+
+```sh
+node scripts/setup-secure-field.mjs
+```
+
+Or generate a 32-byte base64 key manually:
+
+```sh
+# Linux / macOS
+openssl rand -base64 32
+
+# Windows (PowerShell)
+[Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Minimum 0 -Maximum 256 } | ForEach-Object { [byte]$_ }))
+```
+
+#### Deploy the Edge Function
+
+```sh
+cd backend
+npx supabase functions deploy secure-field
+npx supabase secrets set SECURE_FIELD_ENCRYPTION_KEY=your-base64-key
+```
+
+This key is a **Supabase Edge Function secret**, not a GitHub Actions secret.
+The current release workflow only builds the frontend/desktop app and does not
+deploy Edge Functions. If you want automatic deployment, add these GitHub
+secrets and a deployment step to the workflow:
+
+- `SUPABASE_ACCESS_TOKEN`
+- `SUPABASE_PROJECT_REF`
+
+#### Local development
+
+For local function serving, put the key in `backend/supabase/.env.local`:
+
+```sh
+SECURE_FIELD_ENCRYPTION_KEY=your-base64-key
+```
+
+If `SECURE_FIELD_ENCRYPTION_KEY` is missing, the function falls back to a
+hard-coded local-dev-only key and logs a warning. Production deployments
+**must** set a real secret.
+
+#### Existing data
+
+Existing `payment_methods` rows that were created before this change remain
+readable because the decrypt path transparently returns any value that does
+not start with the `enc:v1:` prefix. To re-encrypt old Crypto Wallet rows,
+delete and re-add them through the app, or run a one-off script that calls the
+`secure-field` Edge Function.

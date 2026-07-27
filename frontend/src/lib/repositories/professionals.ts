@@ -10,7 +10,7 @@ export async function listProfessionals(workspaceId: string): Promise<Profession
   const { data, error } = await supabase
     .from('professionals')
     .select('*')
-    .eq('workspace_id', workspaceId)
+    .or(`workspace_id.eq.${workspaceId},is_global.eq.true`)
     .order('created_at', { ascending: false })
 
   if (error) {
@@ -32,6 +32,19 @@ export async function createProfessional(workspaceId: string, payload: Professio
   return data
 }
 
+export async function getProfessionalByWorkspace(workspaceId: string): Promise<ProfessionalRow | null> {
+  const { data, error } = await supabase
+    .from('professionals')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`Failed to load professional profile: ${error.message}`)
+  }
+  return data
+}
+
 export async function updateProfessional(
   id: string,
   patch: ProfessionalUpdate,
@@ -47,6 +60,25 @@ export async function updateProfessional(
     throw new Error(`Failed to update professional: ${error.message}`)
   }
   return data as ProfessionalRow
+}
+
+export async function upsertProfessionalProfile(
+  workspaceId: string,
+  payload: Omit<ProfessionalCreateInput, 'is_global'>,
+): Promise<ProfessionalRow> {
+  const existing = await getProfessionalByWorkspace(workspaceId)
+
+  if (existing) {
+    return updateProfessional(existing.id, {
+      ...payload,
+      is_global: true,
+    })
+  }
+
+  return createProfessional(workspaceId, {
+    ...payload,
+    is_global: true,
+  })
 }
 
 export async function deleteProfessional(id: string): Promise<void> {

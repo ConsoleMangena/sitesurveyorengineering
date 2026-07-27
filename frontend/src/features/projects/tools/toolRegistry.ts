@@ -12,14 +12,11 @@
 import type { ComponentType } from "react";
 import {
   Crosshair,
-  Settings2,
   Wrench,
   ClipboardCheck,
   Map,
-  PencilRuler,
   LineChart,
   Compass,
-  Ruler,
   Waypoints,
   AlignEndHorizontal,
   ArrowLeftRight,
@@ -31,11 +28,7 @@ import {
   FileDown,
   Printer,
   FolderOpen,
-  LayoutGrid,
-  Triangle,
-  Calculator,
   PenTool,
-  Mountain,
   type LucideProps,
 } from "lucide-react";
 
@@ -46,17 +39,14 @@ export type ToolCategory =
   | "Drafting & Outputs";
 
 export type CalcToolId =
-  | "polar-forward"
-  | "join-inverse"
+  | "polar-join"
   | "traverse-adjustment"
   | "levelling"
   | "area-volume"
-  | "intersection"
-  | "resection"
+  | "point-fixing"
   | "angle-converter"
   | "stakeout"
-  | "horizontal-curve"
-  | "vertical-curve";
+  | "curve-design";
 
 export type ToolBehavior =
   | { kind: "cad" }
@@ -64,11 +54,9 @@ export type ToolBehavior =
   | { kind: "soon" };
 
 /**
- * Access tier:
- * - "free" → available to every workspace, no marketplace entitlement.
- * - "paid" → requires an active entitlement for `requiresFeature`.
+ * Access tier: every tool is available to every workspace.
  */
-export type ToolTier = "free" | "paid";
+export type ToolTier = "free";
 
 export interface ProjectTool {
   id: string;
@@ -77,16 +65,12 @@ export interface ProjectTool {
   description: string;
   pinned?: boolean;
   tier: ToolTier;
-  /** Marketplace feature key required when tier is "paid". */
-  requiresFeature?: string;
   behavior: ToolBehavior;
   /** Icon shown in the tool cards and quick-access area. */
   icon: ComponentType<LucideProps>;
 }
 
 export const CAD_TOOL_ID = "surveyor-cad";
-export const CAD_FEATURE_KEY = "cad_engine";
-
 export const TOOL_CATEGORIES: ToolCategory[] = [
   "Survey Setup",
   "COGO & Computation",
@@ -102,8 +86,7 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     category: "Survey Setup",
     description: "Manage control stations and baseline references in the CAD model.",
     pinned: true,
-    tier: "paid",
-    requiresFeature: CAD_FEATURE_KEY,
+    tier: "free",
     behavior: { kind: "cad" },
     icon: Crosshair,
   },
@@ -117,35 +100,32 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     icon: Wrench,
   },
 
-  // ── COGO & Computation (all FREE) ─────────────────────────────────────
+  // ── COGO & Computation ──────────────────────────────────────────────────
+  //
+  // All computation tools are available to every workspace.
+  //
+  // NOTE: Several related computations are grouped under combined tools to
+  // keep the grid readable while preserving every workflow.
+
+  // Core
   {
-    id: "polar-forward",
-    label: "Polar / Forward Computation",
+    id: "polar-join",
+    label: "Polar & Join",
     category: "COGO & Computation",
-    description: "Compute X, Y of a new point from a known point, bearing, and distance.",
+    description: "Forward (known point + bearing/distance → new point) and inverse (two points → bearing/distance) polar computations.",
     pinned: true,
     tier: "free",
-    behavior: { kind: "calc", calc: "polar-forward" },
-    icon: PencilRuler,
-  },
-  {
-    id: "join-inverse",
-    label: "Join / Inverse (Polar)",
-    category: "COGO & Computation",
-    description: "Bearing and distance between two known X, Y coordinates.",
-    pinned: true,
-    tier: "free",
-    behavior: { kind: "calc", calc: "join-inverse" },
+    behavior: { kind: "calc", calc: "polar-join" },
     icon: ArrowLeftRight,
   },
   {
-    id: "traverse-adjustment",
-    label: "Traverse Computation & Balancing",
+    id: "angle-converter",
+    label: "Bearing / Angle Converter",
     category: "COGO & Computation",
-    description: "Closing error, accuracy, and Bowditch (compass-rule) adjustment of X, Y.",
+    description: "Convert between WCB / forward bearing (DMS), reduced bearing, decimal degrees, and gon.",
     tier: "free",
-    behavior: { kind: "calc", calc: "traverse-adjustment" },
-    icon: Waypoints,
+    behavior: { kind: "calc", calc: "angle-converter" },
+    icon: RefreshCcw,
   },
   {
     id: "levelling",
@@ -156,6 +136,17 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     tier: "free",
     behavior: { kind: "calc", calc: "levelling" },
     icon: AlignEndHorizontal,
+  },
+
+  // Professional pack
+  {
+    id: "traverse-adjustment",
+    label: "Traverse Computation & Balancing",
+    category: "COGO & Computation",
+    description: "Closing error, accuracy, and Bowditch (compass-rule) adjustment of X, Y.",
+    tier: "free",
+    behavior: { kind: "calc", calc: "traverse-adjustment" },
+    icon: Waypoints,
   },
   {
     id: "area-volume",
@@ -169,31 +160,13 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     icon: LandPlot,
   },
   {
-    id: "intersection",
-    label: "Intersection",
+    id: "point-fixing",
+    label: "Point Fixing",
     category: "COGO & Computation",
-    description: "Fix a new point from two stations by bearing-bearing or distance-distance.",
+    description: "Fix a new point from two known stations (intersection) or the observer from three known stations (resection).",
     tier: "free",
-    behavior: { kind: "calc", calc: "intersection" },
-    icon: Triangle,
-  },
-  {
-    id: "resection",
-    label: "Resection (Three-Point)",
-    category: "COGO & Computation",
-    description: "Fix the observer's X, Y from angles to three known stations (Tienstra).",
-    tier: "free",
-    behavior: { kind: "calc", calc: "resection" },
+    behavior: { kind: "calc", calc: "point-fixing" },
     icon: Compass,
-  },
-  {
-    id: "angle-converter",
-    label: "Bearing / Angle Converter",
-    category: "COGO & Computation",
-    description: "Convert between azimuth (DMS), quadrant bearing, decimal degrees, and gon.",
-    tier: "free",
-    behavior: { kind: "calc", calc: "angle-converter" },
-    icon: RefreshCcw,
   },
   {
     id: "stakeout",
@@ -204,23 +177,16 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     behavior: { kind: "calc", calc: "stakeout" },
     icon: Target,
   },
+
+  // Advanced pack
   {
-    id: "horizontal-curve",
-    label: "Horizontal Curve Set-out",
+    id: "curve-design",
+    label: "Curve Design",
     category: "COGO & Computation",
-    description: "Solve a circular curve (T, L, E, M, chord) and generate stake-out stations with deflection angles.",
+    description: "Horizontal circular curve set-out and equal-tangent vertical parabolic curve design in one workspace.",
     tier: "free",
-    behavior: { kind: "calc", calc: "horizontal-curve" },
+    behavior: { kind: "calc", calc: "curve-design" },
     icon: LineChart,
-  },
-  {
-    id: "vertical-curve",
-    label: "Vertical Curve Set-out",
-    category: "COGO & Computation",
-    description: "Design an equal-tangent parabolic curve: BVC/EVC, high/low point and chainage RL table.",
-    tier: "free",
-    behavior: { kind: "calc", calc: "vertical-curve" },
-    icon: Mountain,
   },
 
   // ── Field Data ───────────────────────────────────────────────────────────
@@ -229,8 +195,7 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     label: "Raw Observations",
     category: "Field Data",
     description: "Review imported field points in the CAD workspace.",
-    tier: "paid",
-    requiresFeature: CAD_FEATURE_KEY,
+    tier: "free",
     behavior: { kind: "cad" },
     icon: FolderOpen,
   },
@@ -240,8 +205,7 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     category: "Field Data",
     description: "Import GNSS/total-station CSV points into the CAD model.",
     pinned: true,
-    tier: "paid",
-    requiresFeature: CAD_FEATURE_KEY,
+    tier: "free",
     behavior: { kind: "cad" },
     icon: FileUp,
   },
@@ -271,8 +235,7 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     category: "Drafting & Outputs",
     description: "Open the full-screen CAD drafting workspace.",
     pinned: true,
-    tier: "paid",
-    requiresFeature: CAD_FEATURE_KEY,
+    tier: "free",
     behavior: { kind: "cad" },
     icon: PenTool,
   },
@@ -281,8 +244,7 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     label: "Export to DXF",
     category: "Drafting & Outputs",
     description: "Export CAD-ready linework, layers and TIN surfaces as DXF.",
-    tier: "paid",
-    requiresFeature: CAD_FEATURE_KEY,
+    tier: "free",
     behavior: { kind: "cad" },
     icon: FileDown,
   },
@@ -291,8 +253,7 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     label: "Plot / Layout",
     category: "Drafting & Outputs",
     description: "Compose to-scale paper-space sheets with title block, north arrow and scale bar.",
-    tier: "paid",
-    requiresFeature: CAD_FEATURE_KEY,
+    tier: "free",
     behavior: { kind: "cad" },
     icon: Printer,
   },
@@ -301,8 +262,7 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     label: "Deliverable Pack",
     category: "Drafting & Outputs",
     description: "Generate the survey report (coordinates, traverse, surfaces, cut/fill) from the CAD workspace.",
-    tier: "paid",
-    requiresFeature: CAD_FEATURE_KEY,
+    tier: "free",
     behavior: { kind: "cad" },
     icon: Map,
   },
@@ -314,6 +274,16 @@ export const PROJECT_TOOLS_BY_ID: Record<string, ProjectTool> = PROJECT_TOOLS.re
     return acc;
   },
   {} as Record<string, ProjectTool>,
+);
+
+export const CALC_TOOLS_BY_ID: Record<CalcToolId, ProjectTool> = PROJECT_TOOLS.reduce(
+  (acc, tool) => {
+    if (tool.behavior.kind === 'calc') {
+      acc[tool.behavior.calc] = tool;
+    }
+    return acc;
+  },
+  {} as Record<CalcToolId, ProjectTool>,
 );
 
 /** Tools the user can actually open right now (excludes Coming soon placeholders). */
@@ -328,3 +298,5 @@ export const COMING_SOON_TOOLS = PROJECT_TOOLS.filter((t) => t.behavior.kind ===
 
 /** Pinned tools for the Overview quick-access section (CAD tools excluded). */
 export const PINNED_TOOLS = PROJECT_TOOLS.filter((t) => t.pinned && t.behavior.kind !== "cad");
+
+

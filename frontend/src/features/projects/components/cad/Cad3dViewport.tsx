@@ -16,7 +16,7 @@
  * Coordinates are recentred on the model centroid before upload to the GPU so
  * large Gauss/UTM values (millions of metres) keep full float precision.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { CadModelState, CadSelection, CadToolId } from "./cadModel.ts";
@@ -130,13 +130,7 @@ function isOrthographicCamera(
   return (camera as THREE.OrthographicCamera).isOrthographicCamera === true;
 }
 
-function isPerspectiveCamera(
-  camera: THREE.Camera,
-): camera is THREE.PerspectiveCamera {
-  return (camera as THREE.PerspectiveCamera).isPerspectiveCamera === true;
-}
-
-export function Cad3dViewport({
+const Cad3dViewportComponent = memo(function Cad3dViewport({
   model,
   zScale = 1,
   coordDecimals = 3,
@@ -169,11 +163,17 @@ export function Cad3dViewport({
   const [isDragging, setIsDragging] = useState(false);
   const [measureReadout, setMeasureReadout] = useState<string | null>(null);
 
-  const layerColor = (layerId: string) => model.layers.find((l) => l.id === layerId)?.color;
-  const layerVisible = (layerId: string) => {
-    const l = model.layers.find((x) => x.id === layerId);
-    return !l || l.visible;
-  };
+  const layerColor = useCallback(
+    (layerId: string) => model.layers.find((l) => l.id === layerId)?.color,
+    [model.layers],
+  );
+  const layerVisible = useCallback(
+    (layerId: string) => {
+      const l = model.layers.find((x) => x.id === layerId);
+      return !l || l.visible;
+    },
+    [model.layers],
+  );
 
   const bounds = useMemo<Bounds | null>(() => {
     let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -190,6 +190,37 @@ export function Cad3dViewport({
       if (!Array.isArray(s.points)) continue;
       for (const v of s.points) acc(v.e, v.n, v.z);
     }
+    for (const a of model.arcs) {
+      acc(a.center.e + a.radius, a.center.n, 0);
+      acc(a.center.e - a.radius, a.center.n, 0);
+      acc(a.center.e, a.center.n + a.radius, 0);
+      acc(a.center.e, a.center.n - a.radius, 0);
+    }
+    for (const c of model.circles) {
+      acc(c.center.e + c.radius, c.center.n, 0);
+      acc(c.center.e - c.radius, c.center.n, 0);
+      acc(c.center.e, c.center.n + c.radius, 0);
+      acc(c.center.e, c.center.n - c.radius, 0);
+    }
+    for (const el of model.ellipses) {
+      const rot = el.rotation * (Math.PI / 180);
+      const cosR = Math.cos(rot);
+      const sinR = Math.sin(rot);
+      for (let i = 0; i < 16; i++) {
+        const t = (i / 16) * Math.PI * 2;
+        const x = el.semiMajor * Math.cos(t);
+        const y = el.semiMinor * Math.sin(t);
+        acc(el.center.e + x * cosR - y * sinR, el.center.n + x * sinR + y * cosR, 0);
+      }
+    }
+    for (const d of model.dimensions) {
+      for (const v of d.defPoints) acc(v.e, v.n, 0);
+      acc(d.textPosition.e, d.textPosition.n, 0);
+    }
+    for (const h of model.hatches) {
+      for (const v of h.vertices) acc(v.e, v.n, 0);
+      for (const hole of h.holes ?? []) for (const v of hole) acc(v.e, v.n, 0);
+    }
     if (!Number.isFinite(minX)) return null;
     const center = new THREE.Vector3(
       (minX + maxX) / 2,
@@ -202,7 +233,7 @@ export function Cad3dViewport({
       center,
       radius: Math.max(Math.hypot(maxX - minX, maxY - minY, (maxZ - minZ) * zScale) / 2, 1),
     };
-  }, [model.points, model.linework, model.texts, model.surfaces, zScale]);
+  }, [model.points, model.linework, model.texts, model.surfaces, model.arcs, model.circles, model.ellipses, model.dimensions, model.hatches, zScale]);
 
   // One-time renderer / scene / camera / controls setup.
   useEffect(() => {
@@ -523,7 +554,7 @@ export function Cad3dViewport({
 
     setHasGeometry(!!bounds);
     setHasCutFill(cutFillPresent);
-  }, [model.points, model.linework, model.texts, model.surfaces, bounds, zScale, showPointLabels]);
+  }, [model, layerColor, bounds, zScale, showPointLabels]);
 
   // ── Update visibility of existing content when layer visibility changes ─────
   useEffect(() => {
@@ -535,7 +566,7 @@ export function Cad3dViewport({
         obj.visible = layerVisible(layerId);
       }
     });
-  }, [model.layers]);
+  }, [model.layers, layerVisible]);
 
   // ── Selection highlight overlay (rebuilt only when geometry or selection changes)
   useEffect(() => {
@@ -715,12 +746,13 @@ export function Cad3dViewport({
   }, [orthographic]);
 
   // ── Load and persist per-project camera state ───────────────────────────────
-  const throttledSaveRef = useRef<number>(0);
   useEffect(() => {
     const controls = controlsRef.current;
     const camera = cameraRef.current;
     const wrap = wrapRef.current;
     if (!controls || !camera || !wrap || !projectId) return;
+
+    let orthoTimeoutId: number | undefined;
 
     // Load saved view once geometry (and therefore bounds) is available.
     if (bounds) {
@@ -738,7 +770,7 @@ export function Cad3dViewport({
             typeof saved.px === "number" &&
             typeof saved.tx === "number"
           ) {
-            setOrthographic(saved.orthographic);
+            orthoTimeoutId = window.setTimeout(() => setOrthographic(Boolean(saved.orthographic)), 0);
             if (saved.orthographic && isOrthographicCamera(camera)) {
               const aspect = wrap.clientWidth / Math.max(wrap.clientHeight, 1);
               const r = bounds.radius;
@@ -789,6 +821,7 @@ export function Cad3dViewport({
     return () => {
       controls.removeEventListener("change", save);
       window.clearTimeout(saveTimer);
+      if (orthoTimeoutId) window.clearTimeout(orthoTimeoutId);
     };
   }, [projectId, bounds]);
 
@@ -1255,7 +1288,9 @@ export function Cad3dViewport({
       </div>
     </div>
   );
-}
+});
+
+export const Cad3dViewport = Cad3dViewportComponent;
 
 /** Recursively dispose geometries/materials and empty a group. */
 function disposeGroup(group: THREE.Group): void {

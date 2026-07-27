@@ -12,12 +12,16 @@ import {
 import { buildTin } from "../../components/cad/survey/tin.ts";
 import { fmtArea, fmtVolume } from "../../components/cad/survey/format.ts";
 import { ToolGuidePanel, type ToolGuide } from "./ToolGuide.tsx";
+import { useAxisLabels } from "./useAxisConvention.ts";
+import { ProjectPointPicker } from "./ProjectPointPicker.tsx";
+import { addProjectOutput } from "./projectOutputs.ts";
+import { downloadCsv } from "./calcUtils.ts";
 
 const AREA_GUIDE: ToolGuide = {
   summary: "Compute a polygon’s area and perimeter, or an earthwork volume by TIN surface, cross-section (end-area & prismoidal) or grid method.",
   steps: [
     { title: "Pick the computation method", body: "Choose polygon area/perimeter or one of the volume methods to match your data." },
-    { title: "Enter the points", body: "Type the boundary coordinates (Y, X) in order around the figure; add a Z/level where the method needs it." },
+    { title: "Enter the points", body: "Type the boundary coordinates in order around the figure; add a Z/level where the method needs it." },
     { title: "Read the result", body: "Area, perimeter or volume is computed live as you edit the points." },
   ],
   tips: ["List boundary points in order (clockwise or anticlockwise); the sign of the area is handled for you."],
@@ -30,35 +34,39 @@ const num = (v: string) => {
 
 type Mode = "area" | "tin" | "grid" | "cross-section";
 
-const MODES: { id: Mode; label: string; blurb: string }[] = [
-  {
-    id: "area",
-    label: "Plan Area",
-    blurb:
-      "Boundary X, Y in order. Area (Shoelace), perimeter and a plan preview update live.",
-  },
-  {
-    id: "tin",
-    label: "Surface / Stockpile (TIN)",
-    blurb:
-      "Triangulate (X, Y, Z) points into a surface and integrate the volume above a base level. Cut is volume above the base; fill is below.",
-  },
-  {
-    id: "grid",
-    label: "Grid Method",
-    blurb:
-      "Regular grid of spot heights (Z), row per line. Volume vs a base level per cell, separated into cut and fill.",
-  },
-  {
-    id: "cross-section",
-    label: "Cross-Sections (End-Area / Prismoidal)",
-    blurb:
-      "Enter cross-sectional areas at chainages. End-area is the trapezoidal method; prismoidal uses Simpson's 1/3 rule for equally spaced sections.",
-  },
-];
+interface AreaToolProps {
+  projectId?: string;
+}
 
-export function AreaTool() {
+export function AreaTool({ projectId }: AreaToolProps) {
+  const ax = useAxisLabels();
   const [mode, setMode] = useState<Mode>("area");
+  const MODES: { id: Mode; label: string; blurb: string }[] = [
+    {
+      id: "area",
+      label: "Plan Area",
+      blurb:
+        `Boundary ${ax.first}, ${ax.second} in order. Area (Shoelace), perimeter and a plan preview update live.`,
+    },
+    {
+      id: "tin",
+      label: "Surface / Stockpile (TIN)",
+      blurb:
+        `Triangulate (${ax.first}, ${ax.second}, Z) points into a surface and integrate the volume above a base level. Cut is volume above the base; fill is below.`,
+    },
+    {
+      id: "grid",
+      label: "Grid Method",
+      blurb:
+        "Regular grid of spot heights (Z), row per line. Volume vs a base level per cell, separated into cut and fill.",
+    },
+    {
+      id: "cross-section",
+      label: "Cross-Sections (End-Area / Prismoidal)",
+      blurb:
+        "Enter cross-sectional areas at chainages. End-area is the trapezoidal method; prismoidal uses Simpson's 1/3 rule for equally spaced sections.",
+    },
+  ];
   const active = MODES.find((m) => m.id === mode)!;
 
   return (
@@ -87,7 +95,7 @@ export function AreaTool() {
         </select>
       </div>
 
-      {mode === "area" && <PlanAreaPanel />}
+      {mode === "area" && <PlanAreaPanel projectId={projectId} />}
       {mode === "tin" && <TinPanel />}
       {mode === "grid" && <GridPanel />}
       {mode === "cross-section" && <CrossSectionPanel />}
@@ -121,11 +129,13 @@ const AREA_SAMPLE: Pt[] = [
   newPt("4", "1000.00", "1080.00"),
 ];
 
-function PlanAreaPanel() {
+function PlanAreaPanel({ projectId }: { projectId?: string }) {
+  const ax = useAxisLabels();
   const [pts, setPts] = useState<Pt[]>(AREA_SAMPLE);
+  const [pickedPno, setPickedPno] = useState("");
   const update = (id: number, patch: Partial<Pt>) =>
     setPts((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p)));
-  const addPt = () => setPts((ps) => [...ps, newPt(String(ps.length + 1))]);
+  const addPt = (label?: string, x?: string, y?: string) => setPts((ps) => [...ps, newPt(label ?? String(ps.length + 1), x, y)]);
   const delPt = (id: number) => setPts((ps) => ps.filter((p) => p.id !== id));
 
   const { coords, area, perimeter, error } = useMemo(() => {
@@ -136,7 +146,7 @@ function PlanAreaPanel() {
       const e = num(p.x),
         n = num(p.y);
       if (!Number.isFinite(e) || !Number.isFinite(n)) {
-        err = `Invalid coordinate for "${p.label || "?"}".`;
+        err = `Invalid ${ax.first}/${ax.second} coordinate for "${p.label || "?"}".`;
         break;
       }
       c.push({ n, e });
@@ -145,7 +155,7 @@ function PlanAreaPanel() {
     const ar = !err ? polygonArea(c) : 0;
     const per = !err ? polylineLength([...c, c[0]]) : 0;
     return { coords: c, area: ar, perimeter: per, error: err };
-  }, [pts]);
+  }, [pts, ax.first, ax.second]);
 
   return (
     <>
@@ -161,8 +171,8 @@ function PlanAreaPanel() {
               <thead>
                 <tr>
                   <th>Point</th>
-                  <th>X (Easting)</th>
-                  <th>Y (Northing)</th>
+                  <th>{ax.first} (Easting)</th>
+                  <th>{ax.second} (Northing)</th>
                   <th></th>
                 </tr>
               </thead>
@@ -186,8 +196,21 @@ function PlanAreaPanel() {
               </tbody>
             </table>
           </div>
+          {projectId && (
+            <div style={{ padding: "0 14px 12px" }}>
+              <ProjectPointPicker
+                projectId={projectId}
+                value={pickedPno}
+                onChange={(pno, pt) => {
+                  setPickedPno(pno);
+                  if (pt) { addPt(pno || `P${pts.length + 1}`, String(pt.e), String(pt.n)); setPickedPno(""); }
+                }}
+                label="Add point from project"
+              />
+            </div>
+          )}
           <div className="svt-grid-actions">
-            <button className="btn btn-outline btn-sm" onClick={addPt}>+ Add point</button>
+            <button className="btn btn-outline btn-sm" onClick={() => addPt()}>+ Add point</button>
             <button className="btn btn-outline btn-sm" onClick={() => setPts(AREA_SAMPLE)}>Reset sample</button>
             <button className="btn btn-outline btn-sm" onClick={() => setPts([newPt("1")])}>Clear</button>
           </div>
@@ -197,11 +220,33 @@ function PlanAreaPanel() {
           <div className="svt-card">
             <div className="svt-card-title">Results</div>
             {!error ? (
-              <div className="svt-summary">
-                <div className="svt-summary-row"><span className="svt-summary-label">Area</span><span className="svt-summary-val">{fmtArea(area)}</span></div>
-                <div className="svt-summary-row"><span className="svt-summary-label">Perimeter (m)</span><span className="svt-summary-val">{perimeter.toFixed(3)}</span></div>
-                <div className="svt-summary-row"><span className="svt-summary-label">Vertices</span><span className="svt-summary-val">{coords.length}</span></div>
-              </div>
+              <>
+                <div className="svt-summary">
+                  <div className="svt-summary-row"><span className="svt-summary-label">Area</span><span className="svt-summary-val">{fmtArea(area)}</span></div>
+                  <div className="svt-summary-row"><span className="svt-summary-label">Perimeter (m)</span><span className="svt-summary-val">{perimeter.toFixed(3)}</span></div>
+                  <div className="svt-summary-row"><span className="svt-summary-label">Vertices</span><span className="svt-summary-val">{coords.length}</span></div>
+                </div>
+                <div className="svt-actions">
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => {
+                    const header = "Point,Easting,Northing,Z,Area(m2),Area(ha),Perimeter(m)";
+                    const rows = pts.filter((p) => Number.isFinite(num(p.x)) && Number.isFinite(num(p.y))).map((p) => [p.label, p.x, p.y, p.z].join(","));
+                    const summary = `Summary,,,,${area.toFixed(3)},${(area / 10000).toFixed(4)},${perimeter.toFixed(3)}`;
+                    const content = [header, ...rows, summary].join("\n");
+                    downloadCsv("area-report.csv", content);
+                    if (projectId) {
+                      addProjectOutput(projectId, {
+                        label: "Area & Perimeter Report",
+                        description: `${coords.length} vertices`,
+                        fileName: `area-report-${projectId}.csv`,
+                        mimeType: "text/csv",
+                        content,
+                      });
+                    }
+                  }}>
+                    Export area report CSV
+                  </button>
+                </div>
+              </>
             ) : (
               <p style={{ padding: 14, fontSize: 13, color: "var(--text-muted)" }}>Enter at least 3 points.</p>
             )}
@@ -227,6 +272,7 @@ const TIN_SAMPLE: Pt[] = [
 ];
 
 function TinPanel() {
+  const ax = useAxisLabels();
   const [pts, setPts] = useState<Pt[]>(TIN_SAMPLE);
   const [base, setBase] = useState("0");
   const update = (id: number, patch: Partial<Pt>) =>
@@ -243,12 +289,12 @@ function TinPanel() {
         n = num(p.y),
         z = num(p.z);
       if (![e, n, z].every(Number.isFinite)) {
-        err = `Invalid X, Y or Z for "${p.label || "?"}".`;
+        err = `Invalid ${ax.first}, ${ax.second} or Z for "${p.label || "?"}".`;
         break;
       }
       c.push({ n, e, z });
     }
-    if (!err && c.length < 3) err = "Need at least 3 (X, Y, Z) points to triangulate a surface.";
+    if (!err && c.length < 3) err = `Need at least 3 (${ax.first}, ${ax.second}, Z) points to triangulate a surface.`;
     const baseLevel = num(base);
     if (!err && !Number.isFinite(baseLevel)) err = "Enter a valid base level.";
     if (err) return { result: null, error: err };
@@ -257,7 +303,7 @@ function TinPanel() {
       return { result: null, error: "Points are collinear — cannot triangulate." };
     }
     return { result: volumeTinToPlane(tin.points, tin.triangles, baseLevel), error: null };
-  }, [pts, base]);
+  }, [pts, base, ax.first, ax.second]);
 
   return (
     <>
@@ -265,7 +311,7 @@ function TinPanel() {
       <div className="svt-grid-layout">
         <div className="svt-card">
           <div className="svt-card-title">
-            <span>Surface points (X, Y, Z)</span>
+            <span>Surface points ({ax.first}, {ax.second}, Z)</span>
             <span>{pts.length} points</span>
           </div>
           <div className="svt-table-wrap">
@@ -273,8 +319,8 @@ function TinPanel() {
               <thead>
                 <tr>
                   <th>Point</th>
-                  <th>X (E)</th>
-                  <th>Y (N)</th>
+                  <th>{ax.first} (E)</th>
+                  <th>{ax.second} (N)</th>
                   <th>Z (RL)</th>
                   <th></th>
                 </tr>
@@ -314,7 +360,7 @@ function TinPanel() {
               <div className="svt-summary-row"><span className="svt-summary-label">Triangles (TIN)</span><span className="svt-summary-val">{result.triangles}</span></div>
             </div>
           ) : (
-            <p style={{ padding: 14, fontSize: 13, color: "var(--text-muted)" }}>Enter at least 3 (X, Y, Z) points and a base level.</p>
+            <p style={{ padding: 14, fontSize: 13, color: "var(--text-muted)" }}>Enter at least 3 ({ax.first}, {ax.second}, Z) points and a base level.</p>
           )}
         </div>
       </div>
@@ -325,6 +371,7 @@ function TinPanel() {
 // ── Grid method ─────────────────────────────────────────────────────────────
 
 function GridPanel() {
+  const ax = useAxisLabels();
   const [text, setText] = useState("1.0 1.2 1.4\n1.1 1.3 1.5\n1.2 1.4 1.6");
   const [cx, setCx] = useState("10");
   const [cy, setCy] = useState("10");
@@ -375,11 +422,11 @@ function GridPanel() {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
               <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Cell X (m)</label>
+                <label className="form-label">Cell {ax.first} (m)</label>
                 <input className="input-field" value={cx} onChange={(e) => setCx(e.target.value)} />
               </div>
               <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Cell Y (m)</label>
+                <label className="form-label">Cell {ax.second} (m)</label>
                 <input className="input-field" value={cy} onChange={(e) => setCy(e.target.value)} />
               </div>
               <div className="form-group" style={{ margin: 0 }}>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback, type DragEvent } from "react";
+import { useMemo, useState, useCallback, type DragEvent } from "react";
 import {
   CalendarDays,
   ChevronLeft,
@@ -10,21 +10,16 @@ import {
   Truck,
   ClipboardList,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 
 import PageLoader from "@/components/PageLoader.tsx";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
 import {
   Select,
   SelectContent,
@@ -33,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DashboardHeader, DashboardShell } from "@/components/dashboard/DashboardShell.tsx";
+import { KpiCard } from "@/components/dashboard/KpiCard";
 import { cn } from "@/lib/utils";
 
 import {
@@ -163,7 +159,12 @@ export default function DispatchPage({ workspaceId }: DispatchPageProps) {
   }, []);
 
   const [weekOffset, setWeekOffset] = useState(0);
-  const [selectedDay, setSelectedDay] = useState(2);
+  const [selectedDay, setSelectedDay] = useState(() => {
+    const start = addDays(startOfWeekMonday(today), 0);
+    const days = Array.from({ length: 5 }, (_, i) => addDays(start, i));
+    const idx = days.findIndex((d) => toIsoDate(d) === toIsoDate(today));
+    return idx >= 0 ? idx : 2;
+  });
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null);
 
   const weekStart = useMemo(
@@ -179,9 +180,10 @@ export default function DispatchPage({ workspaceId }: DispatchPageProps) {
     return idx >= 0 ? idx : 2;
   }, [todayIso, weekDays]);
 
-  useEffect(() => {
-    if (weekOffset === 0) setSelectedDay(todayIndex);
-  }, [todayIndex, weekOffset]);
+  const resetWeek = useCallback(() => {
+    setWeekOffset(0);
+    setSelectedDay(todayIndex);
+  }, [todayIndex]);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -204,9 +206,7 @@ export default function DispatchPage({ workspaceId }: DispatchPageProps) {
     }
   }, [workspaceId]);
 
-  useEffect(() => {
-    void fetchAll();
-  }, [fetchAll]);
+  useAsyncAction(fetchAll, [fetchAll]);
 
   const weekAssignments = useMemo(
     () => assignments.filter((a) => weekDates.includes(a.assignment_date)),
@@ -221,13 +221,16 @@ export default function DispatchPage({ workspaceId }: DispatchPageProps) {
     [weekDates, weekAssignments],
   );
 
-  useEffect(() => {
-    if (!selectedAssignmentId) return;
-    if (!weekAssignments.some((a) => a.id === selectedAssignmentId)) setSelectedAssignmentId(null);
-  }, [weekAssignments, selectedAssignmentId]);
+  const effectiveSelectedAssignmentId = useMemo(
+    () =>
+      selectedAssignmentId && weekAssignments.some((a) => a.id === selectedAssignmentId)
+        ? selectedAssignmentId
+        : null,
+    [selectedAssignmentId, weekAssignments],
+  );
 
-  const selectedAssignment = selectedAssignmentId
-    ? (weekAssignments.find((a) => a.id === selectedAssignmentId) ?? null)
+  const selectedAssignment = effectiveSelectedAssignmentId
+    ? (weekAssignments.find((a) => a.id === effectiveSelectedAssignmentId) ?? null)
     : null;
 
   const memberMap = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
@@ -406,6 +409,21 @@ export default function DispatchPage({ workspaceId }: DispatchPageProps) {
     };
   }, [selectedDay, getAssignmentsForDay]);
 
+  const dispatchStats = useMemo(() => {
+    const total = weekAssignments.length;
+    const withCrew = weekAssignments.filter((a) => a.member_ids.length > 0).length;
+    const withAssets = weekAssignments.filter((a) => a.asset_ids.length > 0).length;
+    const conflicts = weekAssignments.filter((a) => {
+      const dayIdx = weekDates.indexOf(a.assignment_date);
+      const conflicts = conflictForDay.byDay[dayIdx];
+      return (
+        a.member_ids.some((id) => conflicts.crewConflicts.has(id)) ||
+        a.asset_ids.some((id) => conflicts.assetConflicts.has(id))
+      );
+    }).length;
+    return { total, withCrew, withAssets, conflicts };
+  }, [weekAssignments, weekDates, conflictForDay]);
+
   if (loading) {
     return (
       <div className="hub-body p-6">
@@ -430,7 +448,7 @@ export default function DispatchPage({ workspaceId }: DispatchPageProps) {
               >
                 <ChevronLeft size={18} />
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setWeekOffset(0)}>
+              <Button variant="ghost" size="sm"                 onClick={resetWeek}>
                 Today
               </Button>
               <Button
@@ -464,6 +482,33 @@ export default function DispatchPage({ workspaceId }: DispatchPageProps) {
           {error}
         </div>
       )}
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard
+          title="Week Assignments"
+          value={String(dispatchStats.total)}
+          subtext="Scheduled this week"
+          icon={<ClipboardList className="size-4" />}
+        />
+        <KpiCard
+          title="With Crew"
+          value={String(dispatchStats.withCrew)}
+          subtext="Crew assigned"
+          icon={<Users className="size-4" />}
+        />
+        <KpiCard
+          title="With Assets"
+          value={String(dispatchStats.withAssets)}
+          subtext="Equipment or vehicles"
+          icon={<Package className="size-4" />}
+        />
+        <KpiCard
+          title="Conflicts"
+          value={String(dispatchStats.conflicts)}
+          subtext="Double-booked resources"
+          icon={<AlertTriangle className="size-4" />}
+        />
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
         <div className="rounded-xl border bg-card shadow-sm overflow-x-auto">
@@ -506,7 +551,7 @@ export default function DispatchPage({ workspaceId }: DispatchPageProps) {
                       key={assignment.id}
                       className={cn(
                         "w-full text-left rounded-lg border p-2.5 text-xs shadow-sm transition-all hover:shadow",
-                        selectedAssignmentId === assignment.id && "ring-2 ring-primary",
+                        effectiveSelectedAssignmentId === assignment.id && "ring-2 ring-primary",
                         draggingAssignmentId === assignment.id && "opacity-50",
                         hasConflict && "border-red-300",
                       )}
@@ -733,138 +778,14 @@ export default function DispatchPage({ workspaceId }: DispatchPageProps) {
         </div>
       </div>
 
-      <Dialog open={isModalOpen} onOpenChange={(open) => !open && setIsModalOpen(false)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {modalMode === "edit" ? "Edit Assignment" : "New Assignment"}
-            </DialogTitle>
-            <DialogDescription>
-              Assign crew, equipment, and a vehicle to a project.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label>Project</Label>
-              <Select value={draftProjectId} onValueChange={setDraftProjectId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select project" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">Select project</SelectItem>
-                  {projects.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                      {p.organization_name ? ` — ${p.organization_name}` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Day</Label>
-              <Select
-                value={draftDay.toString()}
-                onValueChange={(val) => setDraftDay(clampDayIndex(Number(val) || 0))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {weekLabels.map((label, i) => (
-                    <SelectItem key={i} value={i.toString()}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Vehicle</Label>
-              <Select value={draftVehicle} onValueChange={setDraftVehicle}>
-                <SelectTrigger>
-                  <SelectValue placeholder="None" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">None</SelectItem>
-                  {vehicles.map((v) => (
-                    <SelectItem key={v.id} value={v.id}>
-                      {v.name}
-                      {v.serial_number ? ` (${v.serial_number})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="notes">Notes</Label>
-              <Input
-                id="notes"
-                value={draftNotes}
-                onChange={(e) => setDraftNotes(e.target.value)}
-                placeholder="Optional notes"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-4 pt-2">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <Label>Crew</Label>
-                <Badge variant="secondary">{draftCrew.length} selected</Badge>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {members.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => toggleDraftId("crew", m.id)}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors",
-                      draftCrew.includes(m.id)
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-background hover:bg-muted",
-                    )}
-                  >
-                    {m.full_name ?? m.work_email ?? "Unknown"}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <Label>Equipment</Label>
-                <Badge variant="secondary">{draftEquipment.length} selected</Badge>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {equipment.map((eq) => (
-                  <button
-                    key={eq.id}
-                    type="button"
-                    onClick={() => toggleDraftId("equipment", eq.id)}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors",
-                      draftEquipment.includes(eq.id)
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-background hover:bg-muted",
-                    )}
-                  >
-                    {eq.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {formError && (
-            <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {formError}
-            </div>
-          )}
-
-          <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+      <DialogTemplate
+        open={isModalOpen}
+        onOpenChange={(open) => !open && setIsModalOpen(false)}
+        title={modalMode === "edit" ? "Edit Assignment" : "New Assignment"}
+        description="Assign crew, equipment, and a vehicle to a project."
+        size="full"
+        footer={
+          <>
             <Button variant="outline" onClick={() => setIsModalOpen(false)}>
               Cancel
             </Button>
@@ -872,9 +793,129 @@ export default function DispatchPage({ workspaceId }: DispatchPageProps) {
               {saving && <Loader2 size={14} className="animate-spin mr-2" />}
               {saving ? "Saving..." : modalMode === "edit" ? "Save Changes" : "Create Assignment"}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label>Project</Label>
+            <Select value={draftProjectId} onValueChange={setDraftProjectId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select project" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Select project</SelectItem>
+                {projects.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                    {p.organization_name ? ` — ${p.organization_name}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Day</Label>
+            <Select
+              value={draftDay.toString()}
+              onValueChange={(val) => setDraftDay(clampDayIndex(Number(val) || 0))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {weekLabels.map((label, i) => (
+                  <SelectItem key={i} value={i.toString()}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Vehicle</Label>
+            <Select value={draftVehicle} onValueChange={setDraftVehicle}>
+              <SelectTrigger>
+                <SelectValue placeholder="None" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">None</SelectItem>
+                {vehicles.map((v) => (
+                  <SelectItem key={v.id} value={v.id}>
+                    {v.name}
+                    {v.serial_number ? ` (${v.serial_number})` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="notes">Notes</Label>
+            <Input
+              id="notes"
+              value={draftNotes}
+              onChange={(e) => setDraftNotes(e.target.value)}
+              placeholder="Optional notes"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-4 pt-2">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <Label>Crew</Label>
+              <Badge variant="secondary">{draftCrew.length} selected</Badge>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {members.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => toggleDraftId("crew", m.id)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors",
+                    draftCrew.includes(m.id)
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background hover:bg-muted",
+                  )}
+                >
+                  {m.full_name ?? m.work_email ?? "Unknown"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <Label>Equipment</Label>
+              <Badge variant="secondary">{draftEquipment.length} selected</Badge>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {equipment.map((eq) => (
+                <button
+                  key={eq.id}
+                  type="button"
+                  onClick={() => toggleDraftId("equipment", eq.id)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors",
+                    draftEquipment.includes(eq.id)
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background hover:bg-muted",
+                  )}
+                >
+                  {eq.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {formError && (
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {formError}
+          </div>
+        )}
+      </DialogTemplate>
     </DashboardShell>
   );
 }

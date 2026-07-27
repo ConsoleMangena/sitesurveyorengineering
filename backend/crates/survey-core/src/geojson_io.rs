@@ -145,9 +145,10 @@ pub fn model_from_geojson(text: &str) -> GeoModel {
             Value::Point(pos) => {
                 let e = pos.first().copied().unwrap_or(0.0);
                 let n = pos.get(1).copied().unwrap_or(0.0);
-                let z = pos.get(2).copied().or_else(|| {
-                    props.get("z").and_then(|v| v.as_f64())
-                });
+                let z = pos
+                    .get(2)
+                    .copied()
+                    .or_else(|| props.get("z").and_then(|v| v.as_f64()));
                 model.points.push(GeoPoint {
                     point_no: str_prop(&props, "pointNo"),
                     n,
@@ -206,16 +207,14 @@ mod tests {
 
     fn sample() -> GeoModel {
         GeoModel {
-            points: vec![
-                GeoPoint {
-                    point_no: "1001".into(),
-                    n: 1000.0,
-                    e: 5000.0,
-                    z: Some(12.5),
-                    code: "CP".into(),
-                    layer_id: "CONTROL".into(),
-                },
-            ],
+            points: vec![GeoPoint {
+                point_no: "1001".into(),
+                n: 1000.0,
+                e: 5000.0,
+                z: Some(12.5),
+                code: "CP".into(),
+                layer_id: "CONTROL".into(),
+            }],
             linework: vec![GeoLinework {
                 vertices: vec![
                     Vertex::new(0.0, 0.0),

@@ -116,9 +116,21 @@ pub fn volume_between_with_mode(
                 res.plan_area += area;
                 accumulate_depth_triangle(
                     &mut res,
-                    DepthVertex { n: a.n, e: a.e, d: a.z - za.unwrap() },
-                    DepthVertex { n: b.n, e: b.e, d: b.z - zb.unwrap() },
-                    DepthVertex { n: c.n, e: c.e, d: c.z - zc.unwrap() },
+                    DepthVertex {
+                        n: a.n,
+                        e: a.e,
+                        d: a.z - za.unwrap(),
+                    },
+                    DepthVertex {
+                        n: b.n,
+                        e: b.e,
+                        d: b.z - zb.unwrap(),
+                    },
+                    DepthVertex {
+                        n: c.n,
+                        e: c.e,
+                        d: c.z - zc.unwrap(),
+                    },
                 );
             }
             FootprintMode::ReportOverlap => {
@@ -193,7 +205,12 @@ fn interpolate_depth_edge(p: &DepthVertex, q: &DepthVertex) -> DepthVertex {
 /// zero-depth plane when the triangle straddles the reference surface. This is
 /// the standard engineering-survey treatment so that cut and fill volumes are
 /// exact at embankment and datum boundaries.
-fn accumulate_depth_triangle(res: &mut VolumeResult, a: DepthVertex, b: DepthVertex, c: DepthVertex) {
+fn accumulate_depth_triangle(
+    res: &mut VolumeResult,
+    a: DepthVertex,
+    b: DepthVertex,
+    c: DepthVertex,
+) {
     let pos = [a.d >= 0.0, b.d >= 0.0, c.d >= 0.0];
     let all_positive = pos.iter().all(|&x| x);
     let all_negative = !pos.iter().any(|&x| x);
@@ -219,8 +236,18 @@ fn accumulate_depth_triangle(res: &mut VolumeResult, a: DepthVertex, b: DepthVer
 
     // Mixed signs: split into sub-triangles that are entirely above or below.
     let verts = [a, b, c];
-    let pos_idx: Vec<usize> = pos.iter().enumerate().filter(|(_, &p)| p).map(|(i, _)| i).collect();
-    let neg_idx: Vec<usize> = pos.iter().enumerate().filter(|(_, &p)| !p).map(|(i, _)| i).collect();
+    let pos_idx: Vec<usize> = pos
+        .iter()
+        .enumerate()
+        .filter(|(_, &p)| p)
+        .map(|(i, _)| i)
+        .collect();
+    let neg_idx: Vec<usize> = pos
+        .iter()
+        .enumerate()
+        .filter(|(_, &p)| !p)
+        .map(|(i, _)| i)
+        .collect();
 
     if pos_idx.len() == 1 {
         let i = pos_idx[0];
@@ -302,9 +329,21 @@ fn accumulate<F: Fn(f64) -> f64>(tin: &Tin, height: F) -> VolumeResult {
 
         accumulate_depth_triangle(
             &mut res,
-            DepthVertex { n: a.n, e: a.e, d: da },
-            DepthVertex { n: b.n, e: b.e, d: db },
-            DepthVertex { n: c.n, e: c.e, d: dc },
+            DepthVertex {
+                n: a.n,
+                e: a.e,
+                d: da,
+            },
+            DepthVertex {
+                n: b.n,
+                e: b.e,
+                d: db,
+            },
+            DepthVertex {
+                n: c.n,
+                e: c.e,
+                d: dc,
+            },
         );
     }
     res.net = res.cut - res.fill;

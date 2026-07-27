@@ -14,6 +14,14 @@ export interface ProjectDocType {
   description?: string;
   phase?: string;
   datum?: string;
+  axis_convention?: string;
+  crs_type?: string;
+  crs_epsg?: string;
+  local_origin_e?: number;
+  local_origin_n?: number;
+  bearing_format?: string;
+  angle_entry?: string;
+  coord_decimals?: number;
   progress: number;
   points: number;
   status: string;

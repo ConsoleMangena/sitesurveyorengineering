@@ -1,0 +1,40 @@
+name: Build Windows desktop installer
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: ./frontend
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Tauri Windows installer
+        run: npm run tauri:build:win
+        env:
+          CI: true
+
+      - name: Upload Windows installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sitesurveyor-windows-installer
+          path: |
+            backend/target/release/bundle/nsis/*.exe
+            backend/target/release/bundle/msi/*.msi
+          if-no-files-found: error

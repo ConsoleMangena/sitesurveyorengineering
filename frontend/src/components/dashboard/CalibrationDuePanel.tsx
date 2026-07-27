@@ -45,7 +45,7 @@ export function CalibrationDuePanel({ instruments, maxItems = 5 }: CalibrationDu
   }, [instruments, maxItems]);
 
   return (
-    <DashboardCard title="Calibration Due" icon={<Gauge size={16} />} accent>
+    <DashboardCard title="Calibration Due" icon={<Gauge size={16} />}>
       {due.length === 0 ? (
         <div className="py-6 text-center text-sm text-muted-foreground">
           No calibrations due within 30 days.

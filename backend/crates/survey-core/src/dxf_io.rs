@@ -107,7 +107,10 @@ fn aci(hex: &str) -> i32 {
     .iter()
     .cloned()
     .collect();
-    palette.get(hex.to_lowercase().as_str()).copied().unwrap_or(7)
+    palette
+        .get(hex.to_lowercase().as_str())
+        .copied()
+        .unwrap_or(7)
 }
 
 fn group(code: i32, value: impl std::fmt::Display) -> String {
@@ -127,7 +130,11 @@ fn layer_name(layers: &[DxfLayer], id: &str) -> String {
 fn layer_table(layers: &[DxfLayer]) -> String {
     let mut out = group(0, "TABLE") + &group(2, "LAYER") + &group(70, layers.len() as i32);
     for l in layers {
-        let color = if l.visible { aci(&l.color) } else { -aci(&l.color) };
+        let color = if l.visible {
+            aci(&l.color)
+        } else {
+            -aci(&l.color)
+        };
         out += &(group(0, "LAYER")
             + &group(2, layer_name(layers, &l.id))
             + &group(70, if l.locked { 4 } else { 0 })

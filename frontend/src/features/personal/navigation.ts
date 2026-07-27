@@ -28,6 +28,7 @@ export const personalNavGroups: WorkspaceNavGroup[] = [
   {
     label: "PEOPLE",
     items: [
+      { view: "team", label: "Team", icon: "people" },
       { view: "contacts", label: "Contacts", icon: "people" },
       { view: "professionals", label: "Hire Crew", icon: "person-plus" },
       { view: "jobs", label: "Find Jobs", icon: "briefcase" },

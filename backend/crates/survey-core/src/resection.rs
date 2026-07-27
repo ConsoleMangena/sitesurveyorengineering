@@ -176,15 +176,9 @@ fn initial_estimate(obs: &[Observation]) -> crate::Result<Ne> {
             let r1 = normalize_azimuth(az1) * RAD;
             let r2 = normalize_azimuth(az2) * RAD;
             let a = obs[0].station;
-            let b = Ne::new(
-                obs[0].station.n + r1.cos(),
-                obs[0].station.e + r1.sin(),
-            );
+            let b = Ne::new(obs[0].station.n + r1.cos(), obs[0].station.e + r1.sin());
             let c = obs[1].station;
-            let d = Ne::new(
-                obs[1].station.n + r2.cos(),
-                obs[1].station.e + r2.sin(),
-            );
+            let d = Ne::new(obs[1].station.n + r2.cos(), obs[1].station.e + r2.sin());
             if let Ok(p) = crate::intersections::line_line(&a, &b, &c, &d) {
                 return Ok(p);
             }
@@ -196,10 +190,7 @@ fn initial_estimate(obs: &[Observation]) -> crate::Result<Ne> {
     })
 }
 
-fn build_normals(
-    obs: &[Observation],
-    pos: &Ne,
-) -> ([[f64; 2]; 2], [f64; 2], f64, f64) {
+fn build_normals(obs: &[Observation], pos: &Ne) -> ([[f64; 2]; 2], [f64; 2], f64, f64) {
     let mut ata = [[0.0; 2]; 2];
     let mut atr = [0.0; 2];
     let mut ssr = 0.0;
@@ -224,12 +215,12 @@ fn build_normals(
                 let a_n = de / dist2; // ∂r/∂n
                 let a_e = -dn / dist2; // ∂r/∂e
                 let row = [a_n, a_e];
-                    for i in 0..2 {
-                        for j in 0..2 {
-                            ata[i][j] += w * row[i] * row[j];
-                        }
-                        atr[i] -= w * row[i] * r;
+                for i in 0..2 {
+                    for j in 0..2 {
+                        ata[i][j] += w * row[i] * row[j];
                     }
+                    atr[i] -= w * row[i] * r;
+                }
                 ssr += w * r * r;
             }
         }
@@ -240,12 +231,12 @@ fn build_normals(
                 let a_n = -dn / dist;
                 let a_e = -de / dist;
                 let row = [a_n, a_e];
-                    for i in 0..2 {
-                        for j in 0..2 {
-                            ata[i][j] += w * row[i] * row[j];
-                        }
-                        atr[i] -= w * row[i] * r;
+                for i in 0..2 {
+                    for j in 0..2 {
+                        ata[i][j] += w * row[i] * row[j];
                     }
+                    atr[i] -= w * row[i] * r;
+                }
                 ssr += w * r * r;
             }
         }

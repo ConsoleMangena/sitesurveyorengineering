@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CadMenuBar, type CadMenuAction } from "./CadMenuBar.tsx";
+import { CadMenuBar } from "./CadMenuBar.tsx";
 
 describe("CadMenuBar actions", () => {
   function setup() {
@@ -14,11 +14,18 @@ describe("CadMenuBar actions", () => {
     await userEvent.click(screen.getByRole("button", { name: label }));
   }
 
-  it("fires file import actions", async () => {
+  it("fires file project points action", async () => {
     const { handler } = setup();
     await openMenu("File");
-    await userEvent.click(screen.getByRole("menuitem", { name: "Import CSV" }));
-    expect(handler).toHaveBeenCalledWith("file:import-csv");
+    await userEvent.click(screen.getByRole("menuitem", { name: "Project Coordinates" }));
+    expect(handler).toHaveBeenCalledWith("file:project-points");
+  });
+
+  it("fires import DXF action", async () => {
+    const { handler } = setup();
+    await openMenu("File");
+    await userEvent.click(screen.getByRole("menuitem", { name: "Import DXF from Files" }));
+    expect(handler).toHaveBeenCalledWith("file:import-dxf");
   });
 
   it("fires edit actions", async () => {

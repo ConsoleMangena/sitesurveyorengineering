@@ -1,19 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { RefreshCw, Search, Archive, ArchiveRestore, Loader2 } from "lucide-react";
 
 import PageLoader from "@/components/PageLoader.tsx";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Card, CardContent } from "@/components/ui/card";
+import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
 import {
   Table,
   TableBody,
@@ -91,9 +85,7 @@ export default function AdminWorkspacesPage({
     }
   }, [isPlatformAdmin]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useAsyncAction(load, [load]);
 
   const filtered = useMemo(() => {
     let result = rows;
@@ -222,14 +214,14 @@ export default function AdminWorkspacesPage({
         <Card className="border-border/60 overflow-hidden">
           <CardContent className="p-0">
             <ResponsiveTable>
-              <Table>
+              <Table className="min-w-[640px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Workspace</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Owner</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead className="min-w-[200px]">Workspace</TableHead>
+                    <TableHead className="w-[100px]">Type</TableHead>
+                    <TableHead className="min-w-[160px]">Owner</TableHead>
+                    <TableHead className="w-[120px]">Created</TableHead>
+                    <TableHead className="w-[100px] text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -245,9 +237,11 @@ export default function AdminWorkspacesPage({
                   ) : (
                     filtered.map((row) => (
                       <TableRow key={row.id}>
-                        <TableCell>
+                        <TableCell className="align-middle">
                           <div className="flex flex-col">
-                            <span className="font-medium text-foreground">{row.name}</span>
+                            <span className="font-medium text-foreground truncate max-w-[240px]" title={row.name}>
+                              {row.name}
+                            </span>
                             {row.archived_at && (
                               <Badge variant="outline" className="mt-1 w-fit text-xs">
                                 Archived
@@ -255,14 +249,16 @@ export default function AdminWorkspacesPage({
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="capitalize">{row.type}</TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {ownerLabels.get(row.owner_user_id) ?? "—"}
+                        <TableCell className="align-middle capitalize">{row.type}</TableCell>
+                        <TableCell className="align-middle text-muted-foreground">
+                          <span className="block truncate max-w-[180px]" title={ownerLabels.get(row.owner_user_id) ?? undefined}>
+                            {ownerLabels.get(row.owner_user_id) ?? "—"}
+                          </span>
                         </TableCell>
-                        <TableCell className="text-muted-foreground">
+                        <TableCell className="align-middle text-muted-foreground whitespace-nowrap">
                           {formatDate(row.created_at)}
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="align-middle text-right">
                           <Button
                             variant="outline"
                             size="sm"
@@ -282,100 +278,14 @@ export default function AdminWorkspacesPage({
         </Card>
       )}
 
-      <Dialog open={!!selectedRow} onOpenChange={(open) => !open && setSelectedWsId(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{selectedRow?.name ?? "Workspace"}</DialogTitle>
-            <DialogDescription>
-              Members, entity counts, and archive status for this workspace.
-            </DialogDescription>
-          </DialogHeader>
-
-          {detailLoading ? (
-            <PageLoader compact />
-          ) : selectedRow ? (
-            <div className="space-y-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="space-y-0.5">
-                  <span className="text-xs text-muted-foreground">Type</span>
-                  <p className="text-sm font-medium capitalize">{selectedRow.type}</p>
-                </div>
-                <div className="space-y-0.5">
-                  <span className="text-xs text-muted-foreground">Owner</span>
-                  <p className="text-sm font-medium">
-                    {ownerLabels.get(selectedRow.owner_user_id) ?? "—"}
-                  </p>
-                </div>
-                <div className="space-y-0.5">
-                  <span className="text-xs text-muted-foreground">Slug</span>
-                  <p className="text-sm font-medium">{selectedRow.slug ?? "—"}</p>
-                </div>
-                <div className="space-y-0.5">
-                  <span className="text-xs text-muted-foreground">Created</span>
-                  <p className="text-sm font-medium">{formatDate(selectedRow.created_at)}</p>
-                </div>
-                {selectedRow.archived_at && (
-                  <div className="space-y-0.5">
-                    <span className="text-xs text-muted-foreground">Archived</span>
-                    <p className="text-sm font-medium">{formatDate(selectedRow.archived_at)}</p>
-                  </div>
-                )}
-              </div>
-
-              {summary && (
-                <div className="space-y-2">
-                  <h4 className="text-sm font-semibold">Entity counts</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {(Object.entries(summary) as [string, number][]).map(([key, val]) => (
-                      <StatBox key={key} label={key.replace(/_/g, " ")} value={val} />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <h4 className="text-sm font-semibold">Members ({members.length})</h4>
-                {members.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No members.</p>
-                ) : (
-                  <div className="max-h-[220px] overflow-auto rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="text-xs">Name</TableHead>
-                          <TableHead className="text-xs">Email</TableHead>
-                          <TableHead className="text-xs">Role</TableHead>
-                          <TableHead className="text-xs">Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {members.map((m) => (
-                          <TableRow key={m.id}>
-                            <TableCell className="text-sm">{m.full_name ?? "—"}</TableCell>
-                            <TableCell className="text-sm">{m.email ?? "—"}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className="text-xs">
-                                {m.role}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-xs">
-                              <Badge
-                                variant={m.status === "active" ? "default" : "secondary"}
-                              >
-                                {m.status}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : null}
-
-          <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+      <DialogTemplate
+        open={!!selectedRow}
+        onOpenChange={(open) => !open && setSelectedWsId(null)}
+        title={selectedRow?.name ?? "Workspace"}
+        description="Members, entity counts, and archive status for this workspace."
+        size="2xl"
+        footer={
+          <>
             <Button variant="outline" onClick={() => setSelectedWsId(null)}>
               Close
             </Button>
@@ -399,9 +309,97 @@ export default function AdminWorkspacesPage({
                 )}
               </Button>
             )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        {detailLoading ? (
+          <PageLoader compact />
+        ) : selectedRow ? (
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="space-y-0.5">
+                <span className="text-xs text-muted-foreground">Type</span>
+                <p className="text-sm font-medium capitalize">{selectedRow.type}</p>
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-xs text-muted-foreground">Owner</span>
+                <p className="text-sm font-medium">{ownerLabels.get(selectedRow.owner_user_id) ?? "—"}</p>
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-xs text-muted-foreground">Slug</span>
+                <p className="text-sm font-medium">{selectedRow.slug ?? "—"}</p>
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-xs text-muted-foreground">Created</span>
+                <p className="text-sm font-medium">{formatDate(selectedRow.created_at)}</p>
+              </div>
+              {selectedRow.archived_at && (
+                <div className="space-y-0.5">
+                  <span className="text-xs text-muted-foreground">Archived</span>
+                  <p className="text-sm font-medium">{formatDate(selectedRow.archived_at)}</p>
+                </div>
+              )}
+            </div>
+
+            {summary && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold">Entity counts</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {(Object.entries(summary) as [string, number][]).map(([key, val]) => (
+                    <StatBox key={key} label={key.replace(/_/g, " ")} value={val} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold">Members ({members.length})</h4>
+              {members.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No members.</p>
+              ) : (
+                <div className="max-h-[220px] overflow-auto rounded-md border">
+                  <Table className="min-w-[420px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-xs min-w-[120px]">Name</TableHead>
+                        <TableHead className="text-xs min-w-[160px]">Email</TableHead>
+                        <TableHead className="text-xs w-[100px]">Role</TableHead>
+                        <TableHead className="text-xs w-[80px]">Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {members.map((m) => (
+                        <TableRow key={m.id}>
+                          <TableCell className="align-middle text-sm">
+                            <span className="block truncate max-w-[150px]" title={m.full_name ?? undefined}>
+                              {m.full_name ?? "—"}
+                            </span>
+                          </TableCell>
+                          <TableCell className="align-middle text-sm">
+                            <span className="block truncate max-w-[180px]" title={m.email ?? undefined}>
+                              {m.email ?? "—"}
+                            </span>
+                          </TableCell>
+                          <TableCell className="align-middle whitespace-nowrap">
+                            <Badge variant="outline" className="text-xs">
+                              {m.role}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="align-middle text-xs">
+                            <Badge variant={m.status === "active" ? "default" : "secondary"}>
+                              {m.status}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </DialogTemplate>
     </DashboardShell>
   );
 }

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Building2, Check, ChevronLeft, Shield, User } from "lucide-react";
 import PasswordField from "../../components/PasswordField";
 import GoogleSignInButton from "../../components/GoogleSignInButton";
+import AuthBackground from "../../components/AuthBackground";
 import { formatAuthUserFacingError } from "../../lib/auth/auth-errors.ts";
 import { signUpWithEmail } from "../../lib/auth/session.ts";
 import { useAuthStore } from "../../lib/auth/auth-store";
@@ -165,7 +166,8 @@ export default function SignupPage() {
   if (step === "type") {
     return (
       <div className="auth-screen px-4 py-8">
-        <Card className="mx-auto w-full max-w-xl auth-animate-card">
+        <AuthBackground />
+        <Card className="mx-auto w-full max-w-xl auth-animate-card auth-card-glass">
           <CardHeader className="text-center auth-animate-header">
             <img
               src="/logo.svg"
@@ -245,7 +247,8 @@ export default function SignupPage() {
 
   return (
       <div className="auth-screen px-4 py-8">
-        <Card className="mx-auto w-full max-w-xl auth-animate-card">
+        <AuthBackground />
+        <Card className="mx-auto w-full max-w-xl auth-animate-card auth-card-glass">
           <CardHeader className="text-center auth-animate-header">
           <img
             src="/logo.svg"
@@ -277,6 +280,7 @@ export default function SignupPage() {
                 <Label htmlFor="signup-fullname">Full Name</Label>
                 <Input
                   id="signup-fullname"
+                  className="auth-input"
                   placeholder="Tendai Moyo"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
@@ -289,6 +293,7 @@ export default function SignupPage() {
                 <Input
                   id="signup-email"
                   type="email"
+                  className="auth-input"
                   placeholder="you@company.co.zw"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -311,6 +316,7 @@ export default function SignupPage() {
                 </Label>
                 <Input
                   id="signup-company"
+                  className="auth-input"
                   placeholder={
                     accountType === "business"
                       ? "GeoDeZ Surveyors (Pvt) Ltd"
@@ -330,6 +336,7 @@ export default function SignupPage() {
                 </Label>
                 <Input
                   id="signup-promo"
+                  className="auth-input"
                   placeholder="Early access code"
                   value={promoCode}
                   onChange={(e) => setPromoCode(e.target.value)}
@@ -352,6 +359,7 @@ export default function SignupPage() {
 
             <PasswordField
               id="signup-password"
+              className="auth-input"
               label="Password"
               value={password}
               onChange={setPassword}
@@ -382,6 +390,7 @@ export default function SignupPage() {
 
             <PasswordField
               id="signup-confirm-password"
+              className="auth-input"
               label="Confirm Password"
               value={confirmPassword}
               onChange={setConfirmPassword}
@@ -401,7 +410,7 @@ export default function SignupPage() {
               </Alert>
             )}
 
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
+            <Button type="submit" className="w-full auth-submit" disabled={isSubmitting}>
               {isSubmitting
                 ? "Creating Account..."
                 : accountType === "platform_admin"

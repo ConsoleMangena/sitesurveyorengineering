@@ -1,27 +1,30 @@
 /* ============================================================================
    Engineering Surveyor CAD — AutoCAD-style drafting workspace (engineering survey).
-   Self-contained dark theme; independent of the app light/dark tokens so the
-   model space always reads like a professional CAD canvas.
+   Self-contained light theme; independent of the app light/dark tokens so the
+   model space always reads with high contrast on a white canvas.
    ============================================================================ */
 
 .cad-workspace-shell {
-  /* AutoCAD-inspired dark theme tokens */
-  --cad-bg: #1e1e1e;
-  --cad-bg-2: #252526;
-  --cad-panel: #333333;
-  --cad-panel-2: #3c3c3c;
-  --cad-border: #454545;
-  --cad-border-2: #5a5a5a;
-  --cad-text: #cccccc;
-  --cad-text-dim: #9e9e9e;
-  --cad-text-hi: #ffffff;
+  /* AutoCAD-style light theme tokens — always light mode for readability */
+  --cad-bg: #f4f4f5;
+  --cad-bg-2: #ffffff;
+  --cad-panel: #e4e4e7;
+  --cad-panel-2: #d4d4d8;
+  --cad-border: #c4c4c8;
+  --cad-border-2: #a1a1aa;
+  --cad-text: #27272a;
+  --cad-text-dim: #52525b;
+  --cad-text-hi: #000000;
   --cad-accent: #1473e6;
-  --cad-accent-bg: rgba(20, 115, 230, 0.18);
-  --cad-canvas: #121212;
-  --cad-grid: #3e3e42;
-  --cad-grid-major: #505055;
-  --cad-error: #f48771;
-  --cad-ok: #89d185;
+  --cad-accent-bg: rgba(20, 115, 230, 0.14);
+  --cad-canvas: #ffffff;
+  --cad-grid: #d4d4d8;
+  --cad-grid-major: #c0c0c4;
+  --cad-error: #d32f2f;
+  --cad-ok: #2e7d32;
+  --cad-cursor: #0066cc;
+  --cad-entity-text: #1f2937;
+  --cad-entity-stroke: rgba(0, 0, 0, 0.75);
 
   position: fixed;
   inset: 0;
@@ -159,7 +162,7 @@
   position: absolute;
   top: 100%;
   left: 0;
-  z-index: 1300;
+  z-index: 1400;
   min-width: 170px;
   max-width: 260px;
   background: var(--cad-bg-2);
@@ -167,7 +170,7 @@
   border-radius: 6px;
   padding: 4px;
   margin-top: 2px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -575,7 +578,7 @@
   position: relative;
   flex: 1;
   min-width: 0;
-  background: #121212;
+  background: var(--cad-canvas);
   overflow: hidden;
   user-select: none;
 }
@@ -634,7 +637,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: inset 4px 0 8px -4px rgba(0, 0, 0, 0.25);
+  box-shadow: inset 4px 0 8px -4px rgba(0, 0, 0, 0.08);
 }
 
 .cad-panel-tabs {
@@ -706,6 +709,9 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .cad-layer-row {
@@ -753,7 +759,7 @@
   height: 12px;
   border-radius: 3px;
   flex-shrink: 0;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(0, 0, 0, 0.18);
   cursor: pointer;
   transition: transform 0.1s;
 }
@@ -958,7 +964,7 @@
 
 .cad-cogo-group {
   background: var(--cad-panel);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
 .cad-cogo-group legend {
@@ -1045,7 +1051,7 @@
 
 /* ── Command line ────────────────────────────────────────────────────────── */
 .cad-command-bar {
-  background: #0a0a0a;
+  background: var(--cad-bg-2);
   border-top: 1px solid var(--cad-border);
   flex-shrink: 0;
   display: flex;
@@ -1092,7 +1098,7 @@
   display: flex;
   align-items: center;
   gap: 0;
-  background: #0a0a0a;
+  background: var(--cad-bg);
   border: 1px solid var(--cad-border);
   border-radius: 0;
   padding: 2px 6px;
@@ -1105,7 +1111,7 @@
 
 .cad-command-inline-prompt {
   font-size: 12px;
-  color: #89d185;
+  color: var(--cad-ok);
   font-weight: 700;
   font-family: var(--mono, monospace);
   white-space: nowrap;
@@ -1118,7 +1124,7 @@
   background: transparent;
   border: none;
   outline: none;
-  color: #ffffff;
+  color: var(--cad-text);
   font-family: var(--mono, monospace);
   font-size: 12px;
   padding: 0;
@@ -1160,7 +1166,7 @@
   gap: 1px;
   font-size: 12px;
   line-height: 1.5;
-  background: #080808;
+  background: var(--cad-bg-2);
   border-bottom: 1px solid var(--cad-border);
 }
 
@@ -1168,12 +1174,12 @@
   white-space: pre-wrap;
 }
 
-.cad-command-line-entry { color: #cccccc; }
-.cad-command-line-entry.info { color: #9e9e9e; }
-.cad-command-line-entry.prompt { color: #89d185; }
-.cad-command-line-entry.error { color: #f48771; }
-.cad-command-line-entry.input { color: #ffffff; font-weight: 600; }
-.cad-command-line-entry.input::before { content: "> "; color: #89d185; }
+.cad-command-line-entry { color: var(--cad-text); }
+.cad-command-line-entry.info { color: var(--cad-text-dim); }
+.cad-command-line-entry.prompt { color: var(--cad-ok); }
+.cad-command-line-entry.error { color: var(--cad-error); }
+.cad-command-line-entry.input { color: var(--cad-text-hi); font-weight: 600; }
+.cad-command-line-entry.input::before { content: "> "; color: var(--cad-ok); }
 
 /* ── Status bar (AutoCAD-style) ──────────────────────────────────────────── */
 .cad-status-bar {
@@ -1479,7 +1485,7 @@
   width: 12px;
   height: 12px;
   border-radius: 2px;
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  border: 1px solid rgba(0, 0, 0, 0.25);
   flex-shrink: 0;
 }
 
@@ -1521,7 +1527,7 @@
 
 .cad-layer-swatch-inline.bylayer {
   border: 1px solid var(--cad-border-2);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1);
 }
 
 .cad-view-toggle {
@@ -1779,10 +1785,10 @@
 }
 
 .cad-layer-color-menu {
-  position: absolute;
+  position: fixed;
   top: calc(100% + 4px);
   left: 0;
-  z-index: 20;
+  z-index: 1400;
   display: grid;
   grid-template-columns: repeat(5, 20px);
   gap: 4px;
@@ -1790,14 +1796,14 @@
   border: 1px solid var(--cad-border);
   border-radius: 6px;
   padding: 6px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
 }
 
 .cad-layer-color-chip {
   width: 20px;
   height: 20px;
   border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(0, 0, 0, 0.2);
   cursor: pointer;
   transition: transform 0.1s;
 }
@@ -1949,7 +1955,7 @@
   border: 1px solid var(--cad-border-2);
   border-radius: 6px;
   padding: 4px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
 }
 
 .cad-layout-menu button {
@@ -1991,18 +1997,16 @@
 
 /* ── Settings popover anchored to the top-bar gear ───────────────────────── */
 .cad-settings-popover {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  min-width: 300px;
-  max-width: calc(100vw - 24px);
+  position: fixed;
+  min-width: 280px;
+  max-width: min(340px, calc(100vw - 24px));
   max-height: calc(100vh - 80px);
   background: var(--cad-bg-2);
   border: 1px solid var(--cad-border-2);
   border-radius: 10px;
-  z-index: 1300;
+  z-index: 1400;
   overflow-y: auto;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.12);
 }
 
 .cad-settings-popover-header {
@@ -2040,6 +2044,13 @@
   letter-spacing: 0.5px;
   color: var(--cad-text-dim);
   font-weight: 700;
+}
+
+.cad-settings-note {
+  margin: -4px 0 8px;
+  font-size: 10px;
+  color: var(--cad-text-dim);
+  font-style: italic;
 }
 
 .cad-settings-actions {
@@ -2102,6 +2113,11 @@
 .cad-plot-preview-sheet {
   max-width: 100%;
   max-height: 100%;
+  width: auto;
+  height: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: #fff;
   border-radius: 1px;
   overflow: hidden;
@@ -2110,8 +2126,10 @@
 
 .cad-plot-preview-sheet svg {
   display: block;
-  width: 100%;
-  height: 100%;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
 }
 
 .cad-plot-viewport-pad {
@@ -2151,7 +2169,7 @@
   flex-wrap: wrap;
   gap: 7px;
   max-width: calc(100% - 120px);
-  background: rgba(17, 21, 28, 0.82);
+  background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--cad-border);
   border-radius: 6px;
   padding: 5px 8px;
@@ -2185,7 +2203,7 @@
 .cad-3d-measure-readout {
   position: absolute;
   right: 12px;
-  background: rgba(17, 21, 28, 0.82);
+  background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--cad-border);
   border-radius: 6px;
   padding: 5px 8px;
@@ -2225,7 +2243,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: rgba(17, 21, 28, 0.82);
+  background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--cad-border);
   border-radius: 6px;
   padding: 6px 8px;
@@ -2256,7 +2274,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: rgba(17, 21, 28, 0.82);
+  background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--cad-border);
   border-radius: 6px;
   padding: 6px 8px;
@@ -2303,7 +2321,7 @@
   flex-direction: column;
   gap: 2px;
   z-index: 10;
-  background: rgba(17, 21, 28, 0.82);
+  background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--cad-border);
   border-radius: 6px;
   padding: 3px;
@@ -2351,14 +2369,14 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  background: rgba(0, 0, 0, 0.78);
-  border: 1px solid var(--cad-border);
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid var(--cad-border-2);
   border-radius: 6px;
   padding: 4px 7px;
   font-size: 10px;
   color: var(--cad-text-hi);
   z-index: 10;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   backdrop-filter: blur(2px);
 }
 
@@ -2376,14 +2394,14 @@
 
 .cad-dyn-input {
   width: 140px;
-  background: rgba(15, 23, 30, 0.94);
-  border: 1px solid var(--cad-border);
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--cad-border-2);
   border-radius: 5px;
   padding: 4px 8px;
   font-size: 11px;
   color: var(--cad-text-hi);
   outline: none;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
   backdrop-filter: blur(2px);
 }
 
@@ -2394,6 +2412,85 @@
 
 .cad-dyn-input:focus {
   border-color: var(--cad-accent);
+}
+
+/* ── COGO collapsible help ──────────────────────────────────────────────── */
+.cad-cogo-help {
+  border: 1px solid var(--cad-border);
+  border-radius: 8px;
+  background: var(--cad-panel);
+  font-size: 11px;
+}
+
+.cad-cogo-help summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--cad-text-hi);
+  user-select: none;
+}
+
+.cad-cogo-help summary::-webkit-details-marker {
+  display: none;
+}
+
+.cad-cogo-help summary::after {
+  content: "+";
+  font-size: 14px;
+  line-height: 1;
+  color: var(--cad-text-dim);
+  font-weight: 500;
+}
+
+.cad-cogo-help[open] summary {
+  border-bottom: 1px solid var(--cad-border);
+}
+
+.cad-cogo-help[open] summary::after {
+  content: "−";
+}
+
+.cad-cogo-help-body {
+  padding: 10px;
+  max-height: 240px;
+  overflow-y: auto;
+  color: var(--cad-text);
+  line-height: 1.55;
+}
+
+.cad-cogo-help-body h5 {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin: 10px 0 6px;
+  color: var(--cad-text-hi);
+}
+
+.cad-cogo-help-body h5:first-child {
+  margin-top: 0;
+}
+
+.cad-cogo-help-body p {
+  margin: 0 0 8px;
+}
+
+.cad-cogo-help-body ul {
+  margin: 0 0 10px;
+  padding-left: 16px;
+}
+
+.cad-cogo-help-body li {
+  margin-bottom: 3px;
+}
+
+.cad-cogo-help-body strong {
+  color: var(--cad-text-hi);
 }
 
 /* ── COGO table (traverse / levelling / curve set-out) ───────────────────── */
@@ -2485,12 +2582,11 @@
 }
 
 /* ── Custom prompt/confirm/alert dialogs ──────────────────────────────────── */
-/* CAD dialogs share the admin-dashboard dark palette. Specific colours are
-   picked up from the .cad-admin-scope theme variables through inheritance. */
+/* CAD dialogs inherit the scoped light CAD variables so tiles stay readable. */
 .cad-dialog-content {
-  background-color: var(--cad-panel, #20242e) !important;
-  color: var(--cad-text, #b5b2c0) !important;
-  border-color: var(--cad-border, rgba(255, 255, 255, 0.09)) !important;
+  background-color: var(--cad-panel, #ffffff) !important;
+  color: var(--cad-text, #27272a) !important;
+  border-color: var(--cad-border, rgba(0, 0, 0, 0.1)) !important;
 }
 
 .cad-dialog-content [data-slot="dialog-header"] {

@@ -1,14 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAsyncAction } from "../../../../hooks/useAsyncAction.ts";
 import {
   cadStorageKey,
   emptyModel,
   EMPTY_SELECTION,
   LAYER_PRESETS,
+  type CadEntityType,
   type CadLayer,
   type CadModelState,
   type CadSelection,
   type LayerId,
   type SelectedItem,
+  type SurveyArc,
+  type SurveyCircle,
+  type SurveyEllipse,
+  type SurveyDimension,
+  type SurveyHatch,
   type SurveyLinework,
   type SurveyPoint,
   type SurveySurface,
@@ -16,6 +23,10 @@ import {
 } from "./cadModel.ts";
 import { getCadDrawing, saveCadDrawing } from "../../../../lib/repositories/cadDrawings.ts";
 import type { Json } from "../../../../lib/supabase/types.ts";
+
+function isCadOnline(): boolean {
+  return typeof navigator !== "undefined" && navigator.onLine;
+}
 
 function normalizeModel(parsed: Partial<CadModelState> | null | undefined): CadModelState {
   const base = emptyModel();
@@ -26,6 +37,11 @@ function normalizeModel(parsed: Partial<CadModelState> | null | undefined): CadM
     linework: Array.isArray(parsed.linework) ? parsed.linework : [],
     texts: Array.isArray(parsed.texts) ? parsed.texts : [],
     surfaces: Array.isArray(parsed.surfaces) ? parsed.surfaces : [],
+    arcs: Array.isArray(parsed.arcs) ? parsed.arcs : [],
+    circles: Array.isArray(parsed.circles) ? parsed.circles : [],
+    ellipses: Array.isArray(parsed.ellipses) ? parsed.ellipses : [],
+    dimensions: Array.isArray(parsed.dimensions) ? parsed.dimensions : [],
+    hatches: Array.isArray(parsed.hatches) ? parsed.hatches : [],
     activeLayerId: parsed.activeLayerId ?? base.activeLayerId,
   };
 }
@@ -75,6 +91,21 @@ export interface UseCadModel {
   updateSurface: (id: string, patch: Partial<SurveySurface>) => void;
   deleteSurface: (id: string) => void;
   toggleSurfaceVisible: (id: string) => void;
+  addArc: (a: Omit<SurveyArc, "id" | "layerId"> & { layerId?: LayerId }) => SurveyArc;
+  updateArc: (id: string, patch: Partial<SurveyArc>) => void;
+  deleteArc: (id: string) => void;
+  addCircle: (c: Omit<SurveyCircle, "id" | "layerId"> & { layerId?: LayerId }) => SurveyCircle;
+  updateCircle: (id: string, patch: Partial<SurveyCircle>) => void;
+  deleteCircle: (id: string) => void;
+  addEllipse: (el: Omit<SurveyEllipse, "id" | "layerId"> & { layerId?: LayerId }) => SurveyEllipse;
+  updateEllipse: (id: string, patch: Partial<SurveyEllipse>) => void;
+  deleteEllipse: (id: string) => void;
+  addDimension: (d: Omit<SurveyDimension, "id" | "layerId"> & { layerId?: LayerId }) => SurveyDimension;
+  updateDimension: (id: string, patch: Partial<SurveyDimension>) => void;
+  deleteDimension: (id: string) => void;
+  addHatch: (h: Omit<SurveyHatch, "id" | "layerId"> & { layerId?: LayerId }) => SurveyHatch;
+  updateHatch: (id: string, patch: Partial<SurveyHatch>) => void;
+  deleteHatch: (id: string) => void;
   toggleLayerVisible: (id: LayerId) => void;
   toggleLayerLocked: (id: LayerId) => void;
   /**
@@ -133,6 +164,7 @@ export interface UseCadModel {
 }
 
 const SAVE_DEBOUNCE_MS = 1200;
+const CACHE_DEBOUNCE_MS = 600;
 
 export function useCadModel(projectId: string, workspaceId?: string): UseCadModel {
   // Seed from the offline cache so the canvas paints instantly; the backend
@@ -207,67 +239,122 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
   // clobber team work with a fresh empty model), and to debounce writes.
   const hydratedRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cacheTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Push the current model to the backend. Non-fatal when offline.
+  const saveToBackend = useCallback(
+    async (modelToSave: CadModelState) => {
+      if (!workspaceId) return;
+      setSyncStatus("saving");
+      try {
+        await saveCadDrawing(projectId, workspaceId, modelToSave as unknown as Json);
+        setSyncStatus("saved");
+        setSyncError(null);
+      } catch (err) {
+        const online = isCadOnline();
+        if (!online) {
+          // Queue silently while offline; sync will resume when the browser comes online.
+          setSyncStatus("idle");
+          setSyncError(null);
+        } else {
+          setSyncStatus("error");
+          setSyncError(err instanceof Error ? err.message : "Failed to save CAD work.");
+        }
+      }
+    },
+    [projectId, workspaceId],
+  );
 
   // Load the authoritative model from the backend whenever the project changes.
-  useEffect(() => {
-    let cancelled = false;
+  // If the browser reports it is offline, stay hydrated from the local cache
+  // so drafting never stalls waiting for a network request.
+  const loadFromBackend = useCallback(async () => {
     hydratedRef.current = false;
     // Start each project with a clean undo history.
     resetHistory();
     setSyncStatus("loading");
     setSyncError(null);
 
-    getCadDrawing(projectId)
-      .then((record) => {
-        if (cancelled) return;
-        if (record?.model) {
-          const remote = normalizeModel(record.model as Partial<CadModelState>);
-          setModel(remote);
-          cacheModel(projectId, remote);
-          // The freshly loaded server copy is the new baseline; discard any
-          // history accumulated against the local cache.
-          resetHistory();
-        }
-        hydratedRef.current = true;
+    if (!isCadOnline()) {
+      hydratedRef.current = true;
+      setSyncStatus("idle");
+      return;
+    }
+
+    try {
+      const record = await getCadDrawing(projectId);
+      if (record?.model) {
+        const remote = normalizeModel(record.model as Partial<CadModelState>);
+        setModel(remote);
+        cacheModel(projectId, remote);
+        // The freshly loaded server copy is the new baseline; discard any
+        // history accumulated against the local cache.
+        resetHistory();
+      }
+      hydratedRef.current = true;
+      setSyncStatus("idle");
+    } catch (err) {
+      hydratedRef.current = true;
+      if (!isCadOnline()) {
+        // Network is down — the local cache is already loaded and usable.
         setSyncStatus("idle");
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        // Fall back to the cached/local model — drafting can continue offline.
-        hydratedRef.current = true;
+        setSyncError(null);
+      } else {
         setSyncStatus("error");
         setSyncError(err instanceof Error ? err.message : "Failed to load saved CAD work.");
-      });
-
-    return () => {
-      cancelled = true;
-    };
+      }
+    }
   }, [projectId, resetHistory]);
 
-  // Persist on change: always cache locally; debounce the backend upsert.
+  useAsyncAction(loadFromBackend, [loadFromBackend]);
+
+  // Persist on change: debounce both the local cache write and the backend upsert
+  // so rapid edits (imports, drag ops, contour generation) do not block the main
+  // thread with repeated JSON.stringify or network calls.
   useEffect(() => {
-    cacheModel(projectId, model);
+    if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current);
+    cacheTimerRef.current = setTimeout(() => {
+      cacheModel(projectId, model);
+    }, CACHE_DEBOUNCE_MS);
 
     if (!hydratedRef.current || !workspaceId) return;
 
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+
+    if (!isCadOnline()) {
+      // Offline: do not schedule a network write; the offline listener keeps
+      // the sync indicator calm, and online edits resume in the listener below.
+      return;
+    }
+
     saveTimerRef.current = setTimeout(() => {
-      setSyncStatus("saving");
-      saveCadDrawing(projectId, workspaceId, model as unknown as Json)
-        .then(() => {
-          setSyncStatus("saved");
-          setSyncError(null);
-        })
-        .catch((err) => {
-          setSyncStatus("error");
-          setSyncError(err instanceof Error ? err.message : "Failed to save CAD work.");
-        });
+      void saveToBackend(model);
     }, SAVE_DEBOUNCE_MS);
 
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current);
     };
-  }, [projectId, workspaceId, model]);
+  }, [projectId, workspaceId, model, saveToBackend]);
+
+  // When connectivity changes, keep the sync status honest and push/pause
+  // accordingly. Using event listeners avoids synchronous setState in effects.
+  useEffect(() => {
+    const handleOnline = () => {
+      if (!hydratedRef.current || !workspaceId) return;
+      void saveToBackend(modelRef.current);
+    };
+    const handleOffline = () => {
+      setSyncStatus("idle");
+      setSyncError(null);
+    };
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [workspaceId, saveToBackend]);
 
   const layerById = useCallback(
     (id: LayerId) => model.layers.find((l) => l.id === id),
@@ -372,6 +459,8 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
       text: t.text,
       layerId: t.layerId ?? modelRef.current.activeLayerId,
       color: t.color ?? null,
+      height: t.height,
+      rotation: t.rotation,
     };
     commit((m) => ({ ...m, texts: [...m.texts, txt] }));
     return txt;
@@ -421,6 +510,161 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
     commit((m) => ({ ...m, surfaces: m.surfaces.filter((s) => s.id !== id) }));
     dropFromSelection(id);
   }, [dropFromSelection, commit]);
+
+  const addArc = useCallback<UseCadModel["addArc"]>((a) => {
+    const arc: SurveyArc = {
+      id: nextId("arc"),
+      center: a.center,
+      radius: a.radius,
+      startAngle: a.startAngle,
+      endAngle: a.endAngle,
+      layerId: a.layerId ?? modelRef.current.activeLayerId,
+      color: a.color ?? null,
+    };
+    commit((m) => ({ ...m, arcs: [...m.arcs, arc] }));
+    return arc;
+  }, [commit]);
+
+  const updateArc = useCallback((id: string, patch: Partial<SurveyArc>) => {
+    commit((m) => {
+      const a = m.arcs.find((x) => x.id === id);
+      if (!a || isEntityLocked(a.layerId)) return m;
+      return { ...m, arcs: m.arcs.map((x) => (x.id === id ? { ...x, ...patch } : x)) };
+    });
+  }, [commit, isEntityLocked]);
+
+  const deleteArc = useCallback((id: string) => {
+    commit((m) => {
+      const a = m.arcs.find((x) => x.id === id);
+      if (!a || isEntityLocked(a.layerId)) return m;
+      return { ...m, arcs: m.arcs.filter((x) => x.id !== id) };
+    });
+    dropFromSelection(id);
+  }, [dropFromSelection, commit, isEntityLocked]);
+
+  const addCircle = useCallback<UseCadModel["addCircle"]>((c) => {
+    const circle: SurveyCircle = {
+      id: nextId("cir"),
+      center: c.center,
+      radius: c.radius,
+      layerId: c.layerId ?? modelRef.current.activeLayerId,
+      color: c.color ?? null,
+    };
+    commit((m) => ({ ...m, circles: [...m.circles, circle] }));
+    return circle;
+  }, [commit]);
+
+  const updateCircle = useCallback((id: string, patch: Partial<SurveyCircle>) => {
+    commit((m) => {
+      const c = m.circles.find((x) => x.id === id);
+      if (!c || isEntityLocked(c.layerId)) return m;
+      return { ...m, circles: m.circles.map((x) => (x.id === id ? { ...x, ...patch } : x)) };
+    });
+  }, [commit, isEntityLocked]);
+
+  const deleteCircle = useCallback((id: string) => {
+    commit((m) => {
+      const c = m.circles.find((x) => x.id === id);
+      if (!c || isEntityLocked(c.layerId)) return m;
+      return { ...m, circles: m.circles.filter((x) => x.id !== id) };
+    });
+    dropFromSelection(id);
+  }, [dropFromSelection, commit, isEntityLocked]);
+
+  const addEllipse = useCallback<UseCadModel["addEllipse"]>((el) => {
+    const ellipse: SurveyEllipse = {
+      id: nextId("ell"),
+      center: el.center,
+      semiMajor: el.semiMajor,
+      semiMinor: el.semiMinor,
+      rotation: el.rotation,
+      layerId: el.layerId ?? modelRef.current.activeLayerId,
+      color: el.color ?? null,
+    };
+    commit((m) => ({ ...m, ellipses: [...m.ellipses, ellipse] }));
+    return ellipse;
+  }, [commit]);
+
+  const updateEllipse = useCallback((id: string, patch: Partial<SurveyEllipse>) => {
+    commit((m) => {
+      const el = m.ellipses.find((x) => x.id === id);
+      if (!el || isEntityLocked(el.layerId)) return m;
+      return { ...m, ellipses: m.ellipses.map((x) => (x.id === id ? { ...x, ...patch } : x)) };
+    });
+  }, [commit, isEntityLocked]);
+
+  const deleteEllipse = useCallback((id: string) => {
+    commit((m) => {
+      const el = m.ellipses.find((x) => x.id === id);
+      if (!el || isEntityLocked(el.layerId)) return m;
+      return { ...m, ellipses: m.ellipses.filter((x) => x.id !== id) };
+    });
+    dropFromSelection(id);
+  }, [dropFromSelection, commit, isEntityLocked]);
+
+  const addDimension = useCallback<UseCadModel["addDimension"]>((d) => {
+    const dim: SurveyDimension = {
+      id: nextId("dim"),
+      kind: d.kind,
+      text: d.text,
+      textPosition: d.textPosition,
+      defPoints: d.defPoints,
+      angle: d.angle,
+      layerId: d.layerId ?? modelRef.current.activeLayerId,
+      color: d.color ?? null,
+    };
+    commit((m) => ({ ...m, dimensions: [...m.dimensions, dim] }));
+    return dim;
+  }, [commit]);
+
+  const updateDimension = useCallback((id: string, patch: Partial<SurveyDimension>) => {
+    commit((m) => {
+      const d = m.dimensions.find((x) => x.id === id);
+      if (!d || isEntityLocked(d.layerId)) return m;
+      return { ...m, dimensions: m.dimensions.map((x) => (x.id === id ? { ...x, ...patch } : x)) };
+    });
+  }, [commit, isEntityLocked]);
+
+  const deleteDimension = useCallback((id: string) => {
+    commit((m) => {
+      const d = m.dimensions.find((x) => x.id === id);
+      if (!d || isEntityLocked(d.layerId)) return m;
+      return { ...m, dimensions: m.dimensions.filter((x) => x.id !== id) };
+    });
+    dropFromSelection(id);
+  }, [dropFromSelection, commit, isEntityLocked]);
+
+  const addHatch = useCallback<UseCadModel["addHatch"]>((h) => {
+    const hatch: SurveyHatch = {
+      id: nextId("hatch"),
+      vertices: h.vertices,
+      holes: h.holes,
+      pattern: h.pattern,
+      patternScale: h.patternScale,
+      patternAngle: h.patternAngle,
+      layerId: h.layerId ?? modelRef.current.activeLayerId,
+      color: h.color ?? null,
+    };
+    commit((m) => ({ ...m, hatches: [...m.hatches, hatch] }));
+    return hatch;
+  }, [commit]);
+
+  const updateHatch = useCallback((id: string, patch: Partial<SurveyHatch>) => {
+    commit((m) => {
+      const h = m.hatches.find((x) => x.id === id);
+      if (!h || isEntityLocked(h.layerId)) return m;
+      return { ...m, hatches: m.hatches.map((x) => (x.id === id ? { ...x, ...patch } : x)) };
+    });
+  }, [commit, isEntityLocked]);
+
+  const deleteHatch = useCallback((id: string) => {
+    commit((m) => {
+      const h = m.hatches.find((x) => x.id === id);
+      if (!h || isEntityLocked(h.layerId)) return m;
+      return { ...m, hatches: m.hatches.filter((x) => x.id !== id) };
+    });
+    dropFromSelection(id);
+  }, [dropFromSelection, commit, isEntityLocked]);
 
   // Surface visibility is a view toggle, not a content edit, so it stays out
   // of the undo history.
@@ -545,6 +789,11 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
       linework: m.linework.map((l) => (l.layerId === id ? { ...l, layerId: target } : l)),
       texts: m.texts.map((t) => (t.layerId === id ? { ...t, layerId: target } : t)),
       surfaces: m.surfaces.map((s) => (s.layerId === id ? { ...s, layerId: target } : s)),
+      arcs: m.arcs.map((a) => (a.layerId === id ? { ...a, layerId: target } : a)),
+      circles: m.circles.map((c) => (c.layerId === id ? { ...c, layerId: target } : c)),
+      ellipses: m.ellipses.map((el) => (el.layerId === id ? { ...el, layerId: target } : el)),
+      dimensions: m.dimensions.map((d) => (d.layerId === id ? { ...d, layerId: target } : d)),
+      hatches: m.hatches.map((h) => (h.layerId === id ? { ...h, layerId: target } : h)),
       activeLayerId: m.activeLayerId === id ? target : m.activeLayerId,
     }));
     return true;
@@ -555,9 +804,14 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
       model.points.filter((p) => p.layerId === id).length +
       model.linework.filter((l) => l.layerId === id).length +
       model.texts.filter((t) => t.layerId === id).length +
-      model.surfaces.filter((s) => s.layerId === id).length
+      model.surfaces.filter((s) => s.layerId === id).length +
+      model.arcs.filter((a) => a.layerId === id).length +
+      model.circles.filter((c) => c.layerId === id).length +
+      model.ellipses.filter((el) => el.layerId === id).length +
+      model.dimensions.filter((d) => d.layerId === id).length +
+      model.hatches.filter((h) => h.layerId === id).length
     );
-  }, [model.points, model.linework, model.texts, model.surfaces]);
+  }, [model.points, model.linework, model.texts, model.surfaces, model.arcs, model.circles, model.ellipses, model.dimensions, model.hatches]);
 
   const importPoints = useCallback<UseCadModel["importPoints"]>((rows, layerId) => {
     const active = modelRef.current.activeLayerId;
@@ -583,14 +837,25 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
         ? [{ type: sel.type, id: sel.id }]
         : [];
     if (items.length === 0) return 0;
-    const ptIds = new Set(items.filter((i) => i.type === "point").map((i) => i.id));
-    const lwIds = new Set(items.filter((i) => i.type === "linework").map((i) => i.id));
-    const txIds = new Set(items.filter((i) => i.type === "text").map((i) => i.id));
+    const groupIds = (type: CadEntityType) => new Set(items.filter((i) => i.type === type).map((i) => i.id));
+    const ptIds = groupIds("point");
+    const lwIds = groupIds("linework");
+    const txIds = groupIds("text");
+    const arcIds = groupIds("arc");
+    const cirIds = groupIds("circle");
+    const ellIds = groupIds("ellipse");
+    const dimIds = groupIds("dimension");
+    const hatchIds = groupIds("hatch");
     commit((m) => ({
       ...m,
       points: m.points.map((p) => (ptIds.has(p.id) ? { ...p, color } : p)),
       linework: m.linework.map((l) => (lwIds.has(l.id) ? { ...l, color } : l)),
       texts: m.texts.map((t) => (txIds.has(t.id) ? { ...t, color } : t)),
+      arcs: m.arcs.map((a) => (arcIds.has(a.id) ? { ...a, color } : a)),
+      circles: m.circles.map((c) => (cirIds.has(c.id) ? { ...c, color } : c)),
+      ellipses: m.ellipses.map((el) => (ellIds.has(el.id) ? { ...el, color } : el)),
+      dimensions: m.dimensions.map((d) => (dimIds.has(d.id) ? { ...d, color } : d)),
+      hatches: m.hatches.map((h) => (hatchIds.has(h.id) ? { ...h, color } : h)),
     }));
     return items.length;
   }, [selection, commit]);
@@ -608,18 +873,37 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
     const ptIds = new Set(items.filter((i) => i.type === "point").map((i) => i.id));
     const lwIds = new Set(items.filter((i) => i.type === "linework").map((i) => i.id));
     const txIds = new Set(items.filter((i) => i.type === "text").map((i) => i.id));
+    const arcIds = new Set(items.filter((i) => i.type === "arc").map((i) => i.id));
+    const cirIds = new Set(items.filter((i) => i.type === "circle").map((i) => i.id));
+    const ellIds = new Set(items.filter((i) => i.type === "ellipse").map((i) => i.id));
+    const dimIds = new Set(items.filter((i) => i.type === "dimension").map((i) => i.id));
+    const hatchIds = new Set(items.filter((i) => i.type === "hatch").map((i) => i.id));
+
+    const offsetVert = (v: { n: number; e: number }) => ({ n: v.n + dn, e: v.e + de });
+    const offsetPos = (p: { n: number; e: number }) => ({ n: p.n + dn, e: p.e + de });
 
     if (!asCopy) {
       // MOVE — translate the originals in place.
       commit((m) => ({
         ...m,
-        points: m.points.map((p) => (ptIds.has(p.id) ? { ...p, n: p.n + dn, e: p.e + de } : p)),
+        points: m.points.map((p) => (ptIds.has(p.id) ? { ...p, ...offsetPos(p) } : p)),
         linework: m.linework.map((l) =>
-          lwIds.has(l.id)
-            ? { ...l, vertices: l.vertices.map((v) => ({ n: v.n + dn, e: v.e + de })) }
-            : l,
+          lwIds.has(l.id) ? { ...l, vertices: l.vertices.map(offsetVert) } : l,
         ),
-        texts: m.texts.map((t) => (txIds.has(t.id) ? { ...t, n: t.n + dn, e: t.e + de } : t)),
+        texts: m.texts.map((t) => (txIds.has(t.id) ? { ...t, ...offsetPos(t) } : t)),
+        arcs: m.arcs.map((a) => (arcIds.has(a.id) ? { ...a, center: offsetVert(a.center) } : a)),
+        circles: m.circles.map((c) => (cirIds.has(c.id) ? { ...c, center: offsetVert(c.center) } : c)),
+        ellipses: m.ellipses.map((el) => (ellIds.has(el.id) ? { ...el, center: offsetVert(el.center) } : el)),
+        dimensions: m.dimensions.map((d) =>
+          dimIds.has(d.id)
+            ? { ...d, textPosition: offsetVert(d.textPosition), defPoints: d.defPoints.map(offsetVert) }
+            : d,
+        ),
+        hatches: m.hatches.map((h) =>
+          hatchIds.has(h.id)
+            ? { ...h, vertices: h.vertices.map(offsetVert), holes: h.holes?.map((hole) => hole.map(offsetVert)) }
+            : h,
+        ),
       }));
       return items.length;
     }
@@ -630,33 +914,79 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
       const newPoints: SurveyPoint[] = [];
       for (const p of m.points) {
         if (!ptIds.has(p.id)) continue;
-        const copy: SurveyPoint = { ...p, id: nextId("pt"), n: p.n + dn, e: p.e + de };
+        const copy: SurveyPoint = { ...p, id: nextId("pt"), ...offsetPos(p) };
         newPoints.push(copy);
         newItems.push({ type: "point", id: copy.id });
       }
       const newLinework: SurveyLinework[] = [];
       for (const l of m.linework) {
         if (!lwIds.has(l.id)) continue;
-        const copy: SurveyLinework = {
-          ...l,
-          id: nextId("lw"),
-          vertices: l.vertices.map((v) => ({ n: v.n + dn, e: v.e + de })),
-        };
+        const copy: SurveyLinework = { ...l, id: nextId("lw"), vertices: l.vertices.map(offsetVert) };
         newLinework.push(copy);
         newItems.push({ type: "linework", id: copy.id });
       }
       const newTexts: SurveyText[] = [];
       for (const t of m.texts) {
         if (!txIds.has(t.id)) continue;
-        const copy: SurveyText = { ...t, id: nextId("tx"), n: t.n + dn, e: t.e + de };
+        const copy: SurveyText = { ...t, id: nextId("tx"), ...offsetPos(t) };
         newTexts.push(copy);
         newItems.push({ type: "text", id: copy.id });
+      }
+      const newArcs: SurveyArc[] = [];
+      for (const a of m.arcs) {
+        if (!arcIds.has(a.id)) continue;
+        const copy: SurveyArc = { ...a, id: nextId("arc"), center: offsetVert(a.center) };
+        newArcs.push(copy);
+        newItems.push({ type: "arc", id: copy.id });
+      }
+      const newCircles: SurveyCircle[] = [];
+      for (const c of m.circles) {
+        if (!cirIds.has(c.id)) continue;
+        const copy: SurveyCircle = { ...c, id: nextId("cir"), center: offsetVert(c.center) };
+        newCircles.push(copy);
+        newItems.push({ type: "circle", id: copy.id });
+      }
+      const newEllipses: SurveyEllipse[] = [];
+      for (const el of m.ellipses) {
+        if (!ellIds.has(el.id)) continue;
+        const copy: SurveyEllipse = { ...el, id: nextId("ell"), center: offsetVert(el.center) };
+        newEllipses.push(copy);
+        newItems.push({ type: "ellipse", id: copy.id });
+      }
+      const newDimensions: SurveyDimension[] = [];
+      for (const d of m.dimensions) {
+        if (!dimIds.has(d.id)) continue;
+        const copy: SurveyDimension = {
+          ...d,
+          id: nextId("dim"),
+          textPosition: offsetVert(d.textPosition),
+          defPoints: d.defPoints.map(offsetVert),
+        };
+        newDimensions.push(copy);
+        newItems.push({ type: "dimension", id: copy.id });
+      }
+      const newHatches: SurveyHatch[] = [];
+      for (const h of m.hatches) {
+        if (!hatchIds.has(h.id)) continue;
+        const copy: SurveyHatch = {
+          ...h,
+          id: nextId("hatch"),
+          vertices: h.vertices.map(offsetVert),
+          holes: h.holes?.map((hole) => hole.map(offsetVert)),
+        };
+        newHatches.push(copy);
+        newItems.push({ type: "hatch", id: copy.id });
       }
       return {
         ...m,
         points: [...m.points, ...newPoints],
         linework: [...m.linework, ...newLinework],
         texts: [...m.texts, ...newTexts],
+        arcs: [...m.arcs, ...newArcs],
+        circles: [...m.circles, ...newCircles],
+        ellipses: [...m.ellipses, ...newEllipses],
+        dimensions: [...m.dimensions, ...newDimensions],
+        hatches: [...m.hatches, ...newHatches],
       };
     });
     if (newItems.length) {
@@ -678,6 +1008,11 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
     const ptIds = new Set(items.filter((i) => i.type === "point").map((i) => i.id));
     const lwIds = new Set(items.filter((i) => i.type === "linework").map((i) => i.id));
     const txIds = new Set(items.filter((i) => i.type === "text").map((i) => i.id));
+    const arcIds = new Set(items.filter((i) => i.type === "arc").map((i) => i.id));
+    const cirIds = new Set(items.filter((i) => i.type === "circle").map((i) => i.id));
+    const ellIds = new Set(items.filter((i) => i.type === "ellipse").map((i) => i.id));
+    const dimIds = new Set(items.filter((i) => i.type === "dimension").map((i) => i.id));
+    const hatchIds = new Set(items.filter((i) => i.type === "hatch").map((i) => i.id));
 
     if (!asCopy) {
       commit((m) => ({
@@ -689,11 +1024,24 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
             : l,
         ),
         texts: m.texts.map((t) => (txIds.has(t.id) ? { ...t, ...fn({ n: t.n, e: t.e }) } : t)),
+        arcs: m.arcs.map((a) => (arcIds.has(a.id) ? { ...a, center: fn(a.center) } : a)),
+        circles: m.circles.map((c) => (cirIds.has(c.id) ? { ...c, center: fn(c.center) } : c)),
+        ellipses: m.ellipses.map((el) => (ellIds.has(el.id) ? { ...el, center: fn(el.center) } : el)),
+        dimensions: m.dimensions.map((d) =>
+          dimIds.has(d.id)
+            ? { ...d, textPosition: fn(d.textPosition), defPoints: d.defPoints.map(fn) }
+            : d,
+        ),
+        hatches: m.hatches.map((h) =>
+          hatchIds.has(h.id)
+            ? { ...h, vertices: h.vertices.map(fn), holes: h.holes?.map((hole) => hole.map(fn)) }
+            : h,
+        ),
       }));
       return items.length;
     }
 
-    const newItems: { type: "point" | "linework" | "text"; id: string }[] = [];
+    const newItems: SelectedItem[] = [];
     commit((m) => {
       const newPoints: SurveyPoint[] = [];
       for (const p of m.points) {
@@ -721,11 +1069,61 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
         newTexts.push(copy);
         newItems.push({ type: "text", id: newTexts[newTexts.length - 1].id });
       }
+      const newArcs: SurveyArc[] = [];
+      for (const a of m.arcs) {
+        if (!arcIds.has(a.id)) continue;
+        const copy: SurveyArc = { ...a, id: nextId("arc"), center: fn(a.center) };
+        newArcs.push(copy);
+        newItems.push({ type: "arc", id: copy.id });
+      }
+      const newCircles: SurveyCircle[] = [];
+      for (const c of m.circles) {
+        if (!cirIds.has(c.id)) continue;
+        const copy: SurveyCircle = { ...c, id: nextId("cir"), center: fn(c.center) };
+        newCircles.push(copy);
+        newItems.push({ type: "circle", id: copy.id });
+      }
+      const newEllipses: SurveyEllipse[] = [];
+      for (const el of m.ellipses) {
+        if (!ellIds.has(el.id)) continue;
+        const copy: SurveyEllipse = { ...el, id: nextId("ell"), center: fn(el.center) };
+        newEllipses.push(copy);
+        newItems.push({ type: "ellipse", id: copy.id });
+      }
+      const newDimensions: SurveyDimension[] = [];
+      for (const d of m.dimensions) {
+        if (!dimIds.has(d.id)) continue;
+        const copy: SurveyDimension = {
+          ...d,
+          id: nextId("dim"),
+          textPosition: fn(d.textPosition),
+          defPoints: d.defPoints.map(fn),
+        };
+        newDimensions.push(copy);
+        newItems.push({ type: "dimension", id: copy.id });
+      }
+      const newHatches: SurveyHatch[] = [];
+      for (const h of m.hatches) {
+        if (!hatchIds.has(h.id)) continue;
+        const copy: SurveyHatch = {
+          ...h,
+          id: nextId("hatch"),
+          vertices: h.vertices.map(fn),
+          holes: h.holes?.map((hole) => hole.map(fn)),
+        };
+        newHatches.push(copy);
+        newItems.push({ type: "hatch", id: copy.id });
+      }
       return {
         ...m,
         points: [...m.points, ...newPoints],
         linework: [...m.linework, ...newLinework],
         texts: [...m.texts, ...newTexts],
+        arcs: [...m.arcs, ...newArcs],
+        circles: [...m.circles, ...newCircles],
+        ellipses: [...m.ellipses, ...newEllipses],
+        dimensions: [...m.dimensions, ...newDimensions],
+        hatches: [...m.hatches, ...newHatches],
       };
     });
     if (newItems.length) {
@@ -809,7 +1207,18 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
   }, [model.linework, commit]);
 
   const clearAll = useCallback(() => {
-    commit((m) => ({ ...m, points: [], linework: [], texts: [], surfaces: [] }));
+    commit((m) => ({
+      ...m,
+      points: [],
+      linework: [],
+      texts: [],
+      surfaces: [],
+      arcs: [],
+      circles: [],
+      ellipses: [],
+      dimensions: [],
+      hatches: [],
+    }));
     setSelection(EMPTY_SELECTION);
   }, [commit]);
 
@@ -855,6 +1264,21 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
       updateSurface,
       deleteSurface,
       toggleSurfaceVisible,
+      addArc,
+      updateArc,
+      deleteArc,
+      addCircle,
+      updateCircle,
+      deleteCircle,
+      addEllipse,
+      updateEllipse,
+      deleteEllipse,
+      addDimension,
+      updateDimension,
+      deleteDimension,
+      addHatch,
+      updateHatch,
+      deleteHatch,
       toggleLayerVisible,
       toggleLayerLocked,
       addLayer,
@@ -898,6 +1322,21 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
       updateSurface,
       deleteSurface,
       toggleSurfaceVisible,
+      addArc,
+      updateArc,
+      deleteArc,
+      addCircle,
+      updateCircle,
+      deleteCircle,
+      addEllipse,
+      updateEllipse,
+      deleteEllipse,
+      addDimension,
+      updateDimension,
+      deleteDimension,
+      addHatch,
+      updateHatch,
+      deleteHatch,
       toggleLayerVisible,
       toggleLayerLocked,
       addLayer,

@@ -20,12 +20,16 @@ export function hasMinimumRole(
   return roleRank[role] >= roleRank[minimumRole];
 }
 
-export function canManageTeam(role: WorkspaceRole | null | undefined, workspaceType: "personal" | "business" | null | undefined): boolean {
-  if (workspaceType !== "business") return false;
+export function canManageTeam(role: WorkspaceRole | null | undefined): boolean {
   return hasMinimumRole(role, "admin");
 }
 
 export function canManageProjects(role: WorkspaceRole | null | undefined): boolean {
   if (!role) return false;
   return ["owner", "admin", "ops_manager", "sales"].includes(role);
+}
+
+export function canManageFinance(role: WorkspaceRole | null | undefined): boolean {
+  if (!role) return false;
+  return ["owner", "admin", "finance"].includes(role);
 }

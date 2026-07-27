@@ -726,11 +726,11 @@
 .hub-nav-label {
     font-size: 10px;
     font-weight: 700;
-    color: var(--text);
+    color: var(--text-muted);
     letter-spacing: 1px;
     padding: 0 12px;
     margin-bottom: 4px;
-    opacity: 0.6;
+    opacity: 0.9;
 }
 
 .hub-side-tab {
@@ -770,7 +770,7 @@
 
 .hub-side-tab svg {
     flex-shrink: 0;
-    opacity: 0.7;
+    opacity: 0.9;
 }
 
 .hub-side-tab.active svg {

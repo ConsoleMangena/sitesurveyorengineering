@@ -5,6 +5,9 @@ import {
   type StaffKind,
 } from "../../components/cad/survey/cogo.ts";
 import { ToolGuidePanel, type ToolGuide } from "./ToolGuide.tsx";
+import { useProjectPoints } from "./projectPoints.ts";
+import { addProjectOutput } from "./projectOutputs.ts";
+import { copyToClipboard, downloadCsv, useToast } from "./calcUtils.ts";
 
 const LEVELLING_GUIDE: ToolGuide = {
   summary: "Reduce a line of levels: turn staff readings (BS/IS/FS) into reduced levels (Z), with the arithmetic check and misclosure adjustment done for you.",
@@ -47,7 +50,14 @@ const num = (v: string): number => {
   return Number.isFinite(n) ? n : NaN;
 };
 
-export function LevellingTool() {
+const fmt = (v: number | null | undefined, digits = 3): string =>
+  v == null || !Number.isFinite(v) ? "" : v.toFixed(digits);
+
+interface LevellingToolProps {
+  projectId?: string;
+}
+
+export function LevellingTool({ projectId }: LevellingToolProps) {
   const [method, setMethod] = useState<"rise-fall" | "hpc">("rise-fall");
   const [startRL, setStartRL] = useState("100.000");
   const [closingRL, setClosingRL] = useState("");
@@ -84,6 +94,96 @@ export function LevellingTool() {
 
   const adjusted = closingRL.trim() !== "" && result?.misclose != null;
 
+  const { add } = useProjectPoints(projectId);
+  const { message: confirmMessage, show: showConfirm } = useToast();
+
+  const duplicateLabels = useMemo(() => {
+    const seen = new Set<string>();
+    const dups = new Set<string>();
+    for (const r of rows) {
+      const label = r.label.trim();
+      if (!label) continue;
+      if (seen.has(label)) dups.add(label);
+      seen.add(label);
+    }
+    return dups;
+  }, [rows]);
+
+  const handleSavePoints = () => {
+    if (!result || !projectId) return;
+    let saved = 0;
+    for (const r of result.rows) {
+      const z = adjusted ? r.adjustedRl : r.rl;
+      if (!Number.isFinite(z)) continue;
+      const label = r.label.trim();
+      const useLabel = label && !duplicateLabels.has(label);
+      add({
+        e: 0,
+        n: 0,
+        z,
+        code: "LVL",
+        pointNo: useLabel ? label : undefined,
+      });
+      saved++;
+    }
+    showConfirm(saved > 0 ? `Saved ${saved} reduced level${saved === 1 ? "" : "s"} as project points.` : "No valid reduced levels to save.");
+  };
+
+  const handleExportCsv = () => {
+    if (!result) return;
+    const header = "Point,BS,IS,FS,HPC,RiseFall,Reduced Level\n";
+    const lines = result.rows.map((r) => {
+      const z = adjusted ? r.adjustedRl : r.rl;
+      const riseFall = method === "rise-fall" ? (r.rise ?? 0) - (r.fall ?? 0) : null;
+      return [
+        r.label,
+        fmt(r.bs),
+        fmt(r.is),
+        fmt(r.fs),
+        method === "hpc" ? fmt(r.hpc) : "",
+        method === "rise-fall" ? fmt(riseFall) : "",
+        fmt(z),
+      ].join(",");
+    });
+    const content = header + lines.join("\n");
+    downloadCsv("levels.csv", content);
+    if (projectId) {
+      addProjectOutput(projectId, {
+        label: "Levelling Report",
+        description: `${result.rows.length} reduced level${result.rows.length === 1 ? "" : "s"}`,
+        fileName: `levelling-${projectId}.csv`,
+        mimeType: "text/csv",
+        content,
+      });
+    }
+  };
+
+  const handleCopySummary = async () => {
+    if (!result) return;
+    const lines: string[] = [];
+    lines.push(`Levelling summary (${method === "hpc" ? "Height of Plane of Collimation" : "Rise & Fall"})`);
+    lines.push(`Start RL: ${num(startRL).toFixed(3)} m`);
+    lines.push("");
+    lines.push("Point      BS       IS       FS       Reduced Level");
+    for (const r of result.rows) {
+      const z = adjusted ? r.adjustedRl : r.rl;
+      lines.push(
+        `${r.label.padEnd(10)} ${fmt(r.bs).padStart(8)} ${fmt(r.is).padStart(8)} ${fmt(r.fs).padStart(8)} ${z.toFixed(3)}`
+      );
+    }
+    lines.push("");
+    lines.push(`ΣBS - ΣFS:       ${result.bsMinusFs.toFixed(3)}`);
+    if (method === "rise-fall") {
+      lines.push(`ΣRise - ΣFall:   ${result.riseMinusFall.toFixed(3)}`);
+    }
+    lines.push(`Last - First RL: ${result.lastMinusFirst.toFixed(3)}`);
+    if (result.misclose != null) {
+      lines.push(`Misclosure:      ${result.misclose.toFixed(4)} m${adjusted ? " (adjusted)" : ""}`);
+    }
+    const ok = await copyToClipboard(lines.join("\n"));
+    showConfirm(ok ? "Summary copied to clipboard." : "Could not copy summary.");
+  };
+
   return (
     <div className="svt-shell">
       <div className="svt-header">
@@ -110,6 +210,25 @@ export function LevellingTool() {
         <input className="input-field" style={{ width: 130 }} value={startRL} onChange={(e) => setStartRL(e.target.value)} />
         <label className="form-label">Known closing RL (optional)</label>
         <input className="input-field" style={{ width: 150 }} value={closingRL} onChange={(e) => setClosingRL(e.target.value)} placeholder="blank if none" />
+      </div>
+
+      <div className="svt-toolbar">
+        {projectId && (
+          <button className="btn btn-outline btn-sm" onClick={handleSavePoints} disabled={!result}>
+            Save computed RLs as project points
+          </button>
+        )}
+        <button className="btn btn-outline btn-sm" onClick={handleExportCsv} disabled={!result}>
+          Export levels CSV
+        </button>
+        <button className="btn btn-outline btn-sm" onClick={handleCopySummary} disabled={!result}>
+          Copy summary
+        </button>
+        {confirmMessage && (
+          <span style={{ marginLeft: 12, fontSize: 13, color: "var(--success, #16a34a)", alignSelf: "center" }}>
+            {confirmMessage}
+          </span>
+        )}
       </div>
 
       {error && <div className="svt-error">⚠ {error}</div>}

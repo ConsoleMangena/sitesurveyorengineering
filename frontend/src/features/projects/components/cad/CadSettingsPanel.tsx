@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { UseCadSettings } from "./useCadSettings.ts";
 import { COORD_DECIMALS_MAX, COORD_DECIMALS_MIN, type AxisConvention } from "./cadSettings.ts";
 import type { BearingFormat, AngleEntryMode } from "./survey/format.ts";
-import { RotateCcw, Maximize2, X } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card.tsx";
+import { RotateCcw, Maximize2 } from "lucide-react";
+import { CadPopoverTemplate } from "@/components/templates/CadPopoverTemplate.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { Label } from "@/components/ui/label.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -14,8 +15,8 @@ const AXIS_OPTIONS: { value: AxisConvention; label: string }[] = [
 ];
 
 const BEARING_OPTIONS: { value: BearingFormat; label: string }[] = [
-  { value: "azimuth", label: "Azimuth (D°M'S\")" },
-  { value: "quadrant", label: "Quadrant (N..E)" },
+  { value: "azimuth", label: "WCB / Forward Bearing (D°M'S\")" },
+  { value: "quadrant", label: "Reduced Bearing (N/S .. E/W)" },
   { value: "gon", label: "Gon / Grad (400)" },
 ];
 
@@ -51,6 +52,24 @@ export function CadSettingsPopover({
   const [scaleText, setScaleText] = useState(String(settings.scaleDenominator));
   const [spacingText, setSpacingText] = useState(String(settings.snapSpacing));
   const popRef = useRef<HTMLDivElement>(null);
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const [popoverStyle, setPopoverStyle] = useState<React.CSSProperties>({});
+
+  useLayoutEffect(() => {
+    function updatePosition() {
+      const rect = anchorRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const vw = document.documentElement.clientWidth;
+      setPopoverStyle({
+        position: "fixed",
+        top: rect.bottom + 8,
+        right: vw - rect.right,
+      });
+    }
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    return () => window.removeEventListener("resize", updatePosition);
+  }, []);
 
   // Keep the local scale text in sync when the denominator changes elsewhere
   // (e.g. via the Apply-scale command or the ribbon). Adjust-state-during-render
@@ -80,56 +99,64 @@ export function CadSettingsPopover({
   }, [onClose]);
 
   return (
-    <Card className="cad-settings-popover border" ref={popRef as React.RefObject<HTMLDivElement>} role="dialog" aria-label="Drawing settings">
-      <CardHeader className="cad-settings-popover-header flex flex-row items-center justify-between py-3 px-4 pb-0">
-        <CardTitle className="text-sm font-semibold">Drawing settings</CardTitle>
-        <button type="button" className="cad-panel-collapse" onClick={onClose} title="Close" aria-label="Close settings">
-          <X size={14} />
-        </button>
-      </CardHeader>
-
-      <CardContent className="cad-panel-block cad-settings text-xs">
-        <div className="cad-settings-group">
-          <div className="cad-settings-group-title">Units &amp; precision</div>
+    <>
+      <span ref={anchorRef} className="cad-settings-anchor-marker" aria-hidden="true" />
+      {createPortal(
+        <CadPopoverTemplate
+          className="cad-settings-popover border"
+          ref={popRef as React.RefObject<HTMLDivElement>}
+          title="Drawing settings"
+          onClose={onClose}
+          contentClassName="cad-settings text-xs"
+          style={popoverStyle}
+        >
+            <div className="cad-settings-group">
+              <div className="cad-settings-group-title">Units &amp; precision</div>
 
           <label className="cad-edit-row">
             <span>Direction</span>
             <select
               className="input-field"
               value={settings.bearingFormat}
-              onChange={(e) => update({ bearingFormat: e.target.value as BearingFormat })}
+              disabled
+              title="Controlled by Project Hub settings"
             >
               {BEARING_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
           </label>
+          <p className="cad-settings-note">Project setting — change it in Project Hub → Settings.</p>
 
           <label className="cad-edit-row">
             <span>Axis labels</span>
             <select
               className="input-field"
               value={settings.axisConvention}
-              onChange={(e) => update({ axisConvention: e.target.value as AxisConvention })}
+              disabled
+              title="Controlled by Project Hub settings"
             >
               {AXIS_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
           </label>
+          <p className="cad-settings-note">Project setting — change it in Project Hub → Settings.</p>
 
           <label className="cad-edit-row">
             <span>Angle entry</span>
             <select
               className="input-field"
               value={settings.angleEntry}
-              onChange={(e) => update({ angleEntry: e.target.value as AngleEntryMode })}
+              disabled
+              title="Controlled by Project Hub settings"
             >
               {ANGLE_ENTRY_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
           </label>
+          <p className="cad-settings-note">Project setting — change it in Project Hub → Settings.</p>
 
           <label className="cad-edit-row">
             <span>Coordinate decimals</span>
@@ -139,9 +166,12 @@ export function CadSettingsPopover({
               min={COORD_DECIMALS_MIN}
               max={COORD_DECIMALS_MAX}
               value={settings.coordDecimals}
-              onChange={(e) => update({ coordDecimals: parseInt(e.target.value, 10) })}
+              disabled
+              title="Controlled by Project Hub settings"
+              onChange={() => {}}
             />
           </label>
+          <p className="cad-settings-note">Project setting — change it in Project Hub → Settings.</p>
         </div>
 
         <div className="cad-settings-group">
@@ -220,8 +250,10 @@ export function CadSettingsPopover({
           Settings are saved per project on this device. They control display and drafting aids only — the drawing
           geometry is unchanged.
         </p>
-      </CardContent>
-    </Card>
+        </CadPopoverTemplate>,
+        document.body,
+      )}
+    </>
   );
 }
 

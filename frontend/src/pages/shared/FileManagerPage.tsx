@@ -12,18 +12,14 @@ import {
   Tags,
   FolderInput,
   Activity,
-  FileText,
   Trash2,
   RotateCcw,
-  Database,
   Copy,
   Eye,
   Share2,
   Loader2,
   Pencil,
   History,
-  LayoutGrid,
-  Rows3,
 } from "lucide-react";
 
 import {
@@ -57,13 +53,9 @@ import { anchorFileHash, explorerTxUrl, explorerAccountUrl } from "../../lib/pay
 import { saveWalletActivity } from "../../lib/solana/walletHistory.ts";
 import { SOLANA_CLUSTER } from "../../lib/solana/config.ts";
 import PageLoader from "@/components/PageLoader.tsx";
-import { KpiCard } from "@/components/dashboard/KpiCard.tsx";
-import { DashboardCard } from "@/components/dashboard/DashboardCard.tsx";
-import { DashboardHeader, DashboardShell } from "@/components/dashboard/DashboardShell.tsx";
+import { DashboardShell } from "@/components/dashboard/DashboardShell.tsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -75,13 +67,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ResponsiveTable } from "@/components/ui/responsive-table";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DialogTemplate } from "@/components/templates/DialogTemplate";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -97,6 +83,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useEmbeddedWallet } from "../../hooks/useEmbeddedWallet.ts";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import type { AttachmentRow } from "../../lib/repositories/attachments.ts";
 
 import "../../styles/pages.css";
@@ -140,11 +127,6 @@ const formatSize = (bytes: number | null): string => {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 };
 
-const formatStorage = (sizeMb: number): string => {
-  if (sizeMb >= 1024) return `${(sizeMb / 1024).toFixed(2)} GB`;
-  return `${sizeMb.toFixed(1)} MB`;
-};
-
 const formatDateLabel = (isoDate: string): string =>
   new Date(isoDate).toLocaleDateString("en-GB", {
     day: "2-digit",
@@ -167,46 +149,6 @@ const CHAIN_BADGES: Record<
 const shortSig = (sig: string): string =>
   sig.length > 12 ? `${sig.slice(0, 6)}…${sig.slice(-4)}` : sig;
 
-const getIconColor = (type: string) => {
-  switch (type) {
-    case "DXF":
-    case "DWG":
-      return {
-        bg: "#dbeafe",
-        color: "#1d4ed8",
-        icon: "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
-      };
-    case "CSV":
-    case "XLSX":
-    case "XLS":
-      return {
-        bg: "#dcfce7",
-        color: "#15803d",
-        icon: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8",
-      };
-    case "PDF":
-      return {
-        bg: "#fee2e2",
-        color: "#b91c1c",
-        icon: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8",
-      };
-    case "TIFF":
-    case "TIF":
-    case "IMG":
-      return {
-        bg: "#f3e8ff",
-        color: "#7e22ce",
-        icon: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12",
-      };
-    default:
-      return {
-        bg: "#f1f5f9",
-        color: "#475569",
-        icon: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z",
-      };
-  }
-};
-
 export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
   const embeddedWallet = useEmbeddedWallet();
   const [files, setFiles] = useState<AttachmentRow[]>([]);
@@ -228,9 +170,7 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
     { name: string; status: "pending" | "done" | "error" }[]
   >([]);
   const [busyFileId, setBusyFileId] = useState<string | null>(null);
-  const [dragOverDropzone, setDragOverDropzone] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("offchain");
-  const [displayMode, setDisplayMode] = useState<"list" | "grid">("list");
   const [folderId, setFolderId] = useState<string | null>(null);
   const [folderStack, setFolderStack] = useState<FolderRow[]>([]);
   const [showNewFolderInput, setShowNewFolderInput] = useState(false);
@@ -291,16 +231,8 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
     }
   }, [workspaceId, folderId, viewMode]);
 
-  useEffect(() => {
-    void fetchFiles();
-  }, [fetchFiles]);
+  useAsyncAction(fetchFiles, [fetchFiles]);
 
-  const totalStorageMb = 500 * 1024;
-  const usedStorageBytes = files.reduce((sum, f) => sum + (f.size_bytes ?? 0), 0);
-  const usedStorageMb = usedStorageBytes / (1024 * 1024);
-  const storagePercentage = (usedStorageMb / totalStorageMb) * 100;
-  const nonDeletedFiles = files.filter((f) => f.deleted_at == null);
-  const onChainCount = nonDeletedFiles.filter((f) => f.storage_tier === "on_chain").length;
   const uploadTier: StorageTier = viewMode === "onchain" ? "on_chain" : "off_chain";
 
   const fileTypes = Array.from(
@@ -585,12 +517,6 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
     if (url) window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  const handleDropUpload = (event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setDragOverDropzone(false);
-    void handleUploadFiles(event.dataTransfer.files);
-  };
-
   const handleFileDownload = async (file: AttachmentRow) => {
     try {
       const url = await getAttachmentAccessUrl(file);
@@ -864,38 +790,18 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
 
   return (
     <DashboardShell className="hub-body file-manager-page">
-      <DashboardHeader
-        title="File Manager"
-        subtitle="Secure storage for CAD files, plans, and survey data — keep files off-chain for speed or anchor them to Solana for tamper-proof integrity."
-        actions={
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              ref={uploadInputRef}
-              type="file"
-              className="hidden"
-              multiple
-              onChange={(e) => void handleUploadFiles(e.target.files)}
-            />
-            <input
-              ref={versionUploadInputRef}
-              type="file"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                const target = versionTargetRef.current;
-                if (file && target) {
-                  void handleUploadVersion(file, target);
-                }
-                if (e.target) e.target.value = "";
-              }}
-            />
-            <Button onClick={openFilePicker} disabled={uploading || viewMode === "trash"} className="gap-2">
-              <Upload size={16} />
-              {uploading ? "Uploading..." : viewMode === "trash" ? "Upload disabled in trash" : "Upload Files"}
-            </Button>
-          </div>
-        }
-      />
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">File Manager</h1>
+          <p className="text-sm text-muted-foreground">
+            Secure storage for CAD files, plans, and survey data.
+          </p>
+        </div>
+        <Button onClick={openFilePicker} disabled={uploading || viewMode === "trash"} className="gap-2">
+          <Upload size={16} />
+          {uploading ? "Uploading..." : viewMode === "trash" ? "Upload disabled in trash" : "Upload Files"}
+        </Button>
+      </div>
 
       {error && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -909,44 +815,26 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <KpiCard
-          title="Total Files"
-          value={nonDeletedFiles.length.toString()}
-          icon={<FileText size={16} />}
-        />
-        <KpiCard
-          title="On-chain Files"
-          value={onChainCount.toString()}
-          icon={<ShieldCheck size={16} />}
-        />
-        <KpiCard
-          title="Storage Used"
-          value={formatStorage(usedStorageMb)}
-          icon={<Database size={16} />}
-        />
-      </div>
-
-      <Card
-        className={`border-dashed cursor-pointer transition-colors ${dragOverDropzone ? "border-primary bg-primary/5" : "border-border/60"}`}
-        onClick={openFilePicker}
-        onDragOver={(e) => { e.preventDefault(); setDragOverDropzone(true); }}
-        onDragLeave={() => setDragOverDropzone(false)}
-        onDrop={handleDropUpload}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openFilePicker(); } }}
-      >
-        <CardContent className="p-4 flex flex-col items-center text-center gap-1.5">
-          <Upload size={20} className="text-muted-foreground" />
-          <h3 className="text-sm font-semibold">Click to Upload or Drag & Drop</h3>
-          <p className="text-xs text-muted-foreground">
-            Supports DXF, DWG, LandXML, CSV, PDF, and TIFF. New files go{" "}
-            <strong>{uploadTier === "on_chain" ? "on-chain (Solana)" : "off-chain"}</strong>.
-          </p>
-          <Button variant="outline" size="sm" onClick={openFilePicker} disabled={uploading} className="mt-1">Browse Files</Button>
-        </CardContent>
-      </Card>
+      <input
+        ref={uploadInputRef}
+        type="file"
+        className="hidden"
+        multiple
+        onChange={(e) => void handleUploadFiles(e.target.files)}
+      />
+      <input
+        ref={versionUploadInputRef}
+        type="file"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          const target = versionTargetRef.current;
+          if (file && target) {
+            void handleUploadVersion(file, target);
+          }
+          if (e.target) e.target.value = "";
+        }}
+      />
 
       {uploading && uploadQueue.length > 0 && (
         <div className="rounded-lg border bg-muted/50 p-2 flex items-center gap-2 text-xs">
@@ -958,12 +846,11 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
         </div>
       )}
 
-      <div className={`grid gap-4 ${showActivityPanel ? "grid-cols-1 lg:grid-cols-[220px_1fr_220px]" : "grid-cols-1 lg:grid-cols-[220px_1fr]"}`}>
+      <div className={`grid gap-4 ${showActivityPanel ? "grid-cols-1 lg:grid-cols-[200px_1fr_200px]" : "grid-cols-1 lg:grid-cols-[200px_1fr]"}`}>
         {/* Sidebar */}
-        <Card className="h-fit border-border/60">
-          <CardContent className="p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold">Folders</h3>
+        <div className="h-fit space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-muted-foreground">Folders</h3>
               <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setShowNewFolderInput((p) => !p)} aria-label="Create folder">
                 <Upload size={14} />
               </Button>
@@ -1008,15 +895,33 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
                 </Button>
               ))}
             </div>
-          </CardContent>
-        </Card>
+          </div>
 
         {/* Main table */}
-        <DashboardCard
-          title="Files"
-          icon={<FileText size={16} />}
-          titleAction={
-            <div className="flex flex-wrap items-center gap-2">
+        <div className="space-y-3 min-w-0">
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2 border-b pb-2">
+              <Button
+                variant={viewMode === "offchain" ? "default" : "outline"}
+                size="sm"
+                onClick={() => { setViewMode("offchain"); setSelectedFiles(new Set()); }}
+              >
+                Off-chain
+              </Button>
+              <Button
+                variant={viewMode === "onchain" ? "default" : "outline"}
+                size="sm"
+                onClick={() => { setViewMode("onchain"); setSelectedFiles(new Set()); }}
+              >
+                On-chain
+              </Button>
+              <Button
+                variant={viewMode === "trash" ? "default" : "outline"}
+                size="sm"
+                onClick={() => { setViewMode("trash"); setFolderId(null); setFolderStack([]); setSelectedFiles(new Set()); }}
+              >
+                Trash
+              </Button>
               <div className="relative w-full sm:w-48">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -1050,83 +955,31 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
               >
                 <Activity size={16} />
               </Button>
-              <div className="inline-flex items-center rounded-md border">
-                <Button
-                  variant={displayMode === "list" ? "default" : "ghost"}
-                  size="icon"
-                  className="h-9 w-9 rounded-none rounded-l-md"
-                  onClick={() => setDisplayMode("list")}
-                  aria-label="List view"
-                >
-                  <Rows3 size={16} />
-                </Button>
-                <Button
-                  variant={displayMode === "grid" ? "default" : "ghost"}
-                  size="icon"
-                  className="h-9 w-9 rounded-none rounded-r-md"
-                  onClick={() => setDisplayMode("grid")}
-                  aria-label="Grid view"
-                >
-                  <LayoutGrid size={16} />
-                </Button>
-              </div>
             </div>
-          }
-        >
-          <div className="space-y-4 min-w-0">
-            <Card className="border-border/60">
-            <CardContent className="p-4 space-y-3">
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <Button
-                  variant={viewMode === "offchain" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => { setViewMode("offchain"); setSelectedFiles(new Set()); }}
-                >
-                  Off-chain Files
-                </Button>
-                <Button
-                  variant={viewMode === "onchain" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => { setViewMode("onchain"); setSelectedFiles(new Set()); }}
-                >
-                  On-chain Files
-                </Button>
-                <Button
-                  variant={viewMode === "trash" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => { setViewMode("trash"); setFolderId(null); setFolderStack([]); setSelectedFiles(new Set()); }}
-                >
-                  Trash
-                </Button>
-              </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <Button size="sm" variant={activeType === "ALL" ? "default" : "outline"} onClick={() => setActiveType("ALL")}>All types</Button>
-                {fileTypes.map((type) => (
-                  <Button key={type} size="sm" variant={activeType === type ? "default" : "outline"} onClick={() => setActiveType(type)}>{type}</Button>
-                ))}
-                <Separator orientation="vertical" className="h-5 hidden sm:block" />
-                <Button size="sm" variant={activeTagId === "all" ? "default" : "outline"} onClick={() => setActiveTagId("all")}>All tags</Button>
-                {tags.map((tag) => (
-                  <Button
-                    key={tag.id}
-                    size="sm"
-                    variant={activeTagId === tag.id ? "default" : "outline"}
-                    onClick={() => setActiveTagId(tag.id)}
-                    title={tag.name}
-                    className="gap-1"
-                  >
-                    <span className="h-2 w-2 rounded-full" style={{ background: tag.color ?? "currentColor" }} />
-                    {tag.name}
-                  </Button>
-                ))}
-                {hasActiveFilters && (
-                  <Button size="sm" variant="ghost" onClick={clearFilters}>Clear</Button>
-                )}
-                <span className="text-xs text-muted-foreground ml-auto">{filtered.length} result{filtered.length === 1 ? "" : "s"}</span>
-              </div>
-            </CardContent>
-          </Card>
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <Button size="sm" variant={activeType === "ALL" ? "default" : "outline"} onClick={() => setActiveType("ALL")}>All types</Button>
+              {fileTypes.map((type) => (
+                <Button key={type} size="sm" variant={activeType === type ? "default" : "outline"} onClick={() => setActiveType(type)}>{type}</Button>
+              ))}
+              <Separator orientation="vertical" className="h-5 hidden sm:block" />
+              <Button size="sm" variant={activeTagId === "all" ? "default" : "outline"} onClick={() => setActiveTagId("all")}>All tags</Button>
+              {tags.map((tag) => (
+                <Button
+                  key={tag.id}
+                  size="sm"
+                  variant={activeTagId === tag.id ? "default" : "outline"}
+                  onClick={() => setActiveTagId(tag.id)}
+                  title={tag.name}
+                >
+                  {tag.name}
+                </Button>
+              ))}
+              {hasActiveFilters && (
+                <Button size="sm" variant="ghost" onClick={clearFilters}>Clear</Button>
+              )}
+              <span className="text-xs text-muted-foreground ml-auto">{filtered.length} result{filtered.length === 1 ? "" : "s"}</span>
+            </div>
 
           {visibleSelectedCount > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/50 p-3 text-sm">
@@ -1161,46 +1014,10 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
             </div>
           )}
 
-          <Card className="border-border/60">
+          <div className="border rounded-md overflow-hidden">
             <ResponsiveTable>
               <Table>
                 <TableHeader>
-                {viewMode === "onchain" ? (
-                  <TableRow>
-                    <TableHead className="w-10">
-                      <input
-                        type="checkbox"
-                        checked={allVisibleSelected}
-                        onChange={toggleAll}
-                        aria-label="Select all visible on-chain files"
-                      />
-                    </TableHead>
-                    <TableHead className="w-10" />
-                    <TableHead>File Name</TableHead>
-                    <TableHead className="hidden sm:table-cell">Type</TableHead>
-                    <TableHead className="hidden md:table-cell">Anchor Status</TableHead>
-                    <TableHead className="hidden md:table-cell text-right">Size</TableHead>
-                    <TableHead className="hidden lg:table-cell">Anchored</TableHead>
-                    <TableHead className="w-10" />
-                  </TableRow>
-                ) : viewMode === "trash" ? (
-                  <TableRow>
-                    <TableHead className="w-10">
-                      <input
-                        type="checkbox"
-                        checked={allVisibleSelected}
-                        onChange={toggleAll}
-                        aria-label="Select all trashed files"
-                      />
-                    </TableHead>
-                    <TableHead className="w-10" />
-                    <TableHead>File Name</TableHead>
-                    <TableHead className="hidden sm:table-cell">Type</TableHead>
-                    <TableHead className="hidden md:table-cell text-right">Size</TableHead>
-                    <TableHead className="hidden lg:table-cell">Deleted</TableHead>
-                    <TableHead className="w-10" />
-                  </TableRow>
-                ) : (
                   <TableRow>
                     <TableHead className="w-10">
                       <input
@@ -1210,23 +1027,20 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
                         aria-label="Select all visible files"
                       />
                     </TableHead>
-                    <TableHead className="w-10" />
                     <TableHead>File Name</TableHead>
                     <TableHead className="hidden sm:table-cell">Type</TableHead>
                     <TableHead className="hidden md:table-cell text-right">Size</TableHead>
-                    <TableHead className="hidden lg:table-cell">Uploaded</TableHead>
+                    <TableHead className="hidden lg:table-cell">Date</TableHead>
                     <TableHead className="w-10" />
                   </TableRow>
-                )}
-              </TableHeader>
+                </TableHeader>
               <TableBody>
                 {filtered.map((file) => {
                   const type = getFileType(file.storage_path, file.mime_type);
-                  const icon = getIconColor(type);
                   const name = getFileName(file.storage_path);
-                  const badge = CHAIN_BADGES[file.chain_status];
                   const isOnchain = viewMode === "onchain";
                   const isTrash = viewMode === "trash";
+                  const fileTags = fileTagMap[file.id] ?? [];
                   return (
                     <TableRow key={file.id} data-state={selectedFiles.has(file.id) ? "selected" : undefined}>
                       <TableCell>
@@ -1238,59 +1052,31 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
                         />
                       </TableCell>
                       <TableCell>
-                        <div
-                          className="flex h-9 w-9 items-center justify-center rounded-lg"
-                          style={{ background: icon.bg, color: icon.color }}
-                        >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d={icon.icon} />
-                          </svg>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div
-                          className={`font-medium truncate max-w-[200px] sm:max-w-xs ${canPreviewFile(file) ? "cursor-pointer text-primary hover:underline" : ""}`}
-                          onClick={() => {
-                            if (canPreviewFile(file)) void openPreview(file);
-                          }}
-                          title={canPreviewFile(file) ? "Click to preview" : name}
-                        >
-                          {name}
-                        </div>
-                        {fileTagMap[file.id] && fileTagMap[file.id].length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {fileTagMap[file.id].map((tag) => (
-                              <span
-                                key={tag.id}
-                                className="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
-                                style={{
-                                  background: tag.color ? `${tag.color}18` : undefined,
-                                  color: tag.color ?? undefined,
-                                  borderColor: tag.color ? `${tag.color}40` : undefined,
-                                }}
-                              >
-                                {tag.name}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="hidden sm:table-cell">
-                        <Badge variant="outline">{type}</Badge>
-                      </TableCell>
-                      {isOnchain && (
-                        <TableCell className="hidden md:table-cell">
-                          <span
-                            className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium cursor-pointer"
-                            style={{ background: badge.bg, color: badge.color, borderColor: badge.color }}
-                            onClick={() => setDetailFile(file)}
-                            title="Click for on-chain details"
+                        <div className="space-y-0.5">
+                          <div
+                            className={`truncate max-w-[200px] sm:max-w-xs ${canPreviewFile(file) ? "cursor-pointer text-primary hover:underline" : ""}`}
+                            onClick={() => {
+                              if (canPreviewFile(file)) void openPreview(file);
+                            }}
+                            title={canPreviewFile(file) ? "Click to preview" : name}
                           >
-                            {busyFileId === file.id ? "Working…" : badge.label}
-                          </span>
-                        </TableCell>
-                      )}
-                      <TableCell className="hidden md:table-cell text-right">{formatSize(file.size_bytes)}</TableCell>
+                            {name}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {fileTags.length > 0 && <span>{fileTags.map((t) => t.name).join(", ")}</span>}
+                            {isOnchain && file.chain_status !== "none" && (
+                              <span>
+                                {fileTags.length > 0 && " · "}
+                                {busyFileId === file.id ? "Working…" : CHAIN_BADGES[file.chain_status].label.toLowerCase()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell text-muted-foreground">
+                        {type}
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell text-right text-muted-foreground">{formatSize(file.size_bytes)}</TableCell>
                       <TableCell className="hidden lg:table-cell text-muted-foreground">
                         {formatDateLabel(isTrash ? file.deleted_at ?? file.created_at : file.created_at)}
                       </TableCell>
@@ -1399,7 +1185,7 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
                 })}
                 {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-48 text-center align-middle">
+                    <TableCell colSpan={6} className="h-48 text-center align-middle">
                       <div className="flex flex-col items-center justify-center text-muted-foreground">
                         <Folder size={40} />
                         <h3 className="mt-3 text-lg font-semibold text-foreground">
@@ -1432,16 +1218,15 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
                 </TableBody>
               </Table>
             </ResponsiveTable>
-          </Card>
+          </div>
         </div>
-        </DashboardCard>
+      </div>
 
         {/* Activity panel */}
         {showActivityPanel && (
-          <Card className="h-fit border-border/60">
-            <CardContent className="p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold">Activity</h3>
+          <div className="h-fit space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-muted-foreground">Activity</h3>
                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setShowActivityPanel(false)} aria-label="Close activity panel">
                   <X size={14} />
                 </Button>
@@ -1460,139 +1245,139 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
                   </div>
                 ))}
               </div>
-            </CardContent>
-          </Card>
+          </div>
         )}
       </div>
 
       {/* Move Dialog */}
-      <Dialog open={moveMenuFileId !== null} onOpenChange={(open) => { if (!open) setMoveMenuFileId(null); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Move to folder</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-1">
-            <Button variant="ghost" className="w-full justify-start gap-2" onClick={() => moveMenuFileId === "__bulk__" ? void handleBulkMoveToFolder(null) : void handleMoveToFolder(moveMenuFileId!, null)}>
-              <Folder size={16} /> Files root
+      <DialogTemplate
+        open={moveMenuFileId !== null}
+        onOpenChange={(open) => { if (!open) setMoveMenuFileId(null); }}
+        title="Move to folder"
+        size="sm"
+        contentClassName="p-0"
+        footer={
+          <Button variant="outline" onClick={() => setMoveMenuFileId(null)}>Cancel</Button>
+        }
+      >
+        <div className="space-y-1">
+          <Button variant="ghost" className="w-full justify-start gap-2" onClick={() => moveMenuFileId === "__bulk__" ? void handleBulkMoveToFolder(null) : void handleMoveToFolder(moveMenuFileId!, null)}>
+            <Folder size={16} /> Files root
+          </Button>
+          {folders.map((folder) => (
+            <Button
+              key={folder.id}
+              variant="ghost"
+              className="w-full justify-start gap-2"
+              onClick={() => moveMenuFileId === "__bulk__" ? void handleBulkMoveToFolder(folder.id) : void handleMoveToFolder(moveMenuFileId!, folder.id)}
+            >
+              <Folder size={16} /> {folder.name}
             </Button>
-            {folders.map((folder) => (
-              <Button
-                key={folder.id}
-                variant="ghost"
-                className="w-full justify-start gap-2"
-                onClick={() => moveMenuFileId === "__bulk__" ? void handleBulkMoveToFolder(folder.id) : void handleMoveToFolder(moveMenuFileId!, folder.id)}
-              >
-                <Folder size={16} /> {folder.name}
-              </Button>
-            ))}
-            {folders.length === 0 && <p className="text-sm text-muted-foreground">No folders available.</p>}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setMoveMenuFileId(null)}>Cancel</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          ))}
+          {folders.length === 0 && <p className="text-sm text-muted-foreground">No folders available.</p>}
+        </div>
+      </DialogTemplate>
 
       {/* On-chain Detail Dialog */}
-      <Dialog open={detailFile !== null} onOpenChange={(open) => { if (!open) setDetailFile(null); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>On-chain details</DialogTitle>
-          </DialogHeader>
-          {detailFile && (
-            <div className="space-y-4 text-sm">
+      <DialogTemplate
+        open={detailFile !== null}
+        onOpenChange={(open) => { if (!open) setDetailFile(null); }}
+        title="On-chain details"
+        size="md"
+      >
+        {detailFile && (
+          <div className="space-y-4 text-sm">
+            <div>
+              <p className="text-muted-foreground">File</p>
+              <p className="font-medium break-all">{getFileName(detailFile.storage_path)}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Status</p>
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium"
+                style={{
+                  background: CHAIN_BADGES[detailFile.chain_status].bg,
+                  color: CHAIN_BADGES[detailFile.chain_status].color,
+                  borderColor: CHAIN_BADGES[detailFile.chain_status].color,
+                }}
+              >
+                {CHAIN_BADGES[detailFile.chain_status].label}
+              </span>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Network</p>
+              <p className="font-medium">{detailFile.chain_network ?? "—"}</p>
+            </div>
+            {detailFile.chain_tx_signature && (
               <div>
-                <p className="text-muted-foreground">File</p>
-                <p className="font-medium break-all">{getFileName(detailFile.storage_path)}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Status</p>
-                <span
-                  className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium"
-                  style={{
-                    background: CHAIN_BADGES[detailFile.chain_status].bg,
-                    color: CHAIN_BADGES[detailFile.chain_status].color,
-                    borderColor: CHAIN_BADGES[detailFile.chain_status].color,
-                  }}
-                >
-                  {CHAIN_BADGES[detailFile.chain_status].label}
-                </span>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Network</p>
-                <p className="font-medium">{detailFile.chain_network ?? "—"}</p>
-              </div>
-              {detailFile.chain_tx_signature && (
-                <div>
-                  <p className="text-muted-foreground">Transaction</p>
-                  <div className="flex items-center gap-2">
-                    <code className="rounded bg-muted px-2 py-1 font-mono text-xs">{shortSig(detailFile.chain_tx_signature)}</code>
-                    <button
-                      type="button"
-                      className="text-muted-foreground hover:text-foreground"
-                      onClick={() => void navigator.clipboard.writeText(detailFile.chain_tx_signature!)}
-                      aria-label="Copy transaction signature"
-                    >
-                      <Copy size={14} />
-                    </button>
-                  </div>
-                </div>
-              )}
-              {detailFile.chain_program_address && (
-                <div>
-                  <p className="text-muted-foreground">File Record PDA</p>
-                  <div className="flex items-center gap-2">
-                    <code className="rounded bg-muted px-2 py-1 font-mono text-xs">{shortSig(detailFile.chain_program_address)}</code>
-                    <button
-                      type="button"
-                      className="text-muted-foreground hover:text-foreground"
-                      onClick={() => void navigator.clipboard.writeText(detailFile.chain_program_address!)}
-                      aria-label="Copy PDA address"
-                    >
-                      <Copy size={14} />
-                    </button>
-                  </div>
-                </div>
-              )}
-              <div>
-                <p className="text-muted-foreground">Content hash (SHA-256)</p>
+                <p className="text-muted-foreground">Transaction</p>
                 <div className="flex items-center gap-2">
-                  <code className="rounded bg-muted px-2 py-1 font-mono text-xs">{shortSig(detailFile.content_hash ?? "")}</code>
+                  <code className="rounded bg-muted px-2 py-1 font-mono text-xs">{shortSig(detailFile.chain_tx_signature)}</code>
                   <button
                     type="button"
                     className="text-muted-foreground hover:text-foreground"
-                    onClick={() => void navigator.clipboard.writeText(detailFile.content_hash ?? "")}
-                    aria-label="Copy content hash"
+                    onClick={() => void navigator.clipboard.writeText(detailFile.chain_tx_signature!)}
+                    aria-label="Copy transaction signature"
                   >
                     <Copy size={14} />
                   </button>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2 pt-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void handleVerifyIntegrity(detailFile)}
-                  disabled={busyFileId === detailFile.id || detailFile.chain_status !== "anchored"}
+            )}
+            {detailFile.chain_program_address && (
+              <div>
+                <p className="text-muted-foreground">File Record PDA</p>
+                <div className="flex items-center gap-2">
+                  <code className="rounded bg-muted px-2 py-1 font-mono text-xs">{shortSig(detailFile.chain_program_address)}</code>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => void navigator.clipboard.writeText(detailFile.chain_program_address!)}
+                    aria-label="Copy PDA address"
+                  >
+                    <Copy size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
+            <div>
+              <p className="text-muted-foreground">Content hash (SHA-256)</p>
+              <div className="flex items-center gap-2">
+                <code className="rounded bg-muted px-2 py-1 font-mono text-xs">{shortSig(detailFile.content_hash ?? "")}</code>
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={() => void navigator.clipboard.writeText(detailFile.content_hash ?? "")}
+                  aria-label="Copy content hash"
                 >
-                  <ShieldCheck size={14} className="mr-2" /> Verify integrity
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => viewOnExplorer(detailFile)}
-                  disabled={!detailFile.chain_network}
-                >
-                  <ExternalLink size={14} className="mr-2" /> View on explorer
-                </Button>
+                  <Copy size={14} />
+                </button>
               </div>
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void handleVerifyIntegrity(detailFile)}
+                disabled={busyFileId === detailFile.id || detailFile.chain_status !== "anchored"}
+              >
+                <ShieldCheck size={14} className="mr-2" /> Verify integrity
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => viewOnExplorer(detailFile)}
+                disabled={!detailFile.chain_network}
+              >
+                <ExternalLink size={14} className="mr-2" /> View on explorer
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogTemplate>
 
       {/* Preview Dialog */}
-      <Dialog
+      <DialogTemplate
         open={previewFile !== null}
         onOpenChange={(open) => {
           if (!open) {
@@ -1601,43 +1386,16 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
             setPreviewText(null);
           }
         }}
-      >
-        <DialogContent className="max-w-4xl w-[calc(100%-2rem)] p-0">
-          <DialogHeader className="px-6 pt-6 pb-2">
-            <DialogTitle className="truncate pr-6">
-              {previewFile ? getFileName(previewFile.storage_path) : "File preview"}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="px-6 pb-6">
-            {!previewFile || previewLoading || !previewUrl ? (
-              <div className="flex h-64 items-center justify-center text-muted-foreground">
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading preview…
-              </div>
-            ) : isTextPreviewFile(previewFile) ? (
-              previewTextLoading ? (
-                <div className="flex h-64 items-center justify-center text-muted-foreground">
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading text…
-                </div>
-              ) : (
-                <pre className="max-h-[70vh] overflow-auto rounded-lg bg-muted p-4 text-xs font-mono whitespace-pre-wrap">
-                  {previewText ?? "No content."}
-                </pre>
-              )
-            ) : isImagePreviewFile(previewFile) ? (
-              <img
-                src={previewUrl}
-                alt={getFileName(previewFile.storage_path)}
-                className="max-h-[70vh] w-full object-contain rounded-lg border"
-              />
-            ) : (
-              <iframe
-                src={previewUrl}
-                title={getFileName(previewFile.storage_path)}
-                className="w-full h-[70vh] rounded-lg border"
-              />
-            )}
-          </div>
-          <DialogFooter className="px-6 pb-6 gap-2">
+        title={
+          <span className="block truncate pr-8">
+            {previewFile ? getFileName(previewFile.storage_path) : "File preview"}
+          </span>
+        }
+        size="full"
+        className="sm:max-w-4xl p-0"
+        contentClassName="p-0 px-6 pb-6"
+        footer={
+          <>
             {previewFile && (
               <Button variant="outline" onClick={() => void handleFileDownload(previewFile)}>
                 <Download size={14} className="mr-2" /> Download
@@ -1653,12 +1411,40 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
             >
               Close
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        {!previewFile || previewLoading || !previewUrl ? (
+          <div className="flex h-64 items-center justify-center text-muted-foreground">
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading preview…
+          </div>
+        ) : isTextPreviewFile(previewFile) ? (
+          previewTextLoading ? (
+            <div className="flex h-64 items-center justify-center text-muted-foreground">
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading text…
+            </div>
+          ) : (
+            <pre className="max-h-[70vh] overflow-auto rounded-lg bg-muted p-4 text-xs font-mono whitespace-pre-wrap">
+              {previewText ?? "No content."}
+            </pre>
+          )
+        ) : isImagePreviewFile(previewFile) ? (
+          <img
+            src={previewUrl}
+            alt={getFileName(previewFile.storage_path)}
+            className="max-h-[70vh] w-full object-contain rounded-lg border"
+          />
+        ) : (
+          <iframe
+            src={previewUrl}
+            title={getFileName(previewFile.storage_path)}
+            className="w-full h-[70vh] rounded-lg border"
+          />
+        )}
+      </DialogTemplate>
 
       {/* Share Link Dialog */}
-      <Dialog
+      <DialogTemplate
         open={shareFile !== null}
         onOpenChange={(open) => {
           if (!open) {
@@ -1666,92 +1452,89 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
             setShareUrl(null);
           }
         }}
+        title="Share file"
+        size="md"
+        footer={
+          <Button
+            variant="outline"
+            onClick={() => {
+              setShareFile(null);
+              setShareUrl(null);
+            }}
+          >
+            Close
+          </Button>
+        }
       >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Share file</DialogTitle>
-          </DialogHeader>
-          {shareFile && (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Create a secure, time-limited link for{" "}
-                <span className="font-medium text-foreground">
-                  {getFileName(shareFile.storage_path)}
-                </span>
-                .
-              </p>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Link expires in</label>
-                <Select
-                  value={String(shareExpiryHours)}
-                  onValueChange={(value) => {
-                    setShareExpiryHours(Number(value));
-                    setShareUrl(null);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1">1 hour</SelectItem>
-                    <SelectItem value="24">24 hours</SelectItem>
-                    <SelectItem value="168">7 days</SelectItem>
-                    <SelectItem value="720">30 days</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {shareUrl ? (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Shareable link</label>
-                  <div className="flex gap-2">
-                    <Input value={shareUrl} readOnly className="font-mono text-xs" />
-                    <Button
-                      variant="outline"
-                      onClick={() =>
-                        void navigator.clipboard
-                          .writeText(shareUrl)
-                          .then(() => showNotice("Share link copied."))
-                      }
-                    >
-                      <Copy size={14} />
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    This link will expire in approximately{" "}
-                    {shareExpiryHours >= 24
-                      ? `${Math.round(shareExpiryHours / 24)} day(s)`
-                      : `${shareExpiryHours} hour(s)`}
-                    .
-                  </p>
-                </div>
-              ) : (
-                <Button onClick={() => void generateShareLink()} disabled={shareLoading}>
-                  {shareLoading ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Share2 size={16} className="mr-2" />
-                  )}
-                  Generate link
-                </Button>
-              )}
+        {shareFile && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Create a secure, time-limited link for{" "}
+              <span className="font-medium text-foreground">
+                {getFileName(shareFile.storage_path)}
+              </span>
+              .
+            </p>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Link expires in</label>
+              <Select
+                value={String(shareExpiryHours)}
+                onValueChange={(value) => {
+                  setShareExpiryHours(Number(value));
+                  setShareUrl(null);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">1 hour</SelectItem>
+                  <SelectItem value="24">24 hours</SelectItem>
+                  <SelectItem value="168">7 days</SelectItem>
+                  <SelectItem value="720">30 days</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-          )}
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShareFile(null);
-                setShareUrl(null);
-              }}
-            >
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            {shareUrl ? (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Shareable link</label>
+                <div className="flex gap-2">
+                  <Input value={shareUrl} readOnly className="font-mono text-xs" />
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      void navigator.clipboard
+                        .writeText(shareUrl)
+                        .then(() => showNotice("Share link copied."))
+                    }
+                  >
+                    <Copy size={14} />
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  This link will expire in approximately{" "}
+                  {shareExpiryHours >= 24
+                    ? `${Math.round(shareExpiryHours / 24)} day(s)`
+                    : `${shareExpiryHours} hour(s)`}
+                  .
+                </p>
+              </div>
+            ) : (
+              <Button onClick={() => void generateShareLink()} disabled={shareLoading}>
+                {shareLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Share2 size={16} className="mr-2" />
+                )}
+                Generate link
+              </Button>
+            )}
+          </div>
+        )}
+      </DialogTemplate>
 
       {/* Rename Dialog */}
-      <Dialog
+      <DialogTemplate
         open={renameFile !== null}
         onOpenChange={(open) => {
           if (!open) {
@@ -1759,36 +1542,10 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
             setRenameValue("");
           }
         }}
-      >
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Rename file</DialogTitle>
-          </DialogHeader>
-          {renameFile && (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Enter a new name for{" "}
-                <span className="font-medium text-foreground">
-                  {getFileName(renameFile.storage_path)}
-                </span>
-                .
-              </p>
-              <Input
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void handleRename();
-                  if (e.key === "Escape") {
-                    setRenameFile(null);
-                    setRenameValue("");
-                  }
-                }}
-                placeholder="New file name"
-                autoFocus
-              />
-            </div>
-          )}
-          <DialogFooter className="gap-2">
+        title="Rename file"
+        size="sm"
+        footer={
+          <>
             <Button
               variant="outline"
               onClick={() => {
@@ -1809,12 +1566,37 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
               {renameLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Pencil size={16} className="mr-2" />}
               Rename
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        {renameFile && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Enter a new name for{" "}
+              <span className="font-medium text-foreground">
+                {getFileName(renameFile.storage_path)}
+              </span>
+              .
+            </p>
+            <Input
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleRename();
+                if (e.key === "Escape") {
+                  setRenameFile(null);
+                  setRenameValue("");
+                }
+              }}
+              placeholder="New file name"
+              autoFocus
+            />
+          </div>
+        )}
+      </DialogTemplate>
 
       {/* Version History Dialog */}
-      <Dialog
+      <DialogTemplate
         open={versionHistoryFile !== null}
         onOpenChange={(open) => {
           if (!open) {
@@ -1822,117 +1604,114 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
             setAttachmentVersions([]);
           }
         }}
+        title="Version history"
+        size="lg"
+        footer={
+          <Button
+            variant="outline"
+            onClick={() => {
+              setVersionHistoryFile(null);
+              setAttachmentVersions([]);
+            }}
+          >
+            Close
+          </Button>
+        }
       >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Version history</DialogTitle>
-          </DialogHeader>
-          {versionHistoryFile && (
-            <div className="space-y-3">
+        {versionHistoryFile && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Current file:{" "}
+              <span className="font-medium text-foreground">
+                {getFileName(versionHistoryFile.storage_path)}
+              </span>
+            </p>
+            {versionsLoading ? (
+              <div className="flex h-32 items-center justify-center text-muted-foreground">
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading versions…
+              </div>
+            ) : attachmentVersions.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                Current file:{" "}
-                <span className="font-medium text-foreground">
-                  {getFileName(versionHistoryFile.storage_path)}
-                </span>
+                No previous versions. Upload a new version to create one.
               </p>
-              {versionsLoading ? (
-                <div className="flex h-32 items-center justify-center text-muted-foreground">
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading versions…
-                </div>
-              ) : attachmentVersions.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No previous versions. Upload a new version to create one.
-                </p>
-              ) : (
-                <div className="max-h-[60vh] overflow-auto space-y-2">
-                  {attachmentVersions.map((version, idx) => (
-                    <div
-                      key={version.id}
-                      className="flex items-center justify-between rounded-lg border p-3 gap-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">Version {attachmentVersions.length - idx}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatDateLabel(version.created_at)} · {formatSize(version.size_bytes)} ·{" "}
-                          {shortSig(version.content_hash ?? "")}
-                        </p>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          if (versionHistoryFile) {
-                            void handleDownloadVersion(versionHistoryFile, version);
-                          }
-                        }}
-                      >
-                        <Download size={14} className="mr-2" /> Download
-                      </Button>
+            ) : (
+              <div className="max-h-[60vh] overflow-auto space-y-2">
+                {attachmentVersions.map((version, idx) => (
+                  <div
+                    key={version.id}
+                    className="flex items-center justify-between rounded-lg border p-3 gap-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">Version {attachmentVersions.length - idx}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatDateLabel(version.created_at)} · {formatSize(version.size_bytes)} ·{" "}
+                        {shortSig(version.content_hash ?? "")}
+                      </p>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setVersionHistoryFile(null);
-                setAttachmentVersions([]);
-              }}
-            >
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (versionHistoryFile) {
+                          void handleDownloadVersion(versionHistoryFile, version);
+                        }
+                      }}
+                    >
+                      <Download size={14} className="mr-2" /> Download
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </DialogTemplate>
 
       {/* Tag Dialog */}
-      <Dialog open={tagMenuFileId !== null} onOpenChange={(open) => { if (!open) { setTagMenuFileId(null); setShowNewTagInput(false); setNewTagName(""); } }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Tags</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2">
-            {tags.length === 0 && <p className="text-sm text-muted-foreground">No tags yet.</p>}
-            {tags.map((tag) => {
-              const fileId = tagMenuFileId!;
-              const isAttached = fileTagMap[fileId]?.some((t) => t.id === tag.id) ?? false;
-              return (
-                <div key={tag.id} className="flex items-center justify-between rounded-md border px-3 py-2">
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="h-2 w-2 rounded-full" style={{ background: tag.color ?? "currentColor" }} />
-                    {tag.name}
-                  </div>
-                  <Switch checked={isAttached} onCheckedChange={() => void handleToggleTag(fileId, tag.id)} />
+      <DialogTemplate
+        open={tagMenuFileId !== null}
+        onOpenChange={(open) => { if (!open) { setTagMenuFileId(null); setShowNewTagInput(false); setNewTagName(""); } }}
+        title="Tags"
+        size="sm"
+      >
+        <div className="space-y-2">
+          {tags.length === 0 && <p className="text-sm text-muted-foreground">No tags yet.</p>}
+          {tags.map((tag) => {
+            const fileId = tagMenuFileId!;
+            const isAttached = fileTagMap[fileId]?.some((t) => t.id === tag.id) ?? false;
+            return (
+              <div key={tag.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="h-2 w-2 rounded-full" style={{ background: tag.color ?? "currentColor" }} />
+                  {tag.name}
                 </div>
-              );
-            })}
-            <div className="pt-2">
-              {showNewTagInput ? (
-                <div className="space-y-2">
-                  <Input
-                    placeholder="New tag"
-                    value={newTagName}
-                    onChange={(e) => setNewTagName(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") void handleCreateTag(); if (e.key === "Escape") { setShowNewTagInput(false); setNewTagName(""); } }}
-                    autoFocus
-                  />
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => void handleCreateTag()}>Add</Button>
-                    <Button size="sm" variant="outline" onClick={() => { setShowNewTagInput(false); setNewTagName(""); }}>Cancel</Button>
-                  </div>
+                <Switch checked={isAttached} onCheckedChange={() => void handleToggleTag(fileId, tag.id)} />
+              </div>
+            );
+          })}
+          <div className="pt-2">
+            {showNewTagInput ? (
+              <div className="space-y-2">
+                <Input
+                  placeholder="New tag"
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") void handleCreateTag(); if (e.key === "Escape") { setShowNewTagInput(false); setNewTagName(""); } }}
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => void handleCreateTag()}>Add</Button>
+                  <Button size="sm" variant="outline" onClick={() => { setShowNewTagInput(false); setNewTagName(""); }}>Cancel</Button>
                 </div>
-              ) : (
-                <Button variant="outline" size="sm" className="w-full gap-1" onClick={() => setShowNewTagInput(true)}>
-                  <Upload size={14} /> Create new tag
-                </Button>
-              )}
-            </div>
+              </div>
+            ) : (
+              <Button variant="outline" size="sm" className="w-full gap-1" onClick={() => setShowNewTagInput(true)}>
+                <Upload size={14} /> Create new tag
+              </Button>
+            )}
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </DialogTemplate>
     </DashboardShell>
   );
 }

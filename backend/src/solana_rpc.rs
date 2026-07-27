@@ -9,7 +9,6 @@
  * `VITE_SOLANA_RPC_URL` env var and is passed explicitly so the same binary
  * can target devnet or mainnet.
  */
-
 use serde_json::{json, Value};
 
 #[tauri::command]

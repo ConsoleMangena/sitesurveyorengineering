@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   listProjects,
   type ProjectWithOrg,
 } from "../repositories/projects.ts";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 
 interface UseProjectsResult {
   projects: ProjectWithOrg[];
@@ -34,9 +35,7 @@ export function useProjects(workspaceId: string): UseProjectsResult {
     }
   }, [workspaceId]);
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  useAsyncAction(refresh, [refresh]);
 
   return { projects, loading, error, refresh };
 }

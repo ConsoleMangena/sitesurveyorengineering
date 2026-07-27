@@ -115,14 +115,26 @@ mod tests {
 
     #[test]
     fn line_line_meets_at_origin() {
-        let p = line_line(&Ne::new(-1.0, -1.0), &Ne::new(1.0, 1.0), &Ne::new(-1.0, 1.0), &Ne::new(1.0, -1.0)).unwrap();
+        let p = line_line(
+            &Ne::new(-1.0, -1.0),
+            &Ne::new(1.0, 1.0),
+            &Ne::new(-1.0, 1.0),
+            &Ne::new(1.0, -1.0),
+        )
+        .unwrap();
         assert!(p.n.abs() < 1e-9);
         assert!(p.e.abs() < 1e-9);
     }
 
     #[test]
     fn parallel_lines_fail() {
-        assert!(line_line(&Ne::new(0.0, 0.0), &Ne::new(1.0, 0.0), &Ne::new(0.0, 1.0), &Ne::new(1.0, 1.0)).is_err());
+        assert!(line_line(
+            &Ne::new(0.0, 0.0),
+            &Ne::new(1.0, 0.0),
+            &Ne::new(0.0, 1.0),
+            &Ne::new(1.0, 1.0)
+        )
+        .is_err());
     }
 
     #[test]

@@ -243,6 +243,8 @@ export interface PlotResult {
   denominator: number;
   paperW: number;
   paperH: number;
+  paper: PaperSize;
+  orientation: PaperOrientation;
   /** Millimetres per survey unit used for the plot (paper mm / ground unit). */
   mmPerUnit: number;
 }
@@ -308,7 +310,15 @@ export function buildPlotSvg(model: CadModelState, opts: PlotOptions): PlotResul
     parts.join("") +
     `</svg>`;
 
-  return { svg, denominator: proj.denominator, paperW: layout.paperW, paperH: layout.paperH, mmPerUnit: proj.mmPerUnit };
+  return {
+    svg,
+    denominator: proj.denominator,
+    paperW: layout.paperW,
+    paperH: layout.paperH,
+    paper: opts.paper,
+    orientation: opts.orientation,
+    mmPerUnit: proj.mmPerUnit,
+  };
 }
 
 // ── Renderers ────────────────────────────────────────────────────────────────
@@ -654,12 +664,15 @@ export function openPlotWindow(result: PlotResult, title: string): void {
   const html =
     `<!DOCTYPE html><html><head><title>${esc(title)}</title>` +
     `<style>` +
-    `@page { size: ${result.paperW}mm ${result.paperH}mm; margin: 0; }` +
-    `html,body { margin: 0; padding: 0; background: #525252; }` +
-    `.sheet { display: block; margin: 0 auto; box-shadow: 0 0 12px rgba(0,0,0,0.5); background:#fff; }` +
-    `@media print { body { background: #fff; } .sheet { box-shadow: none; } }` +
+    `@page { size: ${result.paper} ${result.orientation}; margin: 0; }` +
+    `* { box-sizing: border-box; }` +
+    `html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #525252; }` +
+    `body { display: flex; align-items: center; justify-content: center; -webkit-print-color-adjust: exact; print-color-adjust: exact; }` +
+    `.sheet { width: ${result.paperW}mm; height: ${result.paperH}mm; background: #fff; box-shadow: 0 0 12px rgba(0,0,0,0.5); overflow: hidden; }` +
+    `.sheet svg { display: block; width: 100%; height: 100%; }` +
+    `@media print { html, body { background: #fff; } .sheet { box-shadow: none; margin: 0; width: 100%; height: 100%; } }` +
     `</style></head><body><div class="sheet">${result.svg}</div>` +
-    `<script>window.onload=function(){setTimeout(function(){window.print();},250);};</script>` +
+    `<script>window.onload=function(){setTimeout(function(){window.print();},300);};</script>` +
     `</body></html>`;
   win.document.open();
   win.document.write(html);

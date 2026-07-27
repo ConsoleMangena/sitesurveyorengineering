@@ -1,0 +1,209 @@
+#!/usr/bin/env node
+/**
+ * Bundle a GDAL/PROJ runtime for redistribution with the SiteSurveyor desktop app.
+ *
+ * The resulting self-contained folder is bundled as a Tauri resource and loaded
+ * at app start, so end users do not need a system GDAL install (e.g. OSGeo4W).
+ *
+ * Usage:
+ *   GDAL_HOME="C:\OSGeo4W\apps\gdal-dev" node scripts/bundle-gdal.mjs
+ *
+ * Environment:
+ *   GDAL_HOME        GDAL install prefix (with include/gdal.h and lib/) or an
+ *                    OSGeo4W root. Windows example: C:\OSGeo4W\apps\gdal-dev
+ *   BUNDLE_TARGET    Output directory (default: backend/bundled-gdal)
+ */
+
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = resolve(__dirname, "..");
+const BACKEND_DIR = join(ROOT, "backend");
+const DEFAULT_TARGET = join(BACKEND_DIR, "bundled-gdal");
+
+const EXE_EXT = process.platform === "win32" ? ".exe" : "";
+const DEFAULT_SDK_DIR = join(BACKEND_DIR, "gdal-sdk");
+
+function log(...args) {
+  console.log("[bundle-gdal]", ...args);
+}
+
+function fatal(...args) {
+  console.error("[bundle-gdal]", ...args);
+  process.exit(1);
+}
+
+function looksLikeGdalPrefix(path) {
+  return existsSync(join(path, "include", "gdal.h"));
+}
+
+function resolveGdalHome(raw) {
+  const candidate = resolve(raw);
+  if (looksLikeGdalPrefix(candidate)) {
+    return candidate;
+  }
+  const devSub = join(candidate, "apps", "gdal-dev");
+  if (looksLikeGdalPrefix(devSub)) {
+    return devSub;
+  }
+  fatal(
+    `GDAL_HOME (${raw}) does not look like a GDAL prefix (missing include/gdal.h).` +
+      " Set GDAL_HOME to the GDAL install root or the OSGeo4W apps/gdal-dev folder.",
+  );
+}
+
+function resolveOsgeoRoot(prefix) {
+  // If prefix is .../apps/gdal-dev, the OSGeo4W root is two levels up.
+  const normalized = prefix.replace(/\\/g, "/");
+  if (normalized.endsWith("/apps/gdal-dev")) {
+    return resolve(prefix, "..", "..");
+  }
+  return prefix;
+}
+
+function gatherBinDirs(prefix, root) {
+  const dirs = [];
+  const prefixBin = join(prefix, "bin");
+  if (existsSync(prefixBin)) {
+    dirs.push(prefixBin);
+  }
+  const rootBin = join(root, "bin");
+  if (existsSync(rootBin) && resolve(rootBin) !== resolve(prefixBin)) {
+    dirs.push(rootBin);
+  }
+  return dirs;
+}
+
+function copyBinaries(sourceDirs, targetBin) {
+  const copied = [];
+  mkdirSync(targetBin, { recursive: true });
+  for (const dir of sourceDirs) {
+    for (const entry of readdirSync(dir)) {
+      const src = join(dir, entry);
+      const stat = statSync(src);
+      if (!stat.isFile()) continue;
+      const lower = entry.toLowerCase();
+      const isLib = lower.endsWith(".dll") || lower.endsWith(".so") || lower.endsWith(".dylib");
+      const isExe = process.platform === "win32"
+        ? lower.endsWith(".exe")
+        : (stat.mode & 0o111) !== 0;
+      if (!isLib && !isExe) continue;
+      const dst = join(targetBin, entry);
+      if (existsSync(dst)) {
+        log(`  skipping duplicate ${entry}`);
+        continue;
+      }
+      copyFileSync(src, dst);
+      copied.push(entry);
+    }
+  }
+  log(`copied ${copied.length} binaries to ${targetBin}`);
+}
+
+function copyDataDirs(roots, targetShare) {
+  mkdirSync(targetShare, { recursive: true });
+  for (const root of roots) {
+    for (const name of ["gdal", "proj"]) {
+      const src = join(root, "share", name);
+      if (!existsSync(src)) continue;
+      const dst = join(targetShare, name);
+      if (existsSync(dst)) continue;
+      copyRecursive(src, dst);
+      log(`copied data: ${src} -> ${dst}`);
+    }
+  }
+}
+
+function copyRecursive(src, dst) {
+  const stat = statSync(src);
+  if (stat.isDirectory()) {
+    mkdirSync(dst, { recursive: true });
+    for (const entry of readdirSync(src)) {
+      copyRecursive(join(src, entry), join(dst, entry));
+    }
+  } else {
+    mkdirSync(dirname(dst), { recursive: true });
+    copyFileSync(src, dst);
+  }
+}
+
+function verifyBundle(target) {
+  const exe = join(target, "bin", `gdalinfo${EXE_EXT}`);
+  if (!existsSync(exe)) {
+    fatal(
+      `gdalinfo not found in bundle (${exe}). ` +
+        "The source GDAL_HOME may be missing runtime binaries.",
+    );
+  }
+  const result = spawnSync(exe, ["--version"], {
+    encoding: "utf8",
+    shell: false,
+    timeout: 30000,
+    cwd: join(target, "bin"),
+  });
+  if (result.status !== 0 || !result.stdout) {
+    fatal(
+      `gdalinfo --version failed in bundle:\n${result.stderr || result.error || result.stdout || ""}`,
+    );
+  }
+  const version = result.stdout.trim();
+  log(`verified bundle: ${version}`);
+  return version;
+}
+
+function writeManifest(target, prefix, root, version) {
+  const manifest = {
+    bundledAt: new Date().toISOString(),
+    platform: process.platform,
+    sourcePrefix: prefix,
+    sourceRoot: root,
+    gdalinfoVersion: version,
+  };
+  writeFileSync(join(target, "MANIFEST.json"), JSON.stringify(manifest, null, 2));
+}
+
+function main() {
+  let gdalHome = process.env.GDAL_HOME;
+  if (!gdalHome && looksLikeGdalPrefix(DEFAULT_SDK_DIR)) {
+    gdalHome = DEFAULT_SDK_DIR;
+  }
+  if (!gdalHome) {
+    fatal(
+      "GDAL_HOME is not set and no downloaded SDK was found.\n\n" +
+        "Either install GDAL manually and set GDAL_HOME:\n" +
+        "  Windows (PowerShell): $env:GDAL_HOME = 'C:\\OSGeo4W\\apps\\gdal-dev'\n" +
+        "  macOS:                export GDAL_HOME=/opt/homebrew/opt/gdal\n" +
+        "  Linux:                export GDAL_HOME=/usr\n\n" +
+        "Or download a Windows SDK automatically:\n" +
+        "  npm run download:gdal",
+    );
+  }
+
+  const prefix = resolveGdalHome(gdalHome);
+  const root = resolveOsgeoRoot(prefix);
+  const target = process.env.BUNDLE_TARGET ? resolve(process.env.BUNDLE_TARGET) : DEFAULT_TARGET;
+
+  log(`source prefix: ${prefix}`);
+  log(`source root:   ${root}`);
+  log(`target:        ${target}`);
+
+  rmSync(target, { recursive: true, force: true });
+  mkdirSync(join(target, "bin"), { recursive: true });
+
+  const binDirs = gatherBinDirs(prefix, root);
+  if (binDirs.length === 0) {
+    fatal("No GDAL bin directories found.");
+  }
+  copyBinaries(binDirs, join(target, "bin"));
+  copyDataDirs([prefix, root], join(target, "share"));
+
+  const version = verifyBundle(target);
+  writeManifest(target, prefix, root, version);
+
+  log(`bundle ready at ${target}`);
+}
+
+main();

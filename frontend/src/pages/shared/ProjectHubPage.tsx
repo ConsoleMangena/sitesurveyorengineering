@@ -18,6 +18,8 @@ import {
   CheckCircle2,
   Archive,
   User,
+  FileText,
+  FolderOpen,
 } from 'lucide-react'
 
 import '../../styles/project-hub.css'
@@ -27,14 +29,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import {
   Select,
   SelectContent,
@@ -54,6 +48,7 @@ import { ResponsiveTable } from '@/components/ui/responsive-table'
 import { DashboardShell, DashboardHeader } from '@/components/dashboard/DashboardShell.tsx'
 import { DashboardCard } from '@/components/dashboard/DashboardCard.tsx'
 import { KpiCard } from '@/components/dashboard/KpiCard.tsx'
+import { DialogTemplate } from '@/components/templates/DialogTemplate.tsx'
 
 import {
   createProject,
@@ -73,12 +68,29 @@ import { listAssets, updateAsset, type AssetRow } from '../../lib/repositories/a
 import PageLoader from '../../components/PageLoader.tsx'
 import { listOrganizations, createOrganization } from '../../lib/repositories/organizations.ts'
 import type { OrganizationRow } from '../../lib/repositories/organizations.ts'
-import { mapProjectRowToHubProject, type UiHubProject } from '../../lib/mappers.ts'
+import { mapProjectRowToHubProject, type CrsType, type UiHubProject } from '../../lib/mappers.ts'
 import { inviteWorkspaceMember } from '../../lib/repositories/invitations.ts'
-import { getMyWorkspaceMembership, getWorkspaceById } from '../../lib/repositories/workspaces.ts'
+import { getMyWorkspaceMembership } from '../../lib/repositories/workspaces.ts'
 import { canManageProjects, canManageTeam } from '../../lib/permissions.ts'
 import { ProjectDashboard } from '../../features/projects/components/ProjectDashboard.tsx'
 import { ProjectSettings } from '../../features/projects/components/ProjectSettings.tsx'
+import { ProjectPointsManager } from '../../features/projects/components/ProjectPointsManager.tsx'
+import { ProjectOutputsManager } from '../../features/projects/components/ProjectOutputsManager.tsx'
+import { ProjectFilesManager } from '../../features/projects/components/ProjectFilesManager.tsx'
+import { useProjectPoints } from '../../features/projects/tools/calculators/projectPoints.ts'
+import { useAsyncAction } from '../../hooks/useAsyncAction.ts'
+import {
+  readCachedActivities,
+  writeCachedActivities,
+  readActivityQueue,
+  writeActivityQueue,
+  clearActivityQueue,
+  mergeActivities,
+  buildPendingActivity,
+  queueActivityCreate,
+  queueActivityDelete,
+  type ActivityWithMeta,
+} from '../../lib/activityCache.ts'
 
 // CAD workspace is heavy (Three.js + WASM geometry) and only needed on desktop.
 // Lazy-load it so mobile builds can strip it out, and it never affects the
@@ -88,6 +100,7 @@ const CadWorkspace = lazy(() =>
     default: mod.CadWorkspace,
   })),
 )
+
 import {
   PROJECT_TOOLS,
   PROJECT_TOOLS_BY_ID,
@@ -100,7 +113,7 @@ import {
 } from '../../features/projects/tools/toolRegistry.ts'
 import { CalculatorHost } from '../../features/projects/tools/calculators/CalculatorHost.tsx'
 import { getProjectMetrics, type ProjectMetrics } from '../../lib/repositories/projectMetrics.ts'
-import { hasFeature, CAD_FEATURE_KEY } from '../../lib/repositories/features.ts'
+import { isCadPlatformSupported } from '../../lib/platform.ts'
 
 export type HubProject = UiHubProject
 
@@ -111,10 +124,22 @@ interface ProjectHubPageProps {
   onExitFullscreenProject?: () => void
 }
 
+type ProjectTab = 'overview' | 'points' | 'files' | 'surveySetup' | 'geodesy' | 'fieldData' | 'drafting' | 'outputs' | 'settings'
+
 const ACTIVE_PROJECT_KEY = 'sitesurveyorActiveProjectId'
+const ACTIVE_PROJECT_TAB_KEY = 'sitesurveyorActiveProjectTab'
+const ACTIVE_WORKSPACE_VIEW_KEY = 'sitesurveyorActiveWorkspaceView'
 const RECENT_TOOLS_KEY = 'sitesurveyorRecentProjectTools'
 
-type ProjectTab = 'overview' | 'surveySetup' | 'geodesy' | 'fieldData' | 'drafting' | 'settings'
+const VALID_TABS: ProjectTab[] = ['overview', 'points', 'files', 'surveySetup', 'geodesy', 'fieldData', 'drafting', 'outputs', 'settings']
+
+function isValidProjectTab(value: string | null): value is ProjectTab {
+  return VALID_TABS.includes(value as ProjectTab)
+}
+
+function isValidWorkspaceView(value: string | null): value is 'project' | 'cad' {
+  return value === 'project' || value === 'cad'
+}
 
 const TAB_TO_CATEGORY: Record<string, ToolCategory> = {
   surveySetup: 'Survey Setup',
@@ -133,11 +158,26 @@ const statusBadgeVariant: Record<string, BadgeProps['variant']> = {
 
 const tabIcons: Record<ProjectTab, React.ReactNode> = {
   overview: <LayoutGrid size={17} />,
+  points: <MapPin size={17} />,
+  files: <FolderOpen size={17} />,
   surveySetup: <Crosshair size={17} />,
   geodesy: <Calculator size={17} />,
   fieldData: <MapPin size={17} />,
   drafting: <PenTool size={17} />,
+  outputs: <FileText size={17} />,
   settings: <Settings size={17} />,
+}
+
+const tabLabels: Record<ProjectTab, string> = {
+  overview: 'Overview',
+  points: 'Coordinates',
+  files: 'Files',
+  surveySetup: 'Survey Setup',
+  geodesy: 'COGO & Computation',
+  fieldData: 'Field Data',
+  drafting: 'Drafting',
+  outputs: 'Outputs',
+  settings: 'Settings',
 }
 
 export default function ProjectHubPage({ userName, workspaceId, onEnterFullscreenProject, onExitFullscreenProject }: ProjectHubPageProps) {
@@ -155,13 +195,19 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
   const [assignEmail, setAssignEmail] = useState('')
   const [assigningMember, setAssigningMember] = useState(false)
   const [myRole, setMyRole] = useState<'owner' | 'admin' | 'ops_manager' | 'finance' | 'sales' | 'technician' | 'viewer' | null>(null)
-  const [workspaceType, setWorkspaceType] = useState<'personal' | 'business' | null>(null)
   const [activeProjectId, setActiveProjectId] = useState<string | null>(() => localStorage.getItem(ACTIVE_PROJECT_KEY))
-  const [activeProjectTab, setActiveProjectTab] = useState<ProjectTab>('overview')
-  const [activeWorkspaceView, setActiveWorkspaceView] = useState<'project' | 'cad'>('project')
+  const [activeProjectTab, setActiveProjectTab] = useState<ProjectTab>(() => {
+    const raw = localStorage.getItem(ACTIVE_PROJECT_TAB_KEY)
+    return isValidProjectTab(raw) ? raw : 'overview'
+  })
   const [activeCalcTool, setActiveCalcTool] = useState<CalcToolId | null>(null)
+  const [activeWorkspaceView, setActiveWorkspaceView] = useState<'project' | 'cad'>(() => {
+    const raw = localStorage.getItem(ACTIVE_WORKSPACE_VIEW_KEY)
+    if (!isValidWorkspaceView(raw)) return 'project'
+    if (raw === 'cad' && !isCadPlatformSupported()) return 'project'
+    return raw
+  })
   const [deployedAssets, setDeployedAssets] = useState<AssetRow[]>([])
-  const [cadEntitled, setCadEntitled] = useState(false)
   const [metrics, setMetrics] = useState<ProjectMetrics | null>(null)
 
   const { projects: projectRows, refresh: refreshProjectRows } = useProjects(workspaceId)
@@ -171,10 +217,18 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
   const [editOrgId, setEditOrgId] = useState('')
   const [editPhase, setEditPhase] = useState('')
   const [editDatum, setEditDatum] = useState('')
+  const [editAxisConvention, setEditAxisConvention] = useState<'yx' | 'xy'>('yx')
+  const [editCrsType, setEditCrsType] = useState<CrsType>('local')
+  const [editCrsEpsg, setEditCrsEpsg] = useState('')
+  const [editLocalOriginE, setEditLocalOriginE] = useState('0')
+  const [editLocalOriginN, setEditLocalOriginN] = useState('0')
+  const [editBearingFormat, setEditBearingFormat] = useState('azimuth')
+  const [editAngleEntry, setEditAngleEntry] = useState('packed')
+  const [editCoordDecimals, setEditCoordDecimals] = useState('3')
   const [editStatus, setEditStatus] = useState('')
   const [editDesc, setEditDesc] = useState('')
 
-  const [activities, setActivities] = useState<ProjectActivity[]>([])
+  const [activities, setActivities] = useState<ActivityWithMeta[]>([])
   const [newActivityText, setNewActivityText] = useState('')
   const [submittingActivity, setSubmittingActivity] = useState(false)
   const [deletingActivityId, setDeletingActivityId] = useState<string | null>(null)
@@ -197,14 +251,13 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
   const [projectMobileMenuOpen, setProjectMobileMenuOpen] = useState(false)
 
   const projectTabs = useMemo<ProjectTab[]>(() => {
-    return (['overview', 'surveySetup', 'geodesy', 'fieldData', 'drafting', 'settings'] as ProjectTab[]).filter((tab) => {
-      if (tab === 'overview' || tab === 'settings') return true
+    return (['overview', 'points', 'files', 'surveySetup', 'geodesy', 'fieldData', 'drafting', 'outputs', 'settings'] as ProjectTab[]).filter((tab) => {
+      if (tab === 'overview' || tab === 'points' || tab === 'files' || tab === 'outputs' || tab === 'settings') return true
       const cat = TAB_TO_CATEGORY[tab]
       return NON_CAD_TOOLS.some(t => t.category === cat && t.behavior.kind !== 'soon')
     })
   }, [])
   const [toolSearchQuery, setToolSearchQuery] = useState('')
-  const [toolFilter, setToolFilter] = useState<'all' | 'free'>('all')
   const [recentToolIds, setRecentToolIds] = useState<string[]>(() => {
     const raw = localStorage.getItem(RECENT_TOOLS_KEY)
     if (!raw) return []
@@ -223,11 +276,16 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
   }, [activeProjectId])
 
   useEffect(() => {
+    localStorage.setItem(ACTIVE_PROJECT_TAB_KEY, activeProjectTab)
+  }, [activeProjectTab])
+
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_WORKSPACE_VIEW_KEY, activeWorkspaceView)
+  }, [activeWorkspaceView])
+
+  useEffect(() => {
     let cancelled = false
-    if (!activeProjectId) {
-      setDeployedAssets([])
-      return
-    }
+    if (!activeProjectId) return
     const activeProjectName = projects.find(p => p.dbId === activeProjectId || p.id === activeProjectId)?.name
     listAssets(workspaceId).then((allAssets) => {
       if (cancelled) return
@@ -274,12 +332,8 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
       const orgs = await listOrganizations(workspaceId)
       setOrganizations(orgs)
 
-      const [membership, workspace] = await Promise.all([
-        getMyWorkspaceMembership(workspaceId),
-        getWorkspaceById(workspaceId),
-      ])
+      const membership = await getMyWorkspaceMembership(workspaceId)
       setMyRole((membership?.role ?? null) as typeof myRole)
-      setWorkspaceType(workspace?.type ?? null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load projects.')
     } finally {
@@ -287,15 +341,7 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
     }
   }, [workspaceId, refreshProjectRows])
 
-  useEffect(() => { void fetchProjects() }, [fetchProjects])
-
-  useEffect(() => {
-    let cancelled = false
-    hasFeature(workspaceId, CAD_FEATURE_KEY)
-      .then((ok) => { if (!cancelled) setCadEntitled(ok) })
-      .catch(() => { if (!cancelled) setCadEntitled(false) })
-    return () => { cancelled = true }
-  }, [workspaceId])
+  useAsyncAction(fetchProjects, [fetchProjects])
 
   useEffect(() => {
     localStorage.setItem(RECENT_TOOLS_KEY, JSON.stringify(recentToolIds))
@@ -303,20 +349,12 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
 
   const activeProject = activeProjectId ? projects.find(p => p.dbId === activeProjectId || p.id === activeProjectId) ?? null : null
 
-  useEffect(() => {
-    if (!activeProjectId) return
-    if (!activeProject) setActiveProjectId(null)
-  }, [activeProject, activeProjectId])
+  const effectiveWorkspaceView = activeProject ? activeWorkspaceView : 'project'
 
-  useEffect(() => {
-    if (!activeProject) setActiveWorkspaceView('project')
-  }, [activeProject])
-
-  useEffect(() => {
-    if (!projectTabs.includes(activeProjectTab)) {
-      setActiveProjectTab('overview')
-    }
-  }, [projectTabs, activeProjectTab])
+  const effectiveProjectTab = useMemo<ProjectTab>(
+    () => (projectTabs.includes(activeProjectTab) ? activeProjectTab : 'overview'),
+    [projectTabs, activeProjectTab],
+  )
 
   const filteredProjects = projects.filter((p) => {
     if (activeFilter === 'Active' && p.status !== 'Active') return false
@@ -342,7 +380,7 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
   }
 
   const canEditProjects = canManageProjects(myRole)
-  const canInviteProjectMembers = canManageTeam(myRole, workspaceType)
+  const canInviteProjectMembers = canManageTeam(myRole)
 
   const recentTools = useMemo(() => {
     return recentToolIds
@@ -387,9 +425,61 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
 
   const fetchActivities = useCallback(async () => {
     if (!activeProjectId) return
-    const logs = await listProjectActivities(activeProjectId)
-    setActivities(logs)
+
+    const cached = readCachedActivities(activeProjectId)
+    const queue = readActivityQueue(activeProjectId)
+
+    if (!navigator.onLine) {
+      setActivities(mergeActivities(activeProjectId, cached, queue))
+      return
+    }
+
+    try {
+      const remote = await listProjectActivities(activeProjectId)
+      writeCachedActivities(activeProjectId, remote.map((a) => ({ ...a, queued: false })))
+      setActivities(mergeActivities(activeProjectId, remote, queue))
+    } catch (err) {
+      // Use the locally cached timeline if the server cannot be reached.
+      setActivities(mergeActivities(activeProjectId, cached, queue))
+      if (navigator.onLine) {
+        setError(err instanceof Error ? err.message : 'Failed to load activity timeline.')
+      }
+    }
   }, [activeProjectId])
+
+  const flushActivityQueue = useCallback(async () => {
+    if (!activeProjectId || !navigator.onLine) return
+    const queue = readActivityQueue(activeProjectId)
+    if (queue.creates.length === 0 && queue.deletes.length === 0) return
+
+    for (const id of queue.deletes) {
+      try {
+        await deleteProjectActivity(id)
+      } catch {
+        // Ignore deletes that have already been removed by another client.
+      }
+    }
+    queue.deletes = []
+
+    while (queue.creates.length > 0) {
+      const create = queue.creates[0]
+      try {
+        await createProjectActivity(activeProjectId, create.content, create.type)
+      } catch (err) {
+        // Leave the remaining queue in place and stop flushing; the next online
+        // event or refresh will retry.
+        writeActivityQueue(activeProjectId, queue)
+        if (navigator.onLine) {
+          setError(err instanceof Error ? err.message : 'Failed to sync activity.')
+        }
+        return
+      }
+      queue.creates.shift()
+    }
+
+    clearActivityQueue(activeProjectId)
+    await fetchActivities()
+  }, [activeProjectId, fetchActivities])
 
   const fetchMetrics = useCallback(async () => {
     if (!activeProjectId) {
@@ -400,19 +490,39 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
     setMetrics(m)
   }, [activeProjectId])
 
+  useAsyncAction(fetchActivities, [fetchActivities])
+  useAsyncAction(fetchMetrics, [fetchMetrics])
+
+  // Flush any offline activity mutations when the browser comes back online.
   useEffect(() => {
-    if (activeProject) {
+    const handleOnline = () => {
+      void flushActivityQueue()
+    }
+    window.addEventListener('online', handleOnline)
+    return () => window.removeEventListener('online', handleOnline)
+  }, [flushActivityQueue])
+
+  useEffect(() => {
+    if (!activeProject) return
+    const id = window.setTimeout(() => {
       setEditName(activeProject.name)
       setEditClient(activeProject.client)
       setEditOrgId(activeProject.organizationId ?? '')
       setEditPhase(activeProject.phase)
       setEditDatum(activeProject.datum)
+      setEditAxisConvention(activeProject.axisConvention === 'xy' ? 'xy' : 'yx')
+      setEditCrsType(activeProject.crsType)
+      setEditCrsEpsg(activeProject.crsEpsg)
+      setEditLocalOriginE(String(activeProject.localOriginE ?? 0))
+      setEditLocalOriginN(String(activeProject.localOriginN ?? 0))
+      setEditBearingFormat(activeProject.bearingFormat || 'azimuth')
+      setEditAngleEntry(activeProject.angleEntry || 'packed')
+      setEditCoordDecimals(String(activeProject.coordDecimals ?? 3))
       setEditStatus(activeProject.status)
       setEditDesc(activeProject.description)
-      void fetchActivities()
-      void fetchMetrics()
-    }
-  }, [activeProject, fetchActivities, fetchMetrics])
+    }, 0)
+    return () => window.clearTimeout(id)
+  }, [activeProject])
 
   const handleUpdateProject = async () => {
     if (!activeProject) return
@@ -423,6 +533,14 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
         organization_id: editOrgId || null,
         phase: editPhase,
         datum: editDatum,
+        axis_convention: editAxisConvention,
+        crs_type: editCrsType,
+        crs_epsg: editCrsType === 'projected' ? (editCrsEpsg || null) : null,
+        local_origin_e: editCrsType === 'local' ? (parseFloat(editLocalOriginE) || 0) : 0,
+        local_origin_n: editCrsType === 'local' ? (parseFloat(editLocalOriginN) || 0) : 0,
+        bearing_format: editBearingFormat || 'azimuth',
+        angle_entry: editAngleEntry || 'packed',
+        coord_decimals: Math.min(6, Math.max(0, Math.round(parseInt(editCoordDecimals, 10) || 3))),
         status: editStatus.toLowerCase().replace(/ /g, '_') as ProjectUpdate['status'],
         description: editDesc,
       })
@@ -439,12 +557,31 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
     e.preventDefault()
     if (!newActivityText.trim() || !activeProjectId) return
     setSubmittingActivity(true)
+
     try {
-      await createProjectActivity(activeProjectId, newActivityText, 'note')
+      if (!navigator.onLine) {
+        const tempId = window.crypto.randomUUID()
+        const pending = buildPendingActivity(
+          activeProjectId,
+          tempId,
+          newActivityText.trim(),
+          'note',
+          userName,
+        )
+        const currentCache = readCachedActivities(activeProjectId)
+        setActivities((prev) => [pending, ...prev])
+        writeCachedActivities(activeProjectId, [pending, ...currentCache])
+        queueActivityCreate(activeProjectId, tempId, pending.content, 'note', userName)
+        setNewActivityText('')
+        setNotice({ type: 'info', message: 'Note saved locally and will sync when online.' })
+        return
+      }
+
+      await createProjectActivity(activeProjectId, newActivityText.trim(), 'note')
       setNewActivityText('')
       await fetchActivities()
     } catch (err) {
-      console.error(err)
+      setError(err instanceof Error ? err.message : 'Failed to add activity.')
     } finally {
       setSubmittingActivity(false)
     }
@@ -452,25 +589,57 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
 
   const handleQuickAction = async (action: string) => {
     if (!activeProjectId) return
+
     try {
+      if (!navigator.onLine) {
+        const tempId = window.crypto.randomUUID()
+        const content = `Executed: ${action}`
+        const pending = buildPendingActivity(
+          activeProjectId,
+          tempId,
+          content,
+          'action',
+          userName,
+        )
+        const currentCache = readCachedActivities(activeProjectId)
+        setActivities((prev) => [pending, ...prev])
+        writeCachedActivities(activeProjectId, [pending, ...currentCache])
+        queueActivityCreate(activeProjectId, tempId, content, 'action', userName)
+        setNotice({ type: 'info', message: `${action} initialized. Action will sync when online.` })
+        return
+      }
+
       await createProjectActivity(activeProjectId, `Executed: ${action}`, 'action')
       await fetchActivities()
       setNotice({ type: 'info', message: `${action} initialized. Action logged to timeline.` })
     } catch (err) {
-      console.error(err)
+      setError(err instanceof Error ? err.message : `Failed to execute ${action}.`)
     }
   }
 
   const handleDeleteActivity = async (activityId: string) => {
+    if (!activeProjectId) return
     const previousActivities = activities
     setDeletingActivityId(activityId)
-    setActivities(prev => prev.filter(activity => activity.id !== activityId))
+    setActivities((prev) => prev.filter((activity) => activity.id !== activityId))
+
+    const trimmedCache = previousActivities.filter((a) => a.id !== activityId)
+    writeCachedActivities(activeProjectId, trimmedCache)
+
+    if (!navigator.onLine) {
+      queueActivityDelete(activeProjectId, activityId)
+      setNotice({ type: 'success', message: 'Activity deleted. Sync will resume when online.' })
+      setDeletingActivityId(null)
+      return
+    }
+
     try {
       await deleteProjectActivity(activityId)
       await fetchActivities()
       setNotice({ type: 'success', message: 'Activity deleted.' })
     } catch (err) {
       setActivities(previousActivities)
+      writeCachedActivities(activeProjectId, previousActivities)
       const message = err instanceof Error ? err.message : 'Failed to delete activity.'
       setError(`${message} If this persists, apply latest Supabase migrations.`)
     } finally {
@@ -478,13 +647,16 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
     }
   }
 
-  const handleDeleteProject = async (dbId: string) => {
+  const handleArchiveProject = async (dbId: string) => {
     try {
       await archiveProject(dbId)
       setSelectedProject(null)
       setShowDeleteConfirm(false)
       setDeleteConfirmText('')
-      if (activeProjectId === dbId) setActiveProjectId(null)
+      if (activeProjectId === dbId) {
+        setActiveProjectId(null)
+        setActiveCalcTool(null)
+      }
       await fetchProjects()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to archive project.')
@@ -507,7 +679,10 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
       setSelectedProject(null)
       setShowPermanentDeleteConfirm(false)
       setDeleteConfirmText('')
-      if (activeProjectId === dbId) setActiveProjectId(null)
+      if (activeProjectId === dbId) {
+        setActiveProjectId(null)
+        setActiveCalcTool(null)
+      }
       await fetchProjects()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete project permanently.')
@@ -518,6 +693,7 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
     setActiveProjectTab('overview')
     setActiveProjectId(p.dbId)
     setActiveWorkspaceView('project')
+    setActiveCalcTool(null)
     onEnterFullscreenProject?.()
     setSelectedProject(null)
     setShowDeleteConfirm(false)
@@ -527,6 +703,7 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
   const exitProject = () => {
     setActiveWorkspaceView('project')
     setActiveProjectId(null)
+    setActiveCalcTool(null)
     onExitFullscreenProject?.()
   }
 
@@ -536,10 +713,8 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
       setNotice({ type: 'info', message: 'Engineering Surveyor CAD requires a larger screen. Please use a tablet or desktop.' })
       return
     }
-    const entitled = await hasFeature(workspaceId, CAD_FEATURE_KEY)
-    setCadEntitled(entitled)
-    if (!entitled) {
-      setNotice({ type: 'info', message: 'The CAD Engine is a subscribable feature. Request access in Marketplace → System Features.' })
+    if (!isCadPlatformSupported()) {
+      setNotice({ type: 'info', message: 'Engineering Surveyor CAD is only available in the Windows desktop app.' })
       return
     }
     setActiveWorkspaceView('cad')
@@ -558,14 +733,6 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
   const handleToolOpen = async (toolId: string) => {
     const tool = PROJECT_TOOLS_BY_ID[toolId]
     if (!tool || !activeProjectId) return
-    if (tool.tier === 'paid' && tool.requiresFeature && !cadEntitled) {
-      const ok = await hasFeature(workspaceId, tool.requiresFeature)
-      setCadEntitled(ok)
-      if (!ok) {
-        setNotice({ type: 'info', message: `${tool.label} requires the CAD Engine. Request access in Marketplace → System Features.` })
-        return
-      }
-    }
     setRecentToolIds(prev => [toolId, ...prev.filter(id => id !== toolId)].slice(0, 8))
     switch (tool.behavior.kind) {
       case 'cad':
@@ -580,11 +747,13 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
     }
   }
 
+  const projectPoints = useProjectPoints(activeProject?.id)
+
   const kpiData = activeProject ? [
     {
-      label: 'Survey Points',
-      value: `${(metrics?.points ?? 0).toLocaleString()}`,
-      sub: 'Points in the CAD drawing',
+      label: 'Coordinates',
+      value: `${projectPoints.points.length.toLocaleString()}`,
+      sub: 'Project control points',
       accentColor: '#3b82f6',
       icon: <Crosshair size={16} />,
     },
@@ -687,7 +856,7 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
       )}
 
       {activeProject ? (
-        <div className={`flex flex-1 overflow-hidden ${projectSidebarCollapsed ? '' : ''} ${activeCalcTool || activeWorkspaceView === 'cad' ? '' : ''}`}>
+        <div className={`flex flex-1 overflow-hidden ${projectSidebarCollapsed ? '' : ''} ${activeCalcTool || effectiveWorkspaceView === 'cad' ? '' : ''}`}>
           {projectMobileMenuOpen && (
             <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setProjectMobileMenuOpen(false)} />
           )}
@@ -708,12 +877,12 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
               {projectTabs.map((tab) => (
                 <Button
                   key={tab}
-                  variant={activeProjectTab === tab ? 'secondary' : 'ghost'}
+                  variant={effectiveProjectTab === tab ? 'secondary' : 'ghost'}
                   className="w-full justify-start gap-2"
                   onClick={() => { setActiveProjectTab(tab); setProjectMobileMenuOpen(false); }}
                 >
                   {tabIcons[tab]}
-                  {!projectSidebarCollapsed && <span className="capitalize">{tab.replace(/([A-Z])/g, ' $1').trim()}</span>}
+                  {!projectSidebarCollapsed && <span>{tabLabels[tab]}</span>}
                 </Button>
               ))}
             </nav>
@@ -726,15 +895,15 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
           </aside>
 
           <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-            {activeWorkspaceView === 'cad' && (
+            {effectiveWorkspaceView === 'cad' && isCadPlatformSupported() && (
               <Suspense fallback={<PageLoader />}>
                 <CadWorkspace activeProject={activeProject} workspaceId={workspaceId} setProjectMobileMenuOpen={setProjectMobileMenuOpen} exitCadWorkspace={exitCadWorkspace} />
               </Suspense>
             )}
             {activeCalcTool && (
-              <CalculatorHost calc={activeCalcTool} onClose={() => setActiveCalcTool(null)} />
+              <CalculatorHost calc={activeCalcTool} activeProject={activeProject} onClose={() => setActiveCalcTool(null)} />
             )}
-            {(activeWorkspaceView !== 'cad' && !activeCalcTool) && (
+            {(effectiveWorkspaceView !== 'cad' && !activeCalcTool) && (
               <div className="flex flex-col gap-4 p-4 sm:p-6">
                 <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                   <div className="flex items-start gap-3 min-w-0">
@@ -751,14 +920,18 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    {import.meta.env.VITE_MOBILE_BUILD !== 'true' && (
-                      <Button size="sm" onClick={openCadWorkspace}>Open Engineering Surveyor CAD</Button>
+                    {isCadPlatformSupported() && (
+                      <Button size="sm" onClick={openCadWorkspace}>Open CAD</Button>
                     )}
                     <Button size="sm" variant="outline" onClick={() => setSelectedProject(activeProject)}>Details</Button>
                   </div>
                 </header>
 
-                {activeProjectTab === 'overview' ? (
+                {effectiveProjectTab === 'points' ? (
+                  <ProjectPointsManager projectId={activeProject?.id} />
+                ) : effectiveProjectTab === 'files' ? (
+                  <ProjectFilesManager projectId={activeProject.dbId} workspaceId={workspaceId} onOpenInCad={openCadWorkspace} />
+                ) : activeProjectTab === 'overview' ? (
                   <ProjectDashboard
                     kpiData={kpiData}
                     activities={activities}
@@ -778,10 +951,11 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
                     handleDeleteActivity={handleDeleteActivity}
                     pinnedTools={PINNED_TOOLS}
                     comingSoonTools={COMING_SOON_TOOLS}
-                    cadEntitled={cadEntitled}
                     onOpenTool={handleToolOpen}
                   />
-                ) : activeProjectTab === 'settings' ? (
+                ) : effectiveProjectTab === 'outputs' ? (
+                  <ProjectOutputsManager projectId={activeProject?.id} workspaceId={workspaceId} />
+                ) : effectiveProjectTab === 'settings' ? (
                   <ProjectSettings
                     activeProject={activeProject}
                     editName={editName}
@@ -794,6 +968,22 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
                     setEditPhase={setEditPhase}
                     editDatum={editDatum}
                     setEditDatum={setEditDatum}
+                    editAxisConvention={editAxisConvention}
+                    setEditAxisConvention={setEditAxisConvention}
+                    editCrsType={editCrsType}
+                    setEditCrsType={setEditCrsType}
+                    editCrsEpsg={editCrsEpsg}
+                    setEditCrsEpsg={setEditCrsEpsg}
+                    editLocalOriginE={editLocalOriginE}
+                    setEditLocalOriginE={setEditLocalOriginE}
+                    editLocalOriginN={editLocalOriginN}
+                    setEditLocalOriginN={setEditLocalOriginN}
+                    editBearingFormat={editBearingFormat}
+                    setEditBearingFormat={setEditBearingFormat}
+                    editAngleEntry={editAngleEntry}
+                    setEditAngleEntry={setEditAngleEntry}
+                    editCoordDecimals={editCoordDecimals}
+                    setEditCoordDecimals={setEditCoordDecimals}
                     editStatus={editStatus}
                     setEditStatus={setEditStatus}
                     editDesc={editDesc}
@@ -820,11 +1010,9 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
                   />
                 ) : (
                   <ToolCategoryView
-                    activeProjectTab={activeProjectTab}
+                    activeProjectTab={effectiveProjectTab}
                     toolSearchQuery={toolSearchQuery}
                     setToolSearchQuery={setToolSearchQuery}
-                    toolFilter={toolFilter}
-                    setToolFilter={setToolFilter}
                     recentTools={recentTools}
                     handleToolOpen={handleToolOpen}
                   />
@@ -845,36 +1033,36 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
             }
           />
 
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-5">
             <KpiCard
               title="All"
               value={String(counts.All)}
               subtext="Active projects"
-              icon={<Layers className="size-3.5" />}
+              icon={<Layers className="size-4" />}
             />
             <KpiCard
               title="Active"
               value={String(counts.Active)}
               subtext="In progress"
-              icon={<Activity className="size-3.5" />}
+              icon={<Activity className="size-4" />}
             />
             <KpiCard
               title="Completed"
               value={String(counts.Completed)}
               subtext="Finished"
-              icon={<CheckCircle2 className="size-3.5" />}
+              icon={<CheckCircle2 className="size-4" />}
             />
             <KpiCard
               title="Mine"
               value={String(counts.Mine)}
               subtext="Assigned to you"
-              icon={<User className="size-3.5" />}
+              icon={<User className="size-4" />}
             />
             <KpiCard
               title="Archived"
               value={String(counts.Archived)}
               subtext="Inactive"
-              icon={<Archive className="size-3.5" />}
+              icon={<Archive className="size-4" />}
             />
           </div>
 
@@ -914,17 +1102,17 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
             </div>
 
             <ResponsiveTable>
-              <Table>
+              <Table className="min-w-[900px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Project</TableHead>
-                    <TableHead className="hidden sm:table-cell">Client</TableHead>
-                  <TableHead className="hidden md:table-cell">Phase</TableHead>
-                  <TableHead className="hidden lg:table-cell">Surveyor</TableHead>
-                  <TableHead className="hidden xl:table-cell">Datum</TableHead>
-                  <TableHead className="text-right hidden sm:table-cell">Points</TableHead>
+                    <TableHead className="min-w-[220px]">Project</TableHead>
+                    <TableHead className="hidden sm:table-cell min-w-[160px]">Client</TableHead>
+                  <TableHead className="hidden md:table-cell w-[120px]">Phase</TableHead>
+                  <TableHead className="hidden lg:table-cell min-w-[140px]">Surveyor</TableHead>
+                  <TableHead className="hidden xl:table-cell min-w-[160px]">Datum</TableHead>
+                  <TableHead className="text-right hidden sm:table-cell w-[90px]">Points</TableHead>
                   <TableHead className="hidden md:table-cell w-48">Progress</TableHead>
-                  <TableHead className="text-right">Status</TableHead>
+                  <TableHead className="text-right w-[100px]">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -940,18 +1128,26 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
                       role="button"
                       aria-label={`Open project ${p.name}`}
                     >
-                      <TableCell>
+                      <TableCell className="align-middle">
                         <div className="flex flex-col">
-                          <span className="font-semibold">{p.name}</span>
+                          <span className="font-semibold truncate max-w-[260px]" title={p.name}>{p.name}</span>
                           <code className="w-fit rounded bg-muted px-1.5 py-0.5 text-xs text-primary font-medium mt-1">{p.id}</code>
                         </div>
                       </TableCell>
-                      <TableCell className="hidden sm:table-cell font-medium">{p.client}</TableCell>
-                      <TableCell className="hidden md:table-cell text-muted-foreground">{p.phase}</TableCell>
-                      <TableCell className="hidden lg:table-cell">{surveyor}</TableCell>
-                      <TableCell className="hidden xl:table-cell text-muted-foreground text-xs">{p.datum}</TableCell>
-                      <TableCell className="text-right hidden sm:table-cell font-mono font-semibold">{p.points.toLocaleString()}</TableCell>
-                      <TableCell className="hidden md:table-cell">
+                      <TableCell className="align-middle hidden sm:table-cell font-medium">
+                        <span className="block truncate max-w-[160px]" title={p.client}>{p.client}</span>
+                      </TableCell>
+                      <TableCell className="align-middle hidden md:table-cell text-muted-foreground">
+                        <span className="block truncate max-w-[120px]" title={p.phase}>{p.phase}</span>
+                      </TableCell>
+                      <TableCell className="align-middle hidden lg:table-cell">
+                        <span className="block truncate max-w-[160px]" title={surveyor}>{surveyor}</span>
+                      </TableCell>
+                      <TableCell className="align-middle hidden xl:table-cell text-muted-foreground text-xs">
+                        <span className="block truncate max-w-[180px]" title={p.datum}>{p.datum}</span>
+                      </TableCell>
+                      <TableCell className="align-middle text-right hidden sm:table-cell font-mono font-semibold">{p.points.toLocaleString()}</TableCell>
+                      <TableCell className="align-middle hidden md:table-cell">
                         <div className="flex items-center gap-2">
                           <div className="h-2 flex-1 rounded-full bg-muted overflow-hidden">
                             <div className="h-full rounded-full bg-primary" style={{ width: `${p.progress}%` }} />
@@ -959,7 +1155,7 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
                           <span className="text-xs font-semibold w-8 text-right">{p.progress}%</span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="align-middle text-right">
                         <Badge variant={statusBadgeVariant[p.status] ?? 'secondary'}>{p.status}</Badge>
                       </TableCell>
                     </TableRow>
@@ -979,221 +1175,227 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
       )}
 
       {/* Assign Team Member */}
-      <Dialog open={showAssignModal} onOpenChange={(open) => { if (!open) setShowAssignModal(false); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Assign Team Member</DialogTitle>
-            <DialogDescription>Invite a technician to this project.</DialogDescription>
-          </DialogHeader>
-          <form
-            className="space-y-4"
-            onSubmit={async (e) => {
-              e.preventDefault()
-              if (!assignEmail || !activeProjectId) return
-              setAssigningMember(true)
-              try {
-                const result = await inviteWorkspaceMember({ workspaceId, email: assignEmail, role: 'technician', projectId: activeProjectId, projectRole: 'member' })
-                setNotice({
-                  type: 'info',
-                  message: result.linkedToProject
-                    ? `${assignEmail} was added to the project and invited to the workspace.`
-                    : `Invitation generated for ${assignEmail}.`,
-                })
-                setShowAssignModal(false)
-                setAssignEmail('')
-                await fetchProjects()
-              } catch (err) {
-                setError(err instanceof Error ? err.message : 'Failed to invite team member.')
-              } finally {
-                setAssigningMember(false)
-              }
-            }}
-          >
-            <div className="space-y-1.5">
-              <Label htmlFor="assign-email">Team Member Email</Label>
-              <Input id="assign-email" type="email" placeholder="surveyor@example.com" value={assignEmail} onChange={e => setAssignEmail(e.target.value)} required autoFocus />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setShowAssignModal(false)}>Cancel</Button>
-              <Button type="submit" disabled={assigningMember}>{assigningMember ? 'Sending...' : 'Send Invitation'}</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <DialogTemplate
+        open={showAssignModal}
+        onOpenChange={(open) => { if (!open) setShowAssignModal(false); }}
+        title="Assign Team Member"
+        description="Invite a technician to this project."
+        size="md"
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => setShowAssignModal(false)}>Cancel</Button>
+            <Button type="submit" form="assign-member-form" disabled={assigningMember}>{assigningMember ? 'Sending...' : 'Send Invitation'}</Button>
+          </>
+        }
+      >
+        <form
+          id="assign-member-form"
+          className="space-y-4"
+          onSubmit={async (e) => {
+            e.preventDefault()
+            if (!assignEmail || !activeProjectId) return
+            setAssigningMember(true)
+            try {
+              const result = await inviteWorkspaceMember({ workspaceId, email: assignEmail, role: 'technician', projectId: activeProjectId, projectRole: 'member' })
+              setNotice({
+                type: 'info',
+                message: result.linkedToProject
+                  ? `${assignEmail} was added to the project and invited to the workspace.`
+                  : `Invitation generated for ${assignEmail}.`,
+              })
+              setShowAssignModal(false)
+              setAssignEmail('')
+              await fetchProjects()
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Failed to invite team member.')
+            } finally {
+              setAssigningMember(false)
+            }
+          }}
+        >
+          <div className="space-y-1.5">
+            <Label htmlFor="assign-email">Team Member Email</Label>
+            <Input id="assign-email" type="email" placeholder="surveyor@example.com" value={assignEmail} onChange={e => setAssignEmail(e.target.value)} required autoFocus />
+          </div>
+        </form>
+      </DialogTemplate>
 
       {/* New Project */}
-      <Dialog open={showNewModal} onOpenChange={(open) => { if (!open) setShowNewModal(false); }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Initialize Project</DialogTitle>
-            <DialogDescription>Create a new project environment.</DialogDescription>
-          </DialogHeader>
-          <form className="space-y-4" onSubmit={handleCreateProject}>
+      <DialogTemplate
+        open={showNewModal}
+        onOpenChange={(open) => { if (!open) setShowNewModal(false); }}
+        title="Initialize Project"
+        description="Create a new project environment."
+        size="lg"
+        footer={
+          <Button type="submit" form="new-project-form" className="w-full sm:w-auto" disabled={saving}>{saving ? 'Creating...' : 'Launch Environment'}</Button>
+        }
+      >
+        <form id="new-project-form" className="space-y-4" onSubmit={handleCreateProject}>
+          <div className="space-y-1.5">
+            <Label htmlFor="new-name">Project Name *</Label>
+            <Input id="new-name" value={newName} onChange={e => setNewName(e.target.value)} required autoFocus />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Client (Organization)</Label>
+            <Select value={newOrgId} onValueChange={(val) => { setNewOrgId(val); if (val) setNewOrgName(''); }}>
+              <SelectTrigger><SelectValue placeholder="Select or create new..." /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Create new...</SelectItem>
+                {organizations.map(org => <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {!newOrgId && (
+              <Input placeholder="Or type a new organization name..." value={newOrgName} onChange={e => setNewOrgName(e.target.value)} className="mt-2" />
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="new-desc">Description</Label>
+            <textarea id="new-desc" value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Project notes, scope, and deliverables..." rows={3} className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[84px] resize-y" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="new-name">Project Name *</Label>
-              <Input id="new-name" value={newName} onChange={e => setNewName(e.target.value)} required autoFocus />
+              <Label htmlFor="new-phase">Phase</Label>
+              <Input id="new-phase" value={newPhase} onChange={e => setNewPhase(e.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <Label>Client (Organization)</Label>
-              <Select value={newOrgId} onValueChange={(val) => { setNewOrgId(val); if (val) setNewOrgName(''); }}>
-                <SelectTrigger><SelectValue placeholder="Select or create new..." /></SelectTrigger>
+              <Label>Datum</Label>
+              <Select value={newDatum} onValueChange={setNewDatum}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Create new...</SelectItem>
-                  {organizations.map(org => <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>)}
+                  <SelectItem value="WGS84 / UTM 36S">WGS84 / UTM 36S</SelectItem>
+                  <SelectItem value="WGS84 / UTM 35S">WGS84 / UTM 35S</SelectItem>
+                  <SelectItem value="Arc 1950">Arc 1950</SelectItem>
+                  <SelectItem value="custom">Custom EPSG...</SelectItem>
                 </SelectContent>
               </Select>
-              {!newOrgId && (
-                <Input placeholder="Or type a new organization name..." value={newOrgName} onChange={e => setNewOrgName(e.target.value)} className="mt-2" />
+              {newDatum === 'custom' && (
+                <Input value={customDatum} onChange={e => setCustomDatum(e.target.value)} placeholder="e.g. EPSG:4326" className="mt-2" autoFocus />
               )}
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="new-desc">Description</Label>
-              <textarea id="new-desc" value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Project notes, scope, and deliverables..." rows={3} className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[84px] resize-y" />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="new-phase">Phase</Label>
-                <Input id="new-phase" value={newPhase} onChange={e => setNewPhase(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Datum</Label>
-                <Select value={newDatum} onValueChange={setNewDatum}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="WGS84 / UTM 36S">WGS84 / UTM 36S</SelectItem>
-                    <SelectItem value="WGS84 / UTM 35S">WGS84 / UTM 35S</SelectItem>
-                    <SelectItem value="Arc 1950">Arc 1950</SelectItem>
-                    <SelectItem value="custom">Custom EPSG...</SelectItem>
-                  </SelectContent>
-                </Select>
-                {newDatum === 'custom' && (
-                  <Input value={customDatum} onChange={e => setCustomDatum(e.target.value)} placeholder="e.g. EPSG:4326" className="mt-2" autoFocus />
-                )}
-              </div>
-            </div>
-            <DialogFooter>
-              <Button type="submit" className="w-full" disabled={saving}>{saving ? 'Creating...' : 'Launch Environment'}</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+          </div>
+        </form>
+      </DialogTemplate>
 
       {/* Project Details */}
-      <Dialog open={selectedProject !== null} onOpenChange={(open) => { if (!open) { setSelectedProject(null); setShowDeleteConfirm(false); setShowPermanentDeleteConfirm(false); setDeleteConfirmText(''); } }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          {selectedProject && (
-            <>
-              <DialogHeader>
-                <DialogTitle>{selectedProject.name}</DialogTitle>
-                <DialogDescription><code className="rounded bg-muted px-1.5 py-0.5 text-xs">{selectedProject.id}</code> · {selectedProject.phase}</DialogDescription>
-              </DialogHeader>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                <div className="rounded-lg border p-3 space-y-1">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Status</span>
-                  <Badge variant={statusBadgeVariant[selectedProject.status] ?? 'secondary'}>{selectedProject.status}</Badge>
-                </div>
-                <div className="rounded-lg border p-3 space-y-1">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Client</span>
-                  <p className="font-medium">{selectedProject.client}</p>
-                </div>
-                <div className="rounded-lg border p-3 space-y-1">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Datum</span>
-                  <p className="font-medium">{selectedProject.datum}</p>
-                </div>
-                <div className="rounded-lg border p-3 space-y-1">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Points</span>
-                  <p className="font-medium">{selectedProject.points.toLocaleString()}</p>
-                </div>
-                <div className="rounded-lg border p-3 space-y-1">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Created</span>
-                  <p className="font-medium">{selectedProject.createdAt}</p>
-                </div>
-                <div className="rounded-lg border p-3 space-y-1">
-                  <span className="text-xs text-muted-foreground uppercase tracking-wide">Last Activity</span>
-                  <p className="font-medium">{selectedProject.lastActivity}</p>
-                </div>
+      <DialogTemplate
+        open={selectedProject !== null}
+        onOpenChange={(open) => { if (!open) { setSelectedProject(null); setShowDeleteConfirm(false); setShowPermanentDeleteConfirm(false); setDeleteConfirmText(''); } }}
+        title={selectedProject?.name ?? "Project Details"}
+        description={selectedProject ? (
+          <span><code className="rounded bg-muted px-1.5 py-0.5 text-xs">{selectedProject.id}</code> · {selectedProject.phase}</span>
+        ) : undefined}
+        size="full"
+        footer={selectedProject && !showPermanentDeleteConfirm && !showDeleteConfirm ? (
+          <>
+            {selectedProject.status === 'Archived' ? (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => handleUnarchiveProject(selectedProject.dbId)}>Restore Project</Button>
+                <Button variant="destructive" onClick={() => setShowPermanentDeleteConfirm(true)}>Delete Forever</Button>
               </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => setShowDeleteConfirm(true)}>Archive Project</Button>
+                <Button variant="destructive" onClick={() => setShowPermanentDeleteConfirm(true)}>Delete Project</Button>
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => { setSelectedProject(null); setShowDeleteConfirm(false); setShowPermanentDeleteConfirm(false); setDeleteConfirmText(''); }}>Close</Button>
+              <Button onClick={() => openProject(selectedProject)}>Open Project</Button>
+            </div>
+          </>
+        ) : undefined}
+      >
+        {selectedProject && (
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+              <div className="rounded-lg border p-3 space-y-1">
+                <span className="text-xs text-muted-foreground uppercase tracking-wide">Status</span>
+                <Badge variant={statusBadgeVariant[selectedProject.status] ?? 'secondary'}>{selectedProject.status}</Badge>
+              </div>
+              <div className="rounded-lg border p-3 space-y-1">
+                <span className="text-xs text-muted-foreground uppercase tracking-wide">Client</span>
+                <p className="font-medium">{selectedProject.client}</p>
+              </div>
+              <div className="rounded-lg border p-3 space-y-1">
+                <span className="text-xs text-muted-foreground uppercase tracking-wide">Datum</span>
+                <p className="font-medium">{selectedProject.datum}</p>
+              </div>
+              <div className="rounded-lg border p-3 space-y-1">
+                <span className="text-xs text-muted-foreground uppercase tracking-wide">Points</span>
+                <p className="font-medium">{selectedProject.points.toLocaleString()}</p>
+              </div>
+              <div className="rounded-lg border p-3 space-y-1">
+                <span className="text-xs text-muted-foreground uppercase tracking-wide">Created</span>
+                <p className="font-medium">{selectedProject.createdAt}</p>
+              </div>
+              <div className="rounded-lg border p-3 space-y-1">
+                <span className="text-xs text-muted-foreground uppercase tracking-wide">Last Activity</span>
+                <p className="font-medium">{selectedProject.lastActivity}</p>
+              </div>
+            </div>
 
+            <div className="space-y-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Progress</span>
+              <div className="flex items-center gap-3">
+                <div className="h-2.5 flex-1 rounded-full bg-muted overflow-hidden">
+                  <div className="h-full rounded-full bg-primary" style={{ width: `${selectedProject.progress}%` }} />
+                </div>
+                <span className="text-sm font-bold w-10 text-right">{selectedProject.progress}%</span>
+              </div>
+            </div>
+
+            {selectedProject.description && (
               <div className="space-y-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Progress</span>
-                <div className="flex items-center gap-3">
-                  <div className="h-2.5 flex-1 rounded-full bg-muted overflow-hidden">
-                    <div className="h-full rounded-full bg-primary" style={{ width: `${selectedProject.progress}%` }} />
-                  </div>
-                  <span className="text-sm font-bold w-10 text-right">{selectedProject.progress}%</span>
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Description</span>
+                <p className="text-sm text-muted-foreground leading-relaxed">{selectedProject.description}</p>
+              </div>
+            )}
+
+            {selectedProject.members.length > 0 && (
+              <div className="space-y-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Team ({selectedProject.members.length})</span>
+                <div className="space-y-2">
+                  {selectedProject.members.map((m, i) => (
+                    <div key={i} className="flex items-center justify-between rounded-lg border p-3 text-sm">
+                      <div>
+                        <p className="font-medium">{m.name}</p>
+                        <p className="text-xs text-muted-foreground">{m.role}</p>
+                      </div>
+                      <Badge variant={m.status === 'active' ? 'success' : 'warning'}>{m.status === 'active' ? 'Active' : 'Pending'}</Badge>
+                    </div>
+                  ))}
                 </div>
               </div>
+            )}
 
-              {selectedProject.description && (
-                <div className="space-y-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Description</span>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{selectedProject.description}</p>
+            {showPermanentDeleteConfirm ? (
+              <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-3">
+                <p className="text-sm font-semibold text-destructive">Are you sure you want to PERMANENTLY DELETE this project?</p>
+                <p className="text-sm text-destructive">This will destroy all related field data. Type <strong>{selectedProject.name}</strong> to confirm.</p>
+                <Input value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} placeholder="Type project name to confirm..." autoFocus />
+                <div className="flex flex-col-reverse sm:flex-row justify-end gap-2">
+                  <Button variant="outline" size="sm" onClick={() => { setShowPermanentDeleteConfirm(false); setDeleteConfirmText(''); }}>Cancel</Button>
+                  <Button size="sm" variant="destructive" disabled={deleteConfirmText !== selectedProject.name} onClick={() => handlePermanentDeleteProject(selectedProject.dbId)}>Delete Project Permanently</Button>
                 </div>
-              )}
-
-              {selectedProject.members.length > 0 && (
-                <div className="space-y-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Team ({selectedProject.members.length})</span>
-                  <div className="space-y-2">
-                    {selectedProject.members.map((m, i) => (
-                      <div key={i} className="flex items-center justify-between rounded-lg border p-3 text-sm">
-                        <div>
-                          <p className="font-medium">{m.name}</p>
-                          <p className="text-xs text-muted-foreground">{m.role}</p>
-                        </div>
-                        <Badge variant={m.status === 'active' ? 'success' : 'warning'}>{m.status === 'active' ? 'Active' : 'Pending'}</Badge>
-                      </div>
-                    ))}
-                  </div>
+              </div>
+            ) : showDeleteConfirm ? (
+              <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-3">
+                <p className="text-sm font-semibold text-destructive">Are you sure you want to archive this project?</p>
+                <p className="text-sm text-destructive">Type <strong>{selectedProject.name}</strong> to confirm.</p>
+                <Input value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} placeholder="Type project name to confirm..." autoFocus />
+                <div className="flex flex-col-reverse sm:flex-row justify-end gap-2">
+                  <Button variant="outline" size="sm" onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(''); }}>Cancel</Button>
+                  <Button size="sm" variant="destructive" disabled={deleteConfirmText !== selectedProject.name} onClick={() => handleArchiveProject(selectedProject.dbId)}>Archive Project</Button>
                 </div>
-              )}
-
-              {showPermanentDeleteConfirm ? (
-                <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-3">
-                  <p className="text-sm font-semibold text-destructive">Are you sure you want to PERMANENTLY DELETE this project?</p>
-                  <p className="text-sm text-destructive">This will destroy all related field data. Type <strong>{selectedProject.name}</strong> to confirm.</p>
-                  <Input value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} placeholder="Type project name to confirm..." autoFocus />
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" size="sm" onClick={() => { setShowPermanentDeleteConfirm(false); setDeleteConfirmText(''); }}>Cancel</Button>
-                    <Button size="sm" variant="destructive" disabled={deleteConfirmText !== selectedProject.name} onClick={() => handlePermanentDeleteProject(selectedProject.dbId)}>Delete Project Permanently</Button>
-                  </div>
-                </div>
-              ) : showDeleteConfirm ? (
-                <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-3">
-                  <p className="text-sm font-semibold text-destructive">Are you sure you want to archive this project?</p>
-                  <p className="text-sm text-destructive">Type <strong>{selectedProject.name}</strong> to confirm.</p>
-                  <Input value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} placeholder="Type project name to confirm..." autoFocus />
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" size="sm" onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(''); }}>Cancel</Button>
-                    <Button size="sm" variant="destructive" disabled={deleteConfirmText !== selectedProject.name} onClick={() => handleDeleteProject(selectedProject.dbId)}>Archive Project</Button>
-                  </div>
-                </div>
-              ) : (
-                <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
-                  {selectedProject.status === 'Archived' ? (
-                    <div className="flex flex-wrap gap-2">
-                      <Button variant="outline" onClick={() => handleUnarchiveProject(selectedProject.dbId)}>Restore Project</Button>
-                      <Button variant="destructive" onClick={() => setShowPermanentDeleteConfirm(true)}>Delete Forever</Button>
-                    </div>
-                  ) : (
-                    <Button variant="destructive" onClick={() => setShowDeleteConfirm(true)}>Archive Project</Button>
-                  )}
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={() => { setSelectedProject(null); setShowDeleteConfirm(false); setShowPermanentDeleteConfirm(false); setDeleteConfirmText(''); }}>Close</Button>
-                    <Button onClick={() => openProject(selectedProject)}>Open Project</Button>
-                  </div>
-                </DialogFooter>
-              )}
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </DialogTemplate>
     </DashboardShell>
   )
 }
-
-type ToolFilter = 'all' | 'free'
 
 function ToolCard({ tool, index, onOpen }: { tool: ProjectTool; index: number; onOpen: (id: string) => void }) {
   const comingSoon = tool.behavior.kind === 'soon'
@@ -1232,9 +1434,9 @@ function ToolCard({ tool, index, onOpen }: { tool: ProjectTool; index: number; o
           <h4 className="text-sm font-semibold truncate">{tool.label}</h4>
           {comingSoon ? (
             <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Soon</Badge>
-          ) : tool.tier === 'free' ? (
+          ) : (
             <Badge variant="success" className="text-[10px] px-1.5 py-0">Free</Badge>
-          ) : null}
+          )}
         </div>
         <p className="text-xs text-muted-foreground line-clamp-2">{tool.description}</p>
       </div>
@@ -1246,16 +1448,12 @@ function ToolCategoryView({
   activeProjectTab,
   toolSearchQuery,
   setToolSearchQuery,
-  toolFilter,
-  setToolFilter,
   recentTools,
   handleToolOpen,
 }: {
   activeProjectTab: ProjectTab
   toolSearchQuery: string
   setToolSearchQuery: (q: string) => void
-  toolFilter: ToolFilter
-  setToolFilter: (f: ToolFilter) => void
   recentTools: ProjectTool[]
   handleToolOpen: (id: string) => void
 }) {
@@ -1268,21 +1466,21 @@ function ToolCategoryView({
     'Drafting & Outputs',
   ]
 
-  const matchesFilter = (t: ProjectTool) => {
-    if (toolFilter === 'free') return t.tier === 'free' && t.behavior.kind !== 'soon'
-    return true
-  }
+  const listableTools = useMemo(
+    () => NON_CAD_TOOLS.filter(t => t.behavior.kind !== 'soon'),
+    [],
+  )
 
-  const matchesQuery = (t: ProjectTool) => {
-    if (!query) return true
-    return `${t.label} ${t.description}`.toLowerCase().includes(query)
-  }
-
-  const listableTools = NON_CAD_TOOLS.filter(t => t.behavior.kind !== 'soon')
-
-  const visible = query
-    ? listableTools.filter(t => matchesFilter(t) && matchesQuery(t))
-    : listableTools.filter(t => t.category === activeCat && matchesFilter(t) && matchesQuery(t))
+  const visible = useMemo(() => {
+    const q = toolSearchQuery.trim().toLowerCase()
+    const matchesQuery = (t: ProjectTool) => {
+      if (!q) return true
+      return `${t.label} ${t.description}`.toLowerCase().includes(q)
+    }
+    return q
+      ? listableTools.filter(t => matchesQuery(t))
+      : listableTools.filter(t => t.category === activeCat && matchesQuery(t))
+  }, [toolSearchQuery, activeCat, listableTools])
 
   const grouped = new Map<ProjectTool['category'], ProjectTool[]>()
   for (const cat of CATEGORY_ORDER) {
@@ -1307,15 +1505,7 @@ function ToolCategoryView({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Filter tools">
-        {(['all', 'free'] as ToolFilter[]).map(f => (
-          <Button key={f} type="button" variant={toolFilter === f ? 'default' : 'outline'} size="sm" onClick={() => setToolFilter(f)}>
-            {f === 'all' ? 'All tools' : 'Free calculators'}
-          </Button>
-        ))}
-      </div>
-
-      {recentTools.length > 0 && !query && toolFilter === 'all' && (
+      {recentTools.length > 0 && !query && (
         <div>
           <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Recently used</h4>
           <div className="flex flex-wrap gap-2">
@@ -1334,9 +1524,50 @@ function ToolCategoryView({
           {Array.from(grouped.entries()).map(([cat, tools]) => (
             <section key={cat} className="mb-5">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">{cat}</h4>
-              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-2" role="list">
-                {tools.map((tool, i) => <ToolCard key={tool.id} tool={tool} index={i} onOpen={handleToolOpen} />)}
-              </div>
+              {cat === 'COGO & Computation' ? (
+                <div className="rounded-md border overflow-hidden">
+                  <Table className="min-w-[640px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[48px] text-center">#</TableHead>
+                        <TableHead className="min-w-[180px]">Tool</TableHead>
+                        <TableHead className="min-w-[240px]">Description</TableHead>
+                        <TableHead className="w-[120px] text-right"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {tools.map((tool, index) => (
+                        <TableRow
+                          key={tool.id}
+                          className="cursor-pointer"
+                          onClick={() => handleToolOpen(tool.id)}
+                        >
+                          <TableCell className="text-center text-sm text-muted-foreground">
+                            {index + 1}
+                          </TableCell>
+                          <TableCell className="align-middle font-medium">
+                            <span className="truncate">{tool.label}</span>
+                          </TableCell>
+                          <TableCell className="align-middle text-muted-foreground">
+                            <span className="block max-w-[280px] truncate" title={tool.description}>
+                              {tool.description}
+                            </span>
+                          </TableCell>
+                          <TableCell className="align-middle text-right">
+                            <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); handleToolOpen(tool.id) }}>
+                              Open
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-2" role="list">
+                  {tools.map((tool, i) => <ToolCard key={tool.id} tool={tool} index={i} onOpen={handleToolOpen} />)}
+                </div>
+              )}
             </section>
           ))}
         </div>

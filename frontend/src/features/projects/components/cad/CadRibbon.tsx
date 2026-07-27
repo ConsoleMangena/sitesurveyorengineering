@@ -1,16 +1,17 @@
 import type { ComponentType } from "react";
 import type { CadToolId } from "./cadModel.ts";
 import {
-  MousePointer2, Move, Hand, Maximize2, ZoomIn, Trash2, MapPin, FileUp,
+  MousePointer2, Move, Hand, Maximize2, ZoomIn, Trash2, MapPin,
   PenLine, Pentagon,
-  Type, Ruler, FileDown, FileText, ClipboardList,
+  Type, Ruler, FileDown, FileText, ClipboardList, FileInput,
   Waves, Undo2, Redo2, Copy,
   Hexagon, Spline, Globe, Scissors,
   Mountain, Layers2, Diff, Printer,
-  Compass, Tag, SquareStack, Workflow, TriangleRight, Crosshair,
+  Compass, Tag, SquareStack, Workflow, Crosshair,
   MountainSnow, Map,
   RotateCcw, Expand, FlipHorizontal, ArrowLeftRight,
   Circle,
+  PaintBucket,
 } from "lucide-react";
 
 export interface RibbonAction {
@@ -77,13 +78,14 @@ const PANELS: Record<string, RibbonPanel[]> = {
         { id: "tool:boundary", label: "Boundary", hint: "Draw closed boundary (B)" },
         { id: "tool:circle", label: "Circle", hint: "Pick centre, then a point on the circumference" },
         { id: "tool:arc", label: "Arc", hint: "Pick start, second, and end points along the arc" },
+        { id: "cmd:hatch", label: "Hatch", hint: "Convert the selected closed boundary into a filled hatch" },
       ],
     },
     {
       label: "Data",
       actions: [
-        { id: "import:csv", label: "Import CSV", hint: "Import points from CSV" },
-        { id: "import:geojson", label: "Import GeoJSON", hint: "Import points & linework from GeoJSON" },
+        { id: "project:points", label: "Project Coordinates", hint: "Select coordinates from the project workspace" },
+        { id: "import:dxf", label: "Import DXF", hint: "Import a DXF file from the workspace files" },
       ],
     },
     {
@@ -189,8 +191,8 @@ const ICON_MAP: Record<string, ComponentType<{ size?: number | string }>> = {
   "tool:dim-linear": Ruler,
   "tool:point": MapPin,
   "tool:control-point": Crosshair,
-  "import:csv": FileUp,
-  "import:geojson": Globe,
+  "project:points": MapPin,
+  "import:dxf": FileInput,
   "geom:hull": Hexagon,
   "geom:simplify": Spline,
   "geom:reproject": Map,
@@ -201,6 +203,7 @@ const ICON_MAP: Record<string, ComponentType<{ size?: number | string }>> = {
   "tool:measure": Ruler,
   "tool:circle": Circle,
   "tool:arc": Spline,
+  "cmd:hatch": PaintBucket,
   "f2f:linework": Workflow,
   "surface:tin": Mountain,
   "surface:tin-breaklines": MountainSnow,

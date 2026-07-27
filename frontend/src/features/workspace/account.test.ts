@@ -11,7 +11,7 @@ import {
 import type { UiUser } from "./types.ts";
 
 describe("workspace account access helpers", () => {
-  it("makes all account features available (no license gating)", () => {
+  it("makes all account features available (no feature gating)", () => {
     expect(getAllowedViews("personal").has("timeTracking")).toBe(true);
     expect(getAllowedViews("business").has("dispatch")).toBe(true);
     expect(getAllowedViews("business").has("team")).toBe(true);

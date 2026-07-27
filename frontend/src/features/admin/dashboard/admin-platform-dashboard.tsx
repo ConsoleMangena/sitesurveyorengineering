@@ -66,30 +66,30 @@ export function AdminPlatformDashboard({
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-12">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:col-span-12">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:col-span-12">
           <KpiCard
             title="Active workspaces"
             value={formatStat(stats.active)}
             subtext={stats.archived > 0 ? `${formatStat(stats.archived)} archived` : "No archived workspaces"}
-            icon={<Briefcase className="size-3.5 text-foreground" />}
+            icon={<Briefcase className="size-4 text-foreground" />}
           />
           <KpiCard
             title="User profiles"
             value={userCount === null ? "—" : formatStat(userCount)}
             subtext="Registered accounts"
-            icon={<Users className="size-3.5 text-foreground" />}
+            icon={<Users className="size-4 text-foreground" />}
           />
           <KpiCard
             title="Personal workspaces"
             value={formatStat(stats.personal)}
             subtext="Individual accounts"
-            icon={<Users className="size-3.5 text-foreground" />}
+            icon={<Users className="size-4 text-foreground" />}
           />
           <KpiCard
             title="Business workspaces"
             value={formatStat(stats.business)}
             subtext="Organizations"
-            icon={<Building2 className="size-3.5 text-foreground" />}
+            icon={<Building2 className="size-4 text-foreground" />}
           />
         </div>
 

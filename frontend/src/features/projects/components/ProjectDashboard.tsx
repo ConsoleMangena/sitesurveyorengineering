@@ -4,7 +4,6 @@ import { Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import { DashboardCard } from '../../../components/dashboard/DashboardCard.tsx';
 import { KpiCard } from '../../../components/dashboard/KpiCard.tsx';
 
@@ -31,7 +30,6 @@ interface ProjectDashboardProps {
   onUndeployAsset?: (assetId: string) => Promise<void>;
   pinnedTools?: ProjectTool[];
   comingSoonTools?: ProjectTool[];
-  cadEntitled?: boolean;
   onOpenTool?: (toolId: string) => void;
 }
 
@@ -65,7 +63,6 @@ export function ProjectDashboard({
   onUndeployAsset,
   pinnedTools = [],
   comingSoonTools = [],
-  cadEntitled = false,
   onOpenTool,
 }: ProjectDashboardProps) {
   return (
@@ -119,7 +116,6 @@ export function ProjectDashboard({
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
             {pinnedTools.map(tool => {
               const Icon = tool.icon;
-              const locked = tool.tier === 'paid' && !cadEntitled;
               const disabled = tool.behavior.kind === 'soon';
               return (
                 <Button
@@ -135,7 +131,6 @@ export function ProjectDashboard({
                   <span className="flex-1 truncate">
                     {tool.label}
                   </span>
-                  {locked && <Badge variant="secondary" className="text-[10px]">CAD</Badge>}
                 </Button>
               );
             })}

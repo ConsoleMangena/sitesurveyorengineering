@@ -1,5 +1,6 @@
 import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
 import { supabase } from "../supabase/client.ts";
+import { clearCachedUser } from "./authCache.ts";
 
 // ── Google OAuth helper ───────────────────────────────────────────────────────
 
@@ -124,6 +125,7 @@ export async function signUpWithEmail(
 }
 
 export async function signOut() {
+  clearCachedUser();
   const { error } = await supabase.auth.signOut();
 
   if (error) {

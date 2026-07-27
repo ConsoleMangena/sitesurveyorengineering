@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Clock, DollarSign, Plus, Search, Trash2 } from "lucide-react";
 import PageLoader from "../../components/PageLoader.tsx";
 import {
@@ -16,17 +16,12 @@ import { Button } from "../../components/ui/button.tsx";
 import { Input } from "../../components/ui/input.tsx";
 import { Label } from "../../components/ui/label.tsx";
 import { Badge } from "../../components/ui/badge.tsx";
-import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card.tsx";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "../../components/ui/dialog.tsx";
+import { Card, CardContent, CardHeader } from "../../components/ui/card.tsx";
+import { DialogTemplate } from "../../components/templates/DialogTemplate.tsx";
 import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx";
 import { Switch } from "../../components/ui/switch.tsx";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import {
   Table,
   TableBody,
@@ -128,14 +123,7 @@ export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps)
     }
   }, [workspaceId]);
 
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
-
-  useEffect(() => {
-    setSearchQuery("");
-    setProjectFilter("all");
-  }, [activeTab]);
+  useAsyncAction(loadData, [loadData]);
 
   const filteredTimeEntries = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -397,40 +385,48 @@ export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps)
               {filteredTimeEntries.length === 0 ? (
                 renderEmptyState()
               ) : (
-                <Table>
+                <Table className="min-w-[720px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Project</TableHead>
-                      <TableHead className="hidden md:table-cell">Task</TableHead>
-                      <TableHead className="hidden md:table-cell">Notes</TableHead>
-                      <TableHead className="text-center">Billable</TableHead>
-                      <TableHead className="text-right">Hours</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead className="w-[100px]">Date</TableHead>
+                      <TableHead className="min-w-[160px]">Project</TableHead>
+                      <TableHead className="hidden md:table-cell min-w-[140px]">Task</TableHead>
+                      <TableHead className="hidden md:table-cell min-w-[180px]">Notes</TableHead>
+                      <TableHead className="text-center w-[80px]">Billable</TableHead>
+                      <TableHead className="text-right w-[80px]">Hours</TableHead>
+                      <TableHead className="text-right w-[80px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredTimeEntries.map((e) => (
                       <TableRow key={e.id}>
-                        <TableCell className="whitespace-nowrap">{e.entry_date}</TableCell>
-                        <TableCell className="font-medium text-foreground">
-                          {e.projects?.name ?? "Internal"}
+                        <TableCell className="align-middle whitespace-nowrap">{e.entry_date}</TableCell>
+                        <TableCell className="align-middle font-medium text-foreground">
+                          <span className="block truncate max-w-[180px]" title={e.projects?.name ?? "Internal"}>
+                            {e.projects?.name ?? "Internal"}
+                          </span>
                         </TableCell>
-                        <TableCell className="hidden md:table-cell">{e.task}</TableCell>
-                        <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
-                          {e.notes ?? "—"}
+                        <TableCell className="align-middle hidden md:table-cell">
+                          <span className="block truncate max-w-[160px]" title={e.task}>
+                            {e.task}
+                          </span>
                         </TableCell>
-                        <TableCell className="text-center">
+                        <TableCell className="align-middle hidden md:table-cell text-sm text-muted-foreground">
+                          <span className="block truncate max-w-[200px]" title={e.notes ?? undefined}>
+                            {e.notes ?? "—"}
+                          </span>
+                        </TableCell>
+                        <TableCell className="align-middle text-center">
                           {e.billable ? (
                             <span className="text-emerald-600">✓</span>
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-right font-semibold">
+                        <TableCell className="align-middle text-right font-semibold whitespace-nowrap">
                           {Number(e.hours).toFixed(2)}
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="align-middle text-right">
                           <Button
                             variant="outline"
                             size="icon"
@@ -452,40 +448,46 @@ export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps)
               {filteredExpenseEntries.length === 0 ? (
                 renderEmptyState()
               ) : (
-                <Table>
+                <Table className="min-w-[720px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Project</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead className="hidden md:table-cell">Vendor/Details</TableHead>
-                      <TableHead className="text-center">Reimbursable</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead className="w-[100px]">Date</TableHead>
+                      <TableHead className="min-w-[160px]">Project</TableHead>
+                      <TableHead className="w-[120px]">Category</TableHead>
+                      <TableHead className="hidden md:table-cell min-w-[180px]">Vendor/Details</TableHead>
+                      <TableHead className="text-center w-[100px]">Reimbursable</TableHead>
+                      <TableHead className="text-right w-[100px]">Amount</TableHead>
+                      <TableHead className="text-right w-[80px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredExpenseEntries.map((e) => (
                       <TableRow key={e.id}>
-                        <TableCell className="whitespace-nowrap">{e.entry_date}</TableCell>
-                        <TableCell className="font-medium text-foreground">
-                          {e.projects?.name ?? "Internal"}
+                        <TableCell className="align-middle whitespace-nowrap">{e.entry_date}</TableCell>
+                        <TableCell className="align-middle font-medium text-foreground">
+                          <span className="block truncate max-w-[180px]" title={e.projects?.name ?? "Internal"}>
+                            {e.projects?.name ?? "Internal"}
+                          </span>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="align-middle whitespace-nowrap">
                           <Badge variant="secondary">{e.category}</Badge>
                         </TableCell>
-                        <TableCell className="hidden md:table-cell">{e.vendor ?? "—"}</TableCell>
-                        <TableCell className="text-center">
+                        <TableCell className="align-middle hidden md:table-cell">
+                          <span className="block truncate max-w-[200px]" title={e.vendor ?? undefined}>
+                            {e.vendor ?? "—"}
+                          </span>
+                        </TableCell>
+                        <TableCell className="align-middle text-center whitespace-nowrap">
                           {e.reimbursable ? (
                             <span className="text-xs font-semibold text-primary">Yes</span>
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-right font-semibold">
+                        <TableCell className="align-middle text-right font-semibold whitespace-nowrap">
                           ${Number(e.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="align-middle text-right">
                           <Button
                             variant="outline"
                             size="icon"
@@ -506,182 +508,180 @@ export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps)
         </CardContent>
       </Card>
 
-      <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
-        <DialogContent className="sm:max-w-[520px]">
-          <DialogHeader>
-            <DialogTitle>{activeTab === "time" ? "Log Time" : "Log Expense"}</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleCreate} className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <DialogTemplate
+        open={showCreateModal}
+        onOpenChange={setShowCreateModal}
+        title={activeTab === "time" ? "Log Time" : "Log Expense"}
+        description="Create a new time or expense entry."
+        size="lg"
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" form="time-expense-form" disabled={submitting}>
+              {submitting ? "Saving..." : "Save"}
+            </Button>
+          </>
+        }
+      >
+        <form id="time-expense-form" onSubmit={handleCreate} className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Date</Label>
+              <Input
+                type="date"
+                value={activeTab === "time" ? timeForm.entry_date : expenseForm.entry_date}
+                onChange={(e) =>
+                  activeTab === "time"
+                    ? setTimeForm((prev) => ({ ...prev, entry_date: e.target.value }))
+                    : setExpenseForm((prev) => ({ ...prev, entry_date: e.target.value }))
+                }
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Project</Label>
+              <select
+                className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-[color,box-shadow] focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-1"
+                value={activeTab === "time" ? timeForm.project_id : expenseForm.project_id}
+                onChange={(e) =>
+                  activeTab === "time"
+                    ? setTimeForm((prev) => ({ ...prev, project_id: e.target.value }))
+                    : setExpenseForm((prev) => ({ ...prev, project_id: e.target.value }))
+                }
+              >
+                <option value="">Internal / Not linked</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {activeTab === "time" ? (
+            <>
               <div className="space-y-2">
-                <Label>Date</Label>
+                <Label>Task</Label>
                 <Input
-                  type="date"
-                  value={activeTab === "time" ? timeForm.entry_date : expenseForm.entry_date}
+                  value={timeForm.task}
                   onChange={(e) =>
-                    activeTab === "time"
-                      ? setTimeForm((prev) => ({ ...prev, entry_date: e.target.value }))
-                      : setExpenseForm((prev) => ({ ...prev, entry_date: e.target.value }))
+                    setTimeForm((prev) => ({ ...prev, task: e.target.value }))
                   }
                   required
                 />
               </div>
-              <div className="space-y-2">
-                <Label>Project</Label>
-                <select
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-[color,box-shadow] focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-1"
-                  value={activeTab === "time" ? timeForm.project_id : expenseForm.project_id}
-                  onChange={(e) =>
-                    activeTab === "time"
-                      ? setTimeForm((prev) => ({ ...prev, project_id: e.target.value }))
-                      : setExpenseForm((prev) => ({ ...prev, project_id: e.target.value }))
-                  }
-                >
-                  <option value="">Internal / Not linked</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {activeTab === "time" ? (
-              <>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
                 <div className="space-y-2">
-                  <Label>Task</Label>
+                  <Label>Hours</Label>
                   <Input
-                    value={timeForm.task}
+                    type="number"
+                    min="0.25"
+                    step="0.25"
+                    value={timeForm.hours}
                     onChange={(e) =>
-                      setTimeForm((prev) => ({ ...prev, task: e.target.value }))
+                      setTimeForm((prev) => ({ ...prev, hours: e.target.value }))
                     }
                     required
                   />
                 </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
-                  <div className="space-y-2">
-                    <Label>Hours</Label>
-                    <Input
-                      type="number"
-                      min="0.25"
-                      step="0.25"
-                      value={timeForm.hours}
-                      onChange={(e) =>
-                        setTimeForm((prev) => ({ ...prev, hours: e.target.value }))
+                <div className="flex items-end pb-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <Switch
+                      checked={timeForm.billable}
+                      onCheckedChange={(checked) =>
+                        setTimeForm((prev) => ({ ...prev, billable: checked }))
                       }
-                      required
                     />
-                  </div>
-                  <div className="flex items-end pb-2">
-                    <label className="flex items-center gap-2 text-sm">
-                      <Switch
-                        checked={timeForm.billable}
-                        onCheckedChange={(checked) =>
-                          setTimeForm((prev) => ({ ...prev, billable: checked }))
-                        }
-                      />
-                      Billable
-                    </label>
-                  </div>
+                    Billable
+                  </label>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Notes</Label>
+                <textarea
+                  className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1"
+                  value={timeForm.notes}
+                  onChange={(e) =>
+                    setTimeForm((prev) => ({ ...prev, notes: e.target.value }))
+                  }
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Category</Label>
+                  <select
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-[color,box-shadow] focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-1"
+                    value={expenseForm.category}
+                    onChange={(e) =>
+                      setExpenseForm((prev) => ({
+                        ...prev,
+                        category: e.target.value as ExpenseCategory,
+                      }))
+                    }
+                  >
+                    {expenseCategories.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Notes</Label>
-                  <textarea
-                    className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1"
-                    value={timeForm.notes}
+                  <Label>Amount</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={expenseForm.amount}
                     onChange={(e) =>
-                      setTimeForm((prev) => ({ ...prev, notes: e.target.value }))
+                      setExpenseForm((prev) => ({ ...prev, amount: e.target.value }))
+                    }
+                    required
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
+                <div className="space-y-2">
+                  <Label>Vendor</Label>
+                  <Input
+                    value={expenseForm.vendor}
+                    onChange={(e) =>
+                      setExpenseForm((prev) => ({ ...prev, vendor: e.target.value }))
                     }
                   />
                 </div>
-              </>
-            ) : (
-              <>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Category</Label>
-                    <select
-                      className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-[color,box-shadow] focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-1"
-                      value={expenseForm.category}
-                      onChange={(e) =>
-                        setExpenseForm((prev) => ({
-                          ...prev,
-                          category: e.target.value as ExpenseCategory,
-                        }))
-                      }
-                    >
-                      {expenseCategories.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Amount</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={expenseForm.amount}
-                      onChange={(e) =>
-                        setExpenseForm((prev) => ({ ...prev, amount: e.target.value }))
-                      }
-                      required
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
-                  <div className="space-y-2">
-                    <Label>Vendor</Label>
-                    <Input
-                      value={expenseForm.vendor}
-                      onChange={(e) =>
-                        setExpenseForm((prev) => ({ ...prev, vendor: e.target.value }))
+                <div className="flex items-end pb-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <Switch
+                      checked={expenseForm.reimbursable}
+                      onCheckedChange={(checked) =>
+                        setExpenseForm((prev) => ({ ...prev, reimbursable: checked }))
                       }
                     />
-                  </div>
-                  <div className="flex items-end pb-2">
-                    <label className="flex items-center gap-2 text-sm">
-                      <Switch
-                        checked={expenseForm.reimbursable}
-                        onCheckedChange={(checked) =>
-                          setExpenseForm((prev) => ({ ...prev, reimbursable: checked }))
-                        }
-                      />
-                      Reimbursable
-                    </label>
-                  </div>
+                    Reimbursable
+                  </label>
                 </div>
-                <div className="space-y-2">
-                  <Label>Notes</Label>
-                  <textarea
-                    className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1"
-                    value={expenseForm.notes}
-                    onChange={(e) =>
-                      setExpenseForm((prev) => ({ ...prev, notes: e.target.value }))
-                    }
-                  />
-                </div>
-              </>
-            )}
-
-            <DialogFooter className="gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowCreateModal(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={submitting}>
-                {submitting ? "Saving..." : "Save"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+              </div>
+              <div className="space-y-2">
+                <Label>Notes</Label>
+                <textarea
+                  className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1"
+                  value={expenseForm.notes}
+                  onChange={(e) =>
+                    setExpenseForm((prev) => ({ ...prev, notes: e.target.value }))
+                  }
+                />
+              </div>
+            </>
+          )}
+        </form>
+      </DialogTemplate>
     </div>
   );
 }

@@ -1,9 +1,8 @@
 /**
- * Shared Supabase helpers for the license Edge Functions.
+ * Shared Supabase helpers for Edge Functions.
  *
- * - `adminClient()` uses the service-role key for privileged reads/writes to
- *   the `licenses` / `license_seats` tables (bypasses RLS; never exposed to
- *   the client).
+ * - `adminClient()` uses the service-role key for privileged reads/writes
+ *   that bypass RLS.
  * - `getCaller()` resolves the authenticated user from the request's
  *   Authorization bearer token.
  */
@@ -24,11 +23,7 @@ export function adminClient(): SupabaseClient {
 export interface Caller {
   id: string;
   email: string | null;
-  /**
-   * Whether the caller's email has been verified by Supabase Auth. Pending
-   * licenses are bound by matching `customer_email`, so binding MUST be
-   * refused for unverified emails.
-   */
+  /** Whether the caller's email has been verified by Supabase Auth. */
   emailConfirmed: boolean;
 }
 

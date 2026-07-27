@@ -60,4 +60,115 @@ describe("modelToDxf", () => {
     // Closed flag group 70 = 1.
     expect(dxf).toMatch(/70\n1\n/);
   });
+
+  it("emits ARC entities for arcs", () => {
+    const model = baseModel();
+    model.arcs.push({
+      id: "a1",
+      center: { n: 10, e: 20 },
+      radius: 5,
+      startAngle: 0,
+      endAngle: 90,
+      layerId: "0",
+    });
+    const dxf = modelToDxf(model);
+    expect(dxf).toContain("ARC");
+    expect(dxf).toMatch(/10\n20\n/);
+    expect(dxf).toMatch(/40\n5\n/);
+  });
+
+  it("emits CIRCLE entities for circles", () => {
+    const model = baseModel();
+    model.circles.push({
+      id: "c1",
+      center: { n: 5, e: 5 },
+      radius: 3,
+      layerId: "0",
+    });
+    const dxf = modelToDxf(model);
+    expect(dxf).toContain("CIRCLE");
+    expect(dxf).toMatch(/10\n5\n/);
+    expect(dxf).toMatch(/40\n3\n/);
+  });
+
+  it("emits ELLIPSE entities for ellipses", () => {
+    const model = baseModel();
+    model.ellipses.push({
+      id: "e1",
+      center: { n: 10, e: 20 },
+      semiMajor: 6,
+      semiMinor: 3,
+      rotation: 30,
+      layerId: "0",
+    });
+    const dxf = modelToDxf(model);
+    expect(dxf).toContain("ELLIPSE");
+    expect(dxf).toContain("AcDbEllipse");
+    expect(dxf).toMatch(/40\n0\.5\n/);
+    expect(dxf).toMatch(/42\n6\.283185/);
+  });
+
+  it("emits a native DIMENSION entity for linear dimensions", () => {
+    const model = baseModel();
+    model.dimensions.push({
+      id: "d1",
+      kind: "linear",
+      text: "12.345",
+      textPosition: { n: 5, e: 5 },
+      defPoints: [{ n: 0, e: 0 }, { n: 10, e: 0 }],
+      layerId: "0",
+    });
+    const dxf = modelToDxf(model);
+    expect(dxf).toContain("DIMENSION");
+    expect(dxf).toContain("12.345");
+    expect(dxf).toMatch(/13\n0\n/);
+    expect(dxf).toMatch(/14\n0\n/);
+  });
+
+  it("falls back to line + label for non-linear dimensions", () => {
+    const model = baseModel();
+    model.dimensions.push({
+      id: "d1",
+      kind: "angular",
+      text: "45°",
+      textPosition: { n: 5, e: 5 },
+      defPoints: [{ n: 0, e: 0 }, { n: 10, e: 0 }, { n: 10, e: 10 }],
+      layerId: "0",
+    });
+    const dxf = modelToDxf(model);
+    expect(dxf).not.toContain("DIMENSION");
+    expect(dxf).toContain("LINE");
+    expect(dxf).toContain("45°");
+  });
+
+  it("emits native HATCH entities", () => {
+    const model = baseModel();
+    model.hatches.push({
+      id: "h1",
+      vertices: [{ n: 0, e: 0 }, { n: 10, e: 0 }, { n: 10, e: 10 }],
+      holes: [],
+      layerId: "0",
+    });
+    const dxf = modelToDxf(model);
+    expect(dxf).toContain("HATCH");
+    expect(dxf).toContain("AcDbHatch");
+    expect(dxf).toMatch(/2\nSOLID\n/);
+    expect(dxf).toMatch(/70\n1\n/);
+    expect(dxf).toMatch(/91\n1\n/);
+  });
+
+  it("emits HATCH with holes as separate polyline loops", () => {
+    const model = baseModel();
+    model.hatches.push({
+      id: "h1",
+      vertices: [{ n: 0, e: 0 }, { n: 10, e: 0 }, { n: 10, e: 10 }, { n: 0, e: 10 }],
+      holes: [[{ n: 3, e: 3 }, { n: 3, e: 7 }, { n: 7, e: 7 }]],
+      layerId: "0",
+    });
+    const dxf = modelToDxf(model);
+    expect(dxf).toContain("HATCH");
+    expect(dxf).toMatch(/91\n2\n/);
+  });
 });
+
+

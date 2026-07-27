@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import {
   Users,
   UserCheck,
@@ -13,19 +13,13 @@ import {
 } from "lucide-react";
 
 import PageLoader from "@/components/PageLoader.tsx";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
 import {
   Select,
   SelectContent,
@@ -44,7 +38,7 @@ import {
 import { ResponsiveTable } from "@/components/ui/responsive-table";
 import { DashboardHeader, DashboardShell } from "@/components/dashboard/DashboardShell.tsx";
 import { MetricStrip } from "@/components/dashboard/MetricStrip.tsx";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+
 
 import { listWorkspaceMembers } from "../../lib/repositories/workspaceMembers.ts";
 import type { WorkspaceMemberWithProfile } from "../../lib/repositories/workspaceMembers.ts";
@@ -53,7 +47,7 @@ import {
   listWorkspaceInvitations,
   type WorkspaceInvitationRow,
 } from "../../lib/repositories/invitations.ts";
-import { getMyWorkspaceMembership, getWorkspaceById } from "../../lib/repositories/workspaces.ts";
+import { getMyWorkspaceMembership } from "../../lib/repositories/workspaces.ts";
 import { canManageTeam } from "../../lib/permissions.ts";
 
 interface TeamPageProps {
@@ -83,20 +77,10 @@ function statusVariant(status: string) {
   }
 }
 
-function avatarColor(seed: string) {
-  const colors = [
-    "#2563eb",
-    "#059669",
-    "#dc2626",
-    "#d97706",
-    "#7c3aed",
-    "#db2777",
-    "#0891b2",
-    "#be123c",
-  ];
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) hash = seed.charCodeAt(i) + ((hash << 5) - hash);
-  return colors[Math.abs(hash) % colors.length];
+function getAvatarUrl(name: string): string {
+  return `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(
+    name,
+  )}&radius=50&backgroundColor=e5e7eb&textColor=111827`;
 }
 
 export default function TeamPage({ workspaceId }: TeamPageProps) {
@@ -110,7 +94,6 @@ export default function TeamPage({ workspaceId }: TeamPageProps) {
   const [membersPage, setMembersPage] = useState(1);
   const [invitesPage, setInvitesPage] = useState(1);
   const [myRole, setMyRole] = useState<string | null>(null);
-  const [workspaceType, setWorkspaceType] = useState<"personal" | "business" | null>(null);
   const [inviteForm, setInviteForm] = useState({
     email: "",
     role: "viewer" as "admin" | "ops_manager" | "finance" | "sales" | "technician" | "viewer",
@@ -125,12 +108,8 @@ export default function TeamPage({ workspaceId }: TeamPageProps) {
       ]);
       setMembers(data);
       setPendingInvitations(invites);
-      const [membership, workspace] = await Promise.all([
-        getMyWorkspaceMembership(workspaceId),
-        getWorkspaceById(workspaceId),
-      ]);
+      const membership = await getMyWorkspaceMembership(workspaceId);
       setMyRole(membership?.role ?? null);
-      setWorkspaceType(workspace?.type ?? null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load team members");
     } finally {
@@ -138,9 +117,7 @@ export default function TeamPage({ workspaceId }: TeamPageProps) {
     }
   }, [workspaceId]);
 
-  useEffect(() => {
-    void fetchMembers();
-  }, [fetchMembers]);
+  useAsyncAction(fetchMembers, [fetchMembers]);
 
   const totalPersonnel = members.length;
   const activeCount = members.filter((m) => m.status === "active").length;
@@ -167,33 +144,22 @@ export default function TeamPage({ workspaceId }: TeamPageProps) {
       | "technician"
       | "viewer"
       | null,
-    workspaceType,
   );
 
   const membersPageSize = 10;
   const invitesPageSize = 8;
   const totalMembersPages = Math.max(1, Math.ceil(filteredMembers.length / membersPageSize));
   const totalInvitesPages = Math.max(1, Math.ceil(pendingInvitations.length / invitesPageSize));
+  const effectiveMembersPage = Math.min(membersPage, totalMembersPages);
+  const effectiveInvitesPage = Math.min(invitesPage, totalInvitesPages);
   const paginatedMembers = filteredMembers.slice(
-    (membersPage - 1) * membersPageSize,
-    membersPage * membersPageSize,
+    (effectiveMembersPage - 1) * membersPageSize,
+    effectiveMembersPage * membersPageSize,
   );
   const paginatedInvitations = pendingInvitations.slice(
-    (invitesPage - 1) * invitesPageSize,
-    invitesPage * invitesPageSize,
+    (effectiveInvitesPage - 1) * invitesPageSize,
+    effectiveInvitesPage * invitesPageSize,
   );
-
-  useEffect(() => {
-    setMembersPage(1);
-  }, [search]);
-
-  useEffect(() => {
-    if (membersPage > totalMembersPages) setMembersPage(totalMembersPages);
-  }, [membersPage, totalMembersPages]);
-
-  useEffect(() => {
-    if (invitesPage > totalInvitesPages) setInvitesPage(totalInvitesPages);
-  }, [invitesPage, totalInvitesPages]);
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -323,13 +289,7 @@ export default function TeamPage({ workspaceId }: TeamPageProps) {
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {paginatedMembers.map((m) => {
-              const initials = (m.full_name ?? m.work_email ?? "?")
-                .split(" ")
-                .map((n) => n[0])
-                .join("")
-                .substring(0, 2)
-                .toUpperCase();
-              const color = avatarColor(m.full_name ?? m.id);
+              const avatarName = m.full_name ?? m.work_email ?? "Unknown";
               return (
                 <Card
                   key={m.id}
@@ -338,11 +298,16 @@ export default function TeamPage({ workspaceId }: TeamPageProps) {
                 >
                   <CardContent className="p-5">
                     <div className="flex items-start justify-between gap-3 mb-3">
-                      <Avatar className="h-10 w-10 border" style={{ background: color }}>
-                        <AvatarFallback className="text-white text-sm font-semibold">
-                          {initials}
-                        </AvatarFallback>
-                      </Avatar>
+                      <img
+                        src={getAvatarUrl(avatarName)}
+                        alt={avatarName}
+                        className="h-10 w-10 rounded-full object-cover border bg-muted"
+                        onError={(e) => {
+                          e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                            avatarName,
+                          )}&background=e5e7eb&color=111827&size=64`;
+                        }}
+                      />
                       <Badge variant={statusVariant(m.status)} className="capitalize">
                         {m.status}
                       </Badge>
@@ -385,18 +350,18 @@ export default function TeamPage({ workspaceId }: TeamPageProps) {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={membersPage <= 1}
+                disabled={effectiveMembersPage <= 1}
                 onClick={() => setMembersPage((p) => Math.max(1, p - 1))}
               >
                 Previous
               </Button>
               <span className="text-sm text-muted-foreground">
-                Page {membersPage} / {totalMembersPages}
+                Page {effectiveMembersPage} / {totalMembersPages}
               </span>
               <Button
                 variant="outline"
                 size="sm"
-                disabled={membersPage >= totalMembersPages}
+                disabled={effectiveMembersPage >= totalMembersPages}
                 onClick={() => setMembersPage((p) => Math.min(totalMembersPages, p + 1))}
               >
                 Next
@@ -413,20 +378,26 @@ export default function TeamPage({ workspaceId }: TeamPageProps) {
           </CardHeader>
           <CardContent className="p-0">
             <ResponsiveTable>
-              <Table>
+              <Table className="min-w-[360px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead className="hidden sm:table-cell">Expires</TableHead>
+                    <TableHead className="min-w-[200px]">Email</TableHead>
+                    <TableHead className="w-[100px]">Role</TableHead>
+                    <TableHead className="hidden sm:table-cell w-[120px]">Expires</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {paginatedInvitations.map((invite) => (
                     <TableRow key={invite.id}>
-                      <TableCell>{invite.email}</TableCell>
-                      <TableCell>{roleLabels[invite.role] ?? invite.role}</TableCell>
-                      <TableCell className="hidden sm:table-cell">
+                      <TableCell className="align-middle">
+                        <span className="block truncate max-w-[220px]" title={invite.email}>
+                          {invite.email}
+                        </span>
+                      </TableCell>
+                      <TableCell className="align-middle whitespace-nowrap">
+                        {roleLabels[invite.role] ?? invite.role}
+                      </TableCell>
+                      <TableCell className="align-middle hidden sm:table-cell whitespace-nowrap">
                         {new Date(invite.expires_at).toLocaleDateString()}
                       </TableCell>
                     </TableRow>
@@ -439,18 +410,18 @@ export default function TeamPage({ workspaceId }: TeamPageProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={invitesPage <= 1}
+                  disabled={effectiveInvitesPage <= 1}
                   onClick={() => setInvitesPage((p) => Math.max(1, p - 1))}
                 >
                   Previous
                 </Button>
                 <span className="text-sm text-muted-foreground">
-                  Page {invitesPage} / {totalInvitesPages}
+                  Page {effectiveInvitesPage} / {totalInvitesPages}
                 </span>
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={invitesPage >= totalInvitesPages}
+                  disabled={effectiveInvitesPage >= totalInvitesPages}
                   onClick={() => setInvitesPage((p) => Math.min(totalInvitesPages, p + 1))}
                 >
                   Next
@@ -461,67 +432,63 @@ export default function TeamPage({ workspaceId }: TeamPageProps) {
         </Card>
       )}
 
-      <Dialog open={showInviteModal} onOpenChange={(open) => !open && setShowInviteModal(false)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Invite Team Member</DialogTitle>
-            <DialogDescription>
-              Send an invitation to join this workspace.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleInvite} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="invite-email">Email</Label>
-              <Input
-                id="invite-email"
-                type="email"
-                value={inviteForm.email}
-                onChange={(e) =>
-                  setInviteForm((prev) => ({ ...prev, email: e.target.value }))
-                }
-                required
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="invite-role">Role</Label>
-              <Select
-                value={inviteForm.role}
-                onValueChange={(val) =>
-                  setInviteForm((prev) => ({
-                    ...prev,
-                    role: val as typeof inviteForm.role,
-                  }))
-                }
-              >
-                <SelectTrigger id="invite-role">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="viewer">Viewer</SelectItem>
-                  <SelectItem value="technician">Technician</SelectItem>
-                  <SelectItem value="sales">Sales</SelectItem>
-                  <SelectItem value="finance">Finance</SelectItem>
-                  <SelectItem value="ops_manager">Ops Manager</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowInviteModal(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={inviting}>
-                {inviting && <Loader2 size={14} className="animate-spin mr-2" />}
-                {inviting ? "Sending..." : "Send Invite"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <DialogTemplate
+        open={showInviteModal}
+        onOpenChange={(open) => !open && setShowInviteModal(false)}
+        title="Invite Team Member"
+        description="Send an invitation to join this workspace."
+        size="md"
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => setShowInviteModal(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" form="team-invite-form" disabled={inviting}>
+              {inviting && <Loader2 size={14} className="animate-spin mr-2" />}
+              {inviting ? "Sending..." : "Send Invite"}
+            </Button>
+          </>
+        }
+      >
+        <form id="team-invite-form" onSubmit={handleInvite} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="invite-email">Email</Label>
+            <Input
+              id="invite-email"
+              type="email"
+              value={inviteForm.email}
+              onChange={(e) =>
+                setInviteForm((prev) => ({ ...prev, email: e.target.value }))
+              }
+              required
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="invite-role">Role</Label>
+            <Select
+              value={inviteForm.role}
+              onValueChange={(val) =>
+                setInviteForm((prev) => ({
+                  ...prev,
+                  role: val as typeof inviteForm.role,
+                }))
+              }
+            >
+              <SelectTrigger id="invite-role" className="w-full">
+                <SelectValue placeholder="Select a role…" />
+              </SelectTrigger>
+              <SelectContent position="popper" sideOffset={4} className="z-[1400]">
+                <SelectItem value="viewer">Viewer</SelectItem>
+                <SelectItem value="technician">Technician</SelectItem>
+                <SelectItem value="sales">Sales</SelectItem>
+                <SelectItem value="finance">Finance</SelectItem>
+                <SelectItem value="ops_manager">Ops Manager</SelectItem>
+                <SelectItem value="admin">Admin</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </form>
+      </DialogTemplate>
     </DashboardShell>
   );
 }

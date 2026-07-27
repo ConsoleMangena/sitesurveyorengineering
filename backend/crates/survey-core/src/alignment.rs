@@ -156,7 +156,7 @@ pub fn stake_horizontal_curve(
         let capped = arc.min(curve.length);
         // Central angle subtended by this arc.
         let theta = capped / curve.radius; // radians
-                                            // Chord from PC and its deflection (half the central angle).
+                                           // Chord from PC and its deflection (half the central angle).
         let chord = 2.0 * curve.radius * (theta / 2.0).sin();
         let defl = (theta / 2.0) * DEG;
         // Chord azimuth = back tangent azimuth rotated by the deflection.
@@ -310,8 +310,16 @@ mod tests {
         assert!((first.arc_from_pc).abs() < 1e-9);
         assert!((first.point.n - c.pc.n).abs() < 1e-6 && (first.point.e - c.pc.e).abs() < 1e-6);
         assert!((last.arc_from_pc - c.length).abs() < 1e-6);
-        assert!((last.point.n - c.pt.n).abs() < 1e-3, "end N {}", last.point.n);
-        assert!((last.point.e - c.pt.e).abs() < 1e-3, "end E {}", last.point.e);
+        assert!(
+            (last.point.n - c.pt.n).abs() < 1e-3,
+            "end N {}",
+            last.point.n
+        );
+        assert!(
+            (last.point.e - c.pt.e).abs() < 1e-3,
+            "end E {}",
+            last.point.e
+        );
     }
 
     #[test]

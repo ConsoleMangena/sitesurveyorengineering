@@ -1545,3 +1545,47 @@ export function circularArc(start: NE, mid: NE, end: NE, segments = 16): NE[] | 
   }
   return points;
 }
+
+export interface CircularArcParams {
+  center: NE;
+  radius: number;
+  startAngle: number;
+  endAngle: number;
+}
+
+/**
+ * Compute the centre, radius and start/end angles (degrees, CCW from the
+ * northing axis) of the circular arc through three planar points.
+ * Returns null if the points are collinear or coincident.
+ */
+export function circularArcParams(start: NE, mid: NE, end: NE): CircularArcParams | null {
+  const d1 = 2 * ((mid.e - start.e) * (end.n - start.n) - (mid.n - start.n) * (end.e - start.e));
+  if (Math.abs(d1) < 1e-12) return null;
+
+  const r1 = mid.e * mid.e + mid.n * mid.n;
+  const r2 = start.e * start.e + start.n * start.n;
+  const r3 = end.e * end.e + end.n * end.n;
+
+  const cenE = ((r1 - r2) * (end.n - start.n) - (r3 - r2) * (mid.n - start.n)) / d1;
+  const cenN = ((mid.e - start.e) * (r3 - r2) - (end.e - start.e) * (r1 - r2)) / d1;
+  const radius = Math.hypot(start.e - cenE, start.n - cenN);
+  if (radius < 1e-9) return null;
+
+  const angle = (p: NE) => Math.atan2(p.e - cenE, p.n - cenN);
+  const a0 = angle(start);
+  const aMid = angle(mid);
+  let aEnd = angle(end);
+
+  let diff = aEnd - a0;
+  while (diff <= -Math.PI) diff += TWO_PI;
+  while (diff > Math.PI) diff -= TWO_PI;
+  let midDiff = aMid - a0;
+  while (midDiff <= -Math.PI) midDiff += TWO_PI;
+  while (midDiff > Math.PI) midDiff -= TWO_PI;
+  if ((diff > 0 && midDiff < 0) || (diff < 0 && midDiff > 0)) {
+    aEnd += diff > 0 ? -TWO_PI : TWO_PI;
+  }
+
+  const toDeg = (rad: number) => rad * (180 / Math.PI);
+  return { center: { n: cenN, e: cenE }, radius, startAngle: toDeg(a0), endAngle: toDeg(aEnd) };
+}

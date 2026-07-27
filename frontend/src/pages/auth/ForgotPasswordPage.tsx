@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { formatAuthUserFacingError } from "../../lib/auth/auth-errors.ts";
 import { requestPasswordReset } from "../../lib/auth/session.ts";
 import { useAuthStore } from "../../lib/auth/auth-store";
+import AuthBackground from "../../components/AuthBackground";
 import { Button } from "../../components/ui/button.tsx";
 import { Input } from "../../components/ui/input.tsx";
 import { Label } from "../../components/ui/label.tsx";
@@ -57,7 +58,8 @@ export default function ForgotPasswordPage() {
 
   return (
     <div className="auth-screen px-4 py-8">
-      <Card className="mx-auto w-full max-w-[380px] auth-animate-card">
+      <AuthBackground />
+      <Card className="mx-auto w-full max-w-[380px] auth-animate-card auth-card-glass">
         <CardHeader className="text-center auth-animate-header">
           <img
             src="/logo.svg"
@@ -76,6 +78,7 @@ export default function ForgotPasswordPage() {
               <Input
                 id="forgot-email"
                 type="email"
+                className="auth-input"
                 placeholder="you@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -95,7 +98,7 @@ export default function ForgotPasswordPage() {
               </Alert>
             )}
 
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
+            <Button type="submit" className="w-full auth-submit" disabled={isSubmitting}>
               {isSubmitting ? "Sending..." : "Send Reset Link"}
             </Button>
           </form>

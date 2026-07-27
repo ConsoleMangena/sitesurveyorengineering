@@ -14,9 +14,7 @@
 //! callers never see a `geo` type.
 
 use crate::Vertex;
-use geo::algorithm::{
-    Area, BoundingRect, Centroid, ConvexHull, Contains, Simplify,
-};
+use geo::algorithm::{Area, BoundingRect, Centroid, Contains, ConvexHull, Simplify};
 use geo::{Coord, LineString, Point, Polygon};
 
 /// Axis-aligned bounding box in N/E.
@@ -67,7 +65,11 @@ pub fn convex_hull(points: &[Vertex]) -> Vec<Vertex> {
     }
     let mp: geo::MultiPoint<f64> = points.iter().map(|v| Point::new(v.e, v.n)).collect();
     let hull = mp.convex_hull();
-    let mut ring: Vec<Vertex> = hull.exterior().points().map(|p| from_coord(p.into())).collect();
+    let mut ring: Vec<Vertex> = hull
+        .exterior()
+        .points()
+        .map(|p| from_coord(p.into()))
+        .collect();
     if ring.len() > 1 && ring.first() == ring.last() {
         ring.pop();
     }

@@ -11,8 +11,184 @@
   min-height: 0;
 }
 
-/* Tool host: a sticky top bar guarantees the "Back to tools" button is always
-   visible for every computation tool, even when scrolled. */
+/* ── True full-screen tool workspace ───────────────────────────────────────
+   Fixed overlay covers the workspace shell + project hub sidebars so a
+   computation tool uses the whole viewport. */
+.svt-workspace {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-muted, var(--bg));
+  color: var(--text);
+  animation: svt-workspace-enter 0.25s ease-out;
+}
+
+@keyframes svt-workspace-enter {
+  0% { opacity: 0; transform: scale(0.985); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.svt-workspace-topbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px max(16px, env(safe-area-inset-right, 0px))
+           12px max(16px, env(safe-area-inset-left, 0px));
+  padding-top: max(12px, env(safe-area-inset-top, 0px));
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.svt-topbar-left,
+.svt-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.svt-topbar-back,
+.svt-topbar-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-h);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  flex: 0 0 auto;
+}
+
+.svt-topbar-back:hover,
+.svt-topbar-icon:hover {
+  background: var(--surface-muted);
+  border-color: var(--border-heavy);
+}
+
+.svt-topbar-back:active,
+.svt-topbar-icon:active {
+  transform: scale(0.96);
+}
+
+.svt-topbar-icon.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.svt-topbar-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.svt-topbar-category {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.svt-topbar-label {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-h);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.svt-topbar-project {
+  display: none;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+  padding: 4px 10px;
+  background: var(--surface-muted);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.svt-topbar-crs {
+  display: none;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--accent);
+  white-space: nowrap;
+  padding: 4px 10px;
+  background: rgba(59, 130, 246, 0.08);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+@media (min-width: 768px) {
+  .svt-topbar-project,
+  .svt-topbar-crs { display: inline-block; }
+}
+
+.svt-about-bar {
+  flex: 0 0 auto;
+  padding: 10px max(16px, env(safe-area-inset-right, 0px))
+           10px max(16px, env(safe-area-inset-left, 0px));
+  background: rgba(59, 130, 246, 0.08);
+  border-bottom: 1px solid var(--border);
+}
+
+.svt-about-bar p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  max-width: 720px;
+}
+
+.svt-workspace-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px max(16px, env(safe-area-inset-right, 0px))
+           max(16px, env(safe-area-inset-bottom, 0px))
+           max(16px, env(safe-area-inset-left, 0px));
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 640px) {
+  .svt-workspace-body { padding: 12px; }
+  .svt-topbar-label { font-size: 15px; }
+  .svt-topbar-back,
+  .svt-topbar-icon { width: 42px; height: 42px; }
+}
+
+/* Inside the fullscreen workspace the topbar already displays the tool title,
+   so hide the duplicated heading in each tool shell to keep the work area clean. */
+.svt-workspace-body .svt-header h2 {
+  display: none;
+}
+
+.svt-workspace-body .svt-header p {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 720px;
+}
+
+/* Deprecated legacy host classes (kept until all consumers migrate). */
 .svt-host {
   height: 100%;
   min-height: 0;
@@ -215,6 +391,65 @@
 .svt-check.pass { background: var(--color-success-bg); color: var(--color-success); }
 .svt-check.fail { background: var(--color-error-bg); color: var(--color-error); }
 
+/* ── Combined tools: mode switcher that replaces a long tool list ───────── */
+.svt-combined {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+}
+
+.svt-mode-bar {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+
+.svt-mode-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+
+.svt-mode-btn:hover {
+  color: var(--text-h);
+  background: var(--surface-muted);
+}
+
+.svt-mode-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .svt-mode-bar {
+    align-self: stretch;
+    width: 100%;
+    justify-content: stretch;
+  }
+  .svt-mode-btn {
+    flex: 1 1 0;
+    padding: 12px 8px;
+    font-size: 14px;
+    min-height: 44px;
+  }
+  .svt-combined { gap: 14px; }
+}
+
 /* ── Result/plot card ────────────────────────────────────────────────────── */
 .svt-plot {
   width: 100%;
@@ -240,6 +475,28 @@
   gap: 12px;
 }
 .svt-pair .form-group { margin: 0; }
+
+@media (max-width: 640px) {
+  .svt-form {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    padding: 16px;
+  }
+  .svt-pair {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .svt-form .input-field,
+  .svt-form select,
+  .svt-form .btn {
+    min-height: 44px;
+    font-size: 16px; /* prevents iOS zoom on input focus */
+  }
+  .svt-form .form-label {
+    font-size: 13px;
+    margin-bottom: 6px;
+  }
+}
 
 .svt-result {
   margin: 0;
@@ -303,13 +560,18 @@
 /* ── Interactive "How to use this tool" guide ────────────────────────────── */
 .svt-guide {
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-left: 4px solid var(--accent);
+  border-radius: 12px;
   background: var(--surface);
   overflow: hidden;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
 }
 
 .svt-guide.open {
   border-color: var(--accent);
+  border-left: 4px solid var(--accent);
+  box-shadow: var(--shadow-md);
 }
 
 .svt-guide-toggle {
@@ -317,13 +579,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: 12px;
+  padding: 12px 16px;
   background: var(--surface-muted);
   border: none;
   color: var(--text-h);
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   text-align: left;
@@ -341,31 +603,34 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: var(--accent);
   color: #fff;
-  font-size: 12px;
-  font-weight: 700;
   flex: none;
 }
 
 .svt-guide-chevron {
   color: var(--text-muted);
-  font-size: 10px;
+  transition: transform 0.2s ease;
+}
+
+.svt-guide-chevron.open {
+  transform: rotate(180deg);
 }
 
 .svt-guide-body {
-  padding: 14px;
+  padding: 16px 18px;
   border-top: 1px solid var(--border);
 }
 
 .svt-guide-summary {
-  margin: 0 0 12px;
-  font-size: 13px;
+  margin: 0 0 14px;
+  font-size: 14px;
   color: var(--text-h);
-  line-height: 1.5;
+  line-height: 1.55;
+  font-weight: 500;
 }
 
 .svt-guide-steps {
@@ -374,15 +639,15 @@
   list-style: none;
   counter-reset: svt-guide;
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .svt-guide-steps li {
   counter-increment: svt-guide;
   position: relative;
-  padding-left: 32px;
-  font-size: 13px;
-  line-height: 1.5;
+  padding-left: 36px;
+  font-size: 14px;
+  line-height: 1.55;
 }
 
 .svt-guide-steps li::before {
@@ -390,23 +655,24 @@
   position: absolute;
   left: 0;
   top: 0;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: var(--surface-muted);
-  border: 1px solid var(--border);
-  color: var(--text-h);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #fff;
   font-size: 12px;
   font-weight: 700;
 }
 
 .svt-guide-step-title {
   display: block;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-h);
+  margin-bottom: 4px;
 }
 
 .svt-guide-step-body {
@@ -415,29 +681,64 @@
 }
 
 .svt-guide-tips {
-  margin-top: 14px;
-  padding-top: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
   border-top: 1px dashed var(--border);
 }
 
 .svt-guide-tips-title {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-muted);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  font-weight: 700;
 }
 
 .svt-guide-tips ul {
   margin: 0;
   padding-left: 18px;
   display: grid;
-  gap: 4px;
+  gap: 6px;
 }
 
 .svt-guide-tips li {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--text-muted);
   line-height: 1.5;
+}
+
+.svt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.svt-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.svt-point-picker-list {
+  max-height: 160px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.svt-point-picker-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.svt-point-picker-item:hover,
+.svt-point-picker-item.active {
+  background: var(--surface-muted);
 }

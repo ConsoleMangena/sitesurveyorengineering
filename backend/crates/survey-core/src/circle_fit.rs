@@ -103,11 +103,7 @@ mod tests {
 
     #[test]
     fn fit_circle_through_three_exact_points() {
-        let pts = vec![
-            Ne::new(1.0, 0.0),
-            Ne::new(0.0, 1.0),
-            Ne::new(-1.0, 0.0),
-        ];
+        let pts = vec![Ne::new(1.0, 0.0), Ne::new(0.0, 1.0), Ne::new(-1.0, 0.0)];
         let fit = fit_circle(&pts).unwrap();
         assert!(fit.centre.n.abs() < 1e-9);
         assert!(fit.centre.e.abs() < 1e-9);

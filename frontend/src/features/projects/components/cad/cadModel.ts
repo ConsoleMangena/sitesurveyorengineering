@@ -73,6 +73,69 @@ export interface SurveyLinework {
   label?: string;
 }
 
+export interface SurveyArc {
+  id: string;
+  center: { n: number; e: number };
+  radius: number;
+  /** Start angle in degrees, counter-clockwise from the X (Easting) axis. */
+  startAngle: number;
+  /** End angle in degrees, counter-clockwise from the X (Easting) axis. */
+  endAngle: number;
+  layerId: LayerId;
+  /** Explicit object colour; null/undefined = ByLayer. */
+  color?: CadColor;
+}
+
+export interface SurveyCircle {
+  id: string;
+  center: { n: number; e: number };
+  radius: number;
+  layerId: LayerId;
+  /** Explicit object colour; null/undefined = ByLayer. */
+  color?: CadColor;
+}
+
+export interface SurveyEllipse {
+  id: string;
+  center: { n: number; e: number };
+  semiMajor: number;
+  semiMinor: number;
+  /** Rotation of the semi-major axis in degrees, CCW from the X (Easting) axis. */
+  rotation: number;
+  layerId: LayerId;
+  /** Explicit object colour; null/undefined = ByLayer. */
+  color?: CadColor;
+}
+
+export interface SurveyDimension {
+  id: string;
+  kind: "linear" | "aligned" | "radial" | "diameter" | "angular" | "ordinate";
+  text: string;
+  textPosition: { n: number; e: number };
+  /** Definition points / pick points for the dimension. */
+  defPoints: { n: number; e: number }[];
+  /** Rotation for linear/ordinate dimensions, degrees. */
+  angle?: number | null;
+  layerId: LayerId;
+  /** Explicit object colour; null/undefined = ByLayer. */
+  color?: CadColor;
+}
+
+export interface SurveyHatch {
+  id: string;
+  /** Outer boundary vertices. */
+  vertices: { n: number; e: number }[];
+  /** Inner hole boundaries. */
+  holes: { n: number; e: number }[][];
+  /** Pattern name (e.g. "SOLID", "ANGLE"). */
+  pattern?: string | null;
+  patternScale?: number | null;
+  patternAngle?: number | null;
+  layerId: LayerId;
+  /** Explicit object colour; null/undefined = ByLayer. */
+  color?: CadColor;
+}
+
 export interface SurveyText {
   id: string;
   n: number;
@@ -81,6 +144,10 @@ export interface SurveyText {
   layerId: LayerId;
   /** Explicit object colour; null/undefined = ByLayer. */
   color?: CadColor;
+  /** Text height in world units (e.g. from DXF TextHeight). */
+  height?: number;
+  /** Rotation in degrees, counter-clockwise from the X (Easting) axis. */
+  rotation?: number;
 }
 
 /**
@@ -156,9 +223,14 @@ export type CadEntity =
   | { type: "point"; data: SurveyPoint }
   | { type: "linework"; data: SurveyLinework }
   | { type: "text"; data: SurveyText }
-  | { type: "surface"; data: SurveySurface };
+  | { type: "surface"; data: SurveySurface }
+  | { type: "arc"; data: SurveyArc }
+  | { type: "circle"; data: SurveyCircle }
+  | { type: "ellipse"; data: SurveyEllipse }
+  | { type: "dimension"; data: SurveyDimension }
+  | { type: "hatch"; data: SurveyHatch };
 
-export type CadEntityType = "point" | "linework" | "text" | "surface";
+export type CadEntityType = "point" | "linework" | "text" | "surface" | "arc" | "circle" | "ellipse" | "dimension" | "hatch";
 
 /**
  * Current selection. Backward compatible with the old single-selection shape
@@ -218,10 +290,93 @@ export const CAD_COLORS: { value: CadColor; label: string }[] = [
 export function resolveColor(
   objColor: CadColor | undefined,
   layerColor: string | undefined,
-  fallback = "#a0b0c8",
+  fallback = "#334155",
 ): string {
   if (objColor) return objColor;
   return layerColor ?? fallback;
+}
+
+// ── Light-theme colour mapping for the 2D canvas ──────────────────────────
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex);
+  if (!m) return null;
+  let s = m[1];
+  if (s.length === 3) {
+    s = s.split("").map((c) => c + c).join("");
+  }
+  return {
+    r: parseInt(s.slice(0, 2), 16),
+    g: parseInt(s.slice(2, 4), 16),
+    b: parseInt(s.slice(4, 6), 16),
+  };
+}
+
+function rgbToHsl(r: number, g: number, b: number): { h: number; s: number; l: number } {
+  const R = r / 255;
+  const G = g / 255;
+  const B = b / 255;
+  const max = Math.max(R, G, B);
+  const min = Math.min(R, G, B);
+  const l = (max + min) / 2;
+  let h = 0;
+  let s = 0;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case R:
+        h = (G - B) / d + (G < B ? 6 : 0);
+        break;
+      case G:
+        h = (B - R) / d + 2;
+        break;
+      case B:
+        h = (R - G) / d + 4;
+        break;
+    }
+    h /= 6;
+  }
+  return { h, s, l };
+}
+
+function hslToRgb(h: number, s: number, l: number): { r: number; g: number; b: number } {
+  let r: number;
+  let g: number;
+  let b: number;
+  if (s === 0) {
+    r = g = b = l;
+  } else {
+    const hue2rgb = (p: number, q: number, t: number) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1 / 3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1 / 3);
+  }
+  return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
+}
+
+function rgbToHex({ r, g, b }: { r: number; g: number; b: number }): string {
+  return `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** Map a colour to one that is readable on the white CAD canvas. */
+export function canvasColor(color: string): string {
+  const rgb = hexToRgb(color);
+  if (!rgb) return color;
+  // Relative luminance (Y in Rec. 601 space).
+  const luma = (0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b) / 255;
+  if (luma <= 0.6) return color;
+  const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+  const newL = Math.max(0.15, Math.min(0.45, 1 - hsl.l));
+  return rgbToHex(hslToRgb(hsl.h, hsl.s, newL));
 }
 
 export interface Viewport {
@@ -238,6 +393,11 @@ export interface CadModelState {
   linework: SurveyLinework[];
   texts: SurveyText[];
   surfaces: SurveySurface[];
+  arcs: SurveyArc[];
+  circles: SurveyCircle[];
+  ellipses: SurveyEllipse[];
+  dimensions: SurveyDimension[];
+  hatches: SurveyHatch[];
   activeLayerId: LayerId;
 }
 
@@ -247,19 +407,20 @@ export interface CadModelState {
  * default drawing starts with a single "0" layer, exactly like AutoCAD.
  */
 export const LAYER_PRESETS: Record<string, { name: string; color: string }> = {
-  "0": { name: "0", color: "#ffffff" },
-  CONTROL: { name: "Control", color: "#f97316" },
-  TRAVERSE: { name: "Traverse", color: "#a78bfa" },
-  BOUNDARY: { name: "Boundary", color: "#f43f5e" },
-  TOPO: { name: "Topo / Detail", color: "#38bdf8" },
-  CONTOURS: { name: "Contours", color: "#22c55e" },
-  CONTOURS_INDEX: { name: "Contours (index)", color: "#16a34a" },
-  SETOUT: { name: "Set-out", color: "#eab308" },
-  TEXT: { name: "Annotation", color: "#e2e8f0" },
+  "0": { name: "0", color: "#000000" },
+  CONTROL: { name: "Control", color: "#c2410c" },
+  TRAVERSE: { name: "Traverse", color: "#7c3aed" },
+  BOUNDARY: { name: "Boundary", color: "#be123c" },
+  TOPO: { name: "Topo / Detail", color: "#0369a1" },
+  CONTOURS: { name: "Contours", color: "#15803d" },
+  CONTOURS_INDEX: { name: "Contours (index)", color: "#166534" },
+  SETOUT: { name: "Set-out", color: "#a16207" },
+  TEXT: { name: "Annotation", color: "#18181b" },
+  PROJECT: { name: "Project Coordinates", color: "#5b21b6" },
 };
 
 export const DEFAULT_LAYERS: CadLayer[] = [
-  { id: "0", name: "0", color: "#ffffff", visible: true, locked: false },
+  { id: "0", name: "0", color: "#000000", visible: true, locked: false },
 ];
 
 export function emptyModel(): CadModelState {
@@ -269,6 +430,11 @@ export function emptyModel(): CadModelState {
     linework: [],
     texts: [],
     surfaces: [],
+    arcs: [],
+    circles: [],
+    ellipses: [],
+    dimensions: [],
+    hatches: [],
     activeLayerId: "0",
   };
 }

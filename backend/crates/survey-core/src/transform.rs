@@ -477,7 +477,12 @@ mod tests {
     #[test]
     fn helmert_recovers_rotation_scale_and_translation() {
         // Source square, target = rotated 90° clockwise, scaled 2×, shifted.
-        let src = vec![Ne::new(0.0, 0.0), Ne::new(10.0, 0.0), Ne::new(10.0, 10.0), Ne::new(0.0, 10.0)];
+        let src = vec![
+            Ne::new(0.0, 0.0),
+            Ne::new(10.0, 0.0),
+            Ne::new(10.0, 10.0),
+            Ne::new(0.0, 10.0),
+        ];
         let t = HelmertTransform {
             scale: 2.0,
             rotation_deg: 90.0,
@@ -487,7 +492,11 @@ mod tests {
         let tgt: Vec<Ne> = src.iter().map(|p| t.apply(p)).collect();
         let fit = helmert_fit(&src, &tgt).unwrap();
         assert!((fit.scale - 2.0).abs() < 1e-9, "scale {}", fit.scale);
-        assert!((fit.rotation_deg - 90.0).abs() < 1e-9, "rotation {}", fit.rotation_deg);
+        assert!(
+            (fit.rotation_deg - 90.0).abs() < 1e-9,
+            "rotation {}",
+            fit.rotation_deg
+        );
         assert!((fit.translation_n - 100.0).abs() < 1e-9);
         assert!((fit.translation_e - 200.0).abs() < 1e-9);
     }
@@ -526,7 +535,12 @@ mod tests {
             ee: 0.95,
             f: -50.0,
         };
-        let src = vec![Ne::new(0.0, 0.0), Ne::new(100.0, 0.0), Ne::new(0.0, 100.0), Ne::new(50.0, 50.0)];
+        let src = vec![
+            Ne::new(0.0, 0.0),
+            Ne::new(100.0, 0.0),
+            Ne::new(0.0, 100.0),
+            Ne::new(50.0, 50.0),
+        ];
         let tgt: Vec<Ne> = src.iter().map(|p| a.apply(p)).collect();
         let fit = affine_fit(&src, &tgt).unwrap();
         assert!((fit.a - 1.1).abs() < 1e-9);

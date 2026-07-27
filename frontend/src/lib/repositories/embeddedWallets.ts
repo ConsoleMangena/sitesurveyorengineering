@@ -15,6 +15,7 @@ export interface EmbeddedWalletRow extends EncryptedWallet {
 
 // The generated Supabase types do not yet include embedded_solana_wallets, so
 // we cast the table name to any for these calls.
+/* eslint-disable @typescript-eslint/no-explicit-any */
 const TABLE_NAME = "embedded_solana_wallets";
 
 // Supabase returns snake_case column names. The EncryptedWallet interface uses
@@ -45,7 +46,6 @@ function mapRow(row: SupabaseEmbeddedWalletRow): EmbeddedWalletRow {
 
 export async function loadEmbeddedWallet(): Promise<EmbeddedWalletRow | null> {
   const { data, error } = await supabase
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .from(TABLE_NAME as any)
     .select(
       "wallet_address, encrypted_key, iv, salt, encrypted_mnemonic, mnemonic_iv, created_at, updated_at",
@@ -80,7 +80,6 @@ export async function saveEmbeddedWallet(
   }
 
   const { error } = await supabase
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .from(TABLE_NAME as any)
     .upsert(row as any, { onConflict: "user_id" } as any);
 
@@ -90,9 +89,7 @@ export async function saveEmbeddedWallet(
 export async function deleteEmbeddedWallet(): Promise<void> {
   const userId = (await supabase.auth.getUser()).data.user?.id ?? "";
   const { error } = await supabase
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .from(TABLE_NAME as any)
-     
     .delete()
     .eq("user_id", userId);
 

@@ -96,10 +96,7 @@ pub fn build_tin_with_options(points: &[Point3], options: &TinOptions) -> crate:
         // Skip near-duplicate plan coordinates to keep the triangulation valid.
         // Tolerance is now relative to the point-cloud extent rather than a
         // hard-coded absolute value.
-        if seen
-            .iter()
-            .any(|(sx, sy)| (sx - x).hypot(sy - y) < tol)
-        {
+        if seen.iter().any(|(sx, sy)| (sx - x).hypot(sy - y) < tol) {
             dropped_duplicates += 1;
             continue;
         }
@@ -172,14 +169,7 @@ pub fn plan_area(tin: &Tin) -> f64 {
 
 /// Unsigned triangle area in the E/N plane, via the GeoRust `geo` crate's
 /// `Area` trait. X = Easting, Y = Northing.
-pub(crate) fn triangle_area_2d(
-    ax: f64,
-    ay: f64,
-    bx: f64,
-    by: f64,
-    cx: f64,
-    cy: f64,
-) -> f64 {
+pub(crate) fn triangle_area_2d(ax: f64, ay: f64, bx: f64, by: f64, cx: f64, cy: f64) -> f64 {
     GeoTriangle::new(
         Coord { x: ax, y: ay },
         Coord { x: bx, y: by },
@@ -204,7 +194,10 @@ mod tests {
     #[test]
     fn too_few_points_is_an_error() {
         let err = build_tin(&[Point3::new(0.0, 0.0, 0.0)]).unwrap_err();
-        assert!(matches!(err, SurveyError::InsufficientPoints { got: 1, need: 3 }));
+        assert!(matches!(
+            err,
+            SurveyError::InsufficientPoints { got: 1, need: 3 }
+        ));
     }
 
     #[test]

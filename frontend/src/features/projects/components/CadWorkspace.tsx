@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAsyncAction } from "../../../hooks/useAsyncAction.ts";
 import type { HubProject } from "../../../pages/shared/ProjectHubPage.tsx";
 import "../../../styles/cad.css";
 import "../../../styles/cad-admin-theme.css";
@@ -28,8 +29,10 @@ import { CadCommandLine, type CommandLogEntry } from "./cad/CadCommandLine.tsx";
 import { CadPlotDialog } from "./cad/CadPlotDialog.tsx";
 import { CadPointDialog } from "./cad/CadPointDialog.tsx";
 import { CadControlPointDialog } from "./cad/CadControlPointDialog.tsx";
-import { CadCsvImportDialog, type CsvColumnMapping } from "./cad/CadCsvImportDialog.tsx";
+import { CadProjectPointsSelector } from "./cad/CadProjectPointsSelector.tsx";
+import { CadImportDxfDialog } from "./cad/CadImportDxfDialog.tsx";
 import { CadReportDialog } from "./cad/CadReportDialog.tsx";
+import { parseCadFile, lastCadBackend } from "./cad/survey/cadBridge.ts";
 import { CadDialogProvider } from "./cad/CadDialogProvider.tsx";
 import { useCadDialog } from "./cad/cadDialogContext.ts";
 import {
@@ -41,13 +44,13 @@ import {
 } from "./cad/io/plot.ts";
 import { SlidersHorizontal, Box, Square, ChevronDown } from "lucide-react";
 
-import { parsePointsCsv, pointsToCsv } from "./cad/io/csv.ts";
+import { pointsToCsv } from "./cad/io/csv.ts";
 import { modelToDxf, downloadText } from "./cad/io/dxf.ts";
+import { addProjectOutput } from "../tools/calculators/projectOutputs.ts";
 import { buildSurveyReport, buildCutFillReport, openReportWindow } from "./cad/io/report.ts";
 import { toGeoModel } from "./cad/io/geojson.ts";
 import {
   modelToGeoJson,
-  modelFromGeoJson,
   convexHull,
   simplify as simplifyLine,
   lastGeomBackend,
@@ -70,10 +73,26 @@ import { buildCodeTable } from "./cad/survey/featureCodes.ts";
 import { buildFeatureStrings } from "./cad/survey/fieldToFinish.ts";
 import { sampleZ } from "./cad/survey/surface.ts";
 import { analyseTerrain, terrainStats, slopeColor, lastTerrainBackend } from "./cad/survey/terrainBridge.ts";
-import { forward, inverse, polygonArea, polylineLength, circularArc } from "./cad/survey/cogo.ts";
+import { forward, inverse, polygonArea, polylineLength, circularArcParams } from "./cad/survey/cogo.ts";
 import { buildTerrainReport } from "./cad/io/report.ts";
 import { fmtArea, fmtBearing, fmtCoord, fmtDistance, parseDistanceBearing } from "./cad/survey/format.ts";
 import { axisBadgeLabels } from "./cad/cadSettings.ts";
+
+function cadCrsLabel(project: HubProject): string {
+  if (project.crsType === 'projected') return project.crsEpsg ? `EPSG:${project.crsEpsg}` : 'Projected';
+  if (project.crsType === 'local') return 'Local';
+  return 'Other';
+}
+
+function cadCrsTooltip(project: HubProject): string {
+  if (project.crsType === 'local') {
+    return `Local site grid. Origin offset: E ${project.localOriginE}, N ${project.localOriginN}`;
+  }
+  if (project.crsType === 'projected') {
+    return `Projected CRS${project.crsEpsg ? ` — EPSG:${project.crsEpsg}` : ''}`;
+  }
+  return 'Coordinate system: other / unspecified';
+}
 
 interface CadWorkspaceProps {
   activeProject: HubProject;
@@ -147,8 +166,38 @@ function CadWorkspaceContent({
   const { model, selection } = cad;
 
   const settingsApi = useCadSettings(activeProject.dbId);
-  const { settings } = settingsApi;
+  const { settings, update: updateSettings } = settingsApi;
   const { bearingFormat, snap, ortho, showGrid, osnap, view3d } = settings;
+
+  // Keep project-controlled drafting conventions in sync with the Project Hub.
+  // Project hub settings are the source of truth for the whole project.
+  useEffect(() => {
+    const projectConvention = activeProject.axisConvention === 'xy' ? 'xy' : 'yx';
+    const updates: Partial<typeof settings> = {};
+    if (settings.axisConvention !== projectConvention) updates.axisConvention = projectConvention;
+
+    const projectBearing = activeProject.bearingFormat || 'azimuth';
+    if (settings.bearingFormat !== projectBearing) updates.bearingFormat = projectBearing as typeof settings.bearingFormat;
+
+    const projectAngle = activeProject.angleEntry || 'packed';
+    if (settings.angleEntry !== projectAngle) updates.angleEntry = projectAngle as typeof settings.angleEntry;
+
+    const projectDecimals = typeof activeProject.coordDecimals === 'number' ? activeProject.coordDecimals : 3;
+    if (settings.coordDecimals !== projectDecimals) updates.coordDecimals = projectDecimals;
+
+    if (Object.keys(updates).length > 0) updateSettings(updates);
+  }, [
+    activeProject.axisConvention,
+    activeProject.bearingFormat,
+    activeProject.angleEntry,
+    activeProject.coordDecimals,
+    settings.axisConvention,
+    settings.bearingFormat,
+    settings.angleEntry,
+    settings.coordDecimals,
+    settings,
+    updateSettings,
+  ]);
 
   const [tool, setTool] = useState<CadToolId>("select");
   const [pendingTool, setPendingTool] = useState<CadToolId | null>(null);
@@ -197,11 +246,8 @@ function CadWorkspaceContent({
    * polyline while the command is active.
    */
   const [runningLineId, setRunningLineId] = useState<string | null>(null);
-  const [csvImport, setCsvImport] = useState<{ open: boolean; fileName: string; text: string }>({
-    open: false,
-    fileName: "",
-    text: "",
-  });
+  const [projectPointsOpen, setProjectPointsOpen] = useState(false);
+  const [importDxfOpen, setImportDxfOpen] = useState(false);
   const [reportDialog, setReportDialog] = useState<{ open: boolean; title: string; html: string } | null>(null);
   const [lastTool, setLastTool] = useState<CadToolId>("select");
   const [commandLog, setCommandLog] = useState<CommandLogEntry[]>([
@@ -210,7 +256,7 @@ function CadWorkspaceContent({
   ]);
 
   /** Keep the LINE tool's running polyline in sync with pending vertices. */
-  useEffect(() => {
+  const syncRunningLine = useCallback(async () => {
     if (tool !== "line") {
       setRunningLineId(null);
       return;
@@ -235,8 +281,7 @@ function CadWorkspaceContent({
     }
   }, [tool, pendingVertices, cad, activeColor, runningLineId]);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const geojsonInputRef = useRef<HTMLInputElement>(null);
+  useAsyncAction(syncRunningLine, [syncRunningLine]);
 
   const datum = activeProject.datum || "No datum set";
 
@@ -287,8 +332,23 @@ function CadWorkspaceContent({
       model.points.length > 0 ||
       model.linework.length > 0 ||
       model.texts.length > 0 ||
-      model.surfaces.length > 0,
-    [model.points.length, model.linework.length, model.texts.length, model.surfaces.length],
+      model.surfaces.length > 0 ||
+      model.arcs.length > 0 ||
+      model.circles.length > 0 ||
+      model.ellipses.length > 0 ||
+      model.dimensions.length > 0 ||
+      model.hatches.length > 0,
+    [
+      model.points.length,
+      model.linework.length,
+      model.texts.length,
+      model.surfaces.length,
+      model.arcs.length,
+      model.circles.length,
+      model.ellipses.length,
+      model.dimensions.length,
+      model.hatches.length,
+    ],
   );
 
   /**
@@ -509,18 +569,9 @@ function CadWorkspaceContent({
               log("Circle: radius must be greater than zero.", "error");
               return [];
             }
-            const segments = 32;
-            const vertices: { n: number; e: number }[] = [];
-            for (let i = 0; i < segments; i++) {
-              const theta = (i / segments) * Math.PI * 2;
-              vertices.push({
-                e: center.e + radius * Math.cos(theta),
-                n: center.n + radius * Math.sin(theta),
-              });
-            }
-            const created = cad.addLinework({ kind: "boundary", vertices, closed: true, color: activeColor });
+            const created = cad.addCircle({ center, radius, color: activeColor });
             log(`Circle created — radius ${radius.toFixed(3)} m.`);
-            cad.setSelection({ type: "linework", id: created.id });
+            cad.setSelection({ type: "circle", id: created.id });
             return [];
           }
           log("Specify point on circumference:");
@@ -534,14 +585,20 @@ function CadWorkspaceContent({
         setPendingVertices((verts) => {
           const next = [...verts, world];
           if (next.length === 3) {
-            const pts = circularArc(next[0], next[1], next[2], 24);
-            if (!pts) {
+            const params = circularArcParams(next[0], next[1], next[2]);
+            if (!params) {
               log("Arc: three selected points are collinear or coincident.", "error");
               return [];
             }
-            const created = cad.addLinework({ kind: "polyline", vertices: pts, closed: false, color: activeColor });
-            log(`Arc created — ${pts.length} vertices.`);
-            cad.setSelection({ type: "linework", id: created.id });
+            const created = cad.addArc({
+              center: params.center,
+              radius: params.radius,
+              startAngle: params.startAngle,
+              endAngle: params.endAngle,
+              color: activeColor,
+            });
+            log(`Arc created — r ${params.radius.toFixed(3)} m.`);
+            cad.setSelection({ type: "arc", id: created.id });
             return [];
           }
           if (next.length === 1) log("Specify second point on arc:");
@@ -696,22 +753,18 @@ function CadWorkspaceContent({
             const dist = Math.hypot(dn, de);
             const midN = (a.n + b.n) / 2;
             const midE = (a.e + b.e) / 2;
+            const angle = Math.atan2(de, dn) * (180 / Math.PI);
             cad.ensureLayerById("DIMENSIONS");
-            cad.addText({
-              n: midN,
-              e: midE,
+            const created = cad.addDimension({
+              kind: "linear",
               text: `${dist.toFixed(settings.coordDecimals)}`,
-              layerId: "DIMENSIONS",
-              color: activeColor,
-            });
-            cad.addLinework({
-              kind: "line",
-              vertices: [a, b],
-              closed: false,
-              layerId: "DIMENSIONS",
+              textPosition: { n: midN, e: midE },
+              defPoints: [a, b],
+              angle,
               color: activeColor,
             });
             log(`Linear dimension: ${dist.toFixed(3)} m placed.`);
+            cad.setSelection({ type: "dimension", id: created.id });
             return [];
           }
           return next;
@@ -840,6 +893,11 @@ function CadWorkspaceContent({
       else if (it.type === "linework") cad.deleteLinework(it.id);
       else if (it.type === "text") cad.deleteText(it.id);
       else if (it.type === "surface") cad.deleteSurface(it.id);
+      else if (it.type === "arc") cad.deleteArc(it.id);
+      else if (it.type === "circle") cad.deleteCircle(it.id);
+      else if (it.type === "ellipse") cad.deleteEllipse(it.id);
+      else if (it.type === "dimension") cad.deleteDimension(it.id);
+      else if (it.type === "hatch") cad.deleteHatch(it.id);
     }
     log(`Deleted ${items.length} object${items.length === 1 ? "" : "s"}.`);
   }, [cad, log]);
@@ -896,12 +954,17 @@ function CadWorkspaceContent({
       ...model.linework.map((l) => ({ type: "linework" as const, id: l.id })),
       ...model.texts.map((t) => ({ type: "text" as const, id: t.id })),
       ...model.surfaces.map((s) => ({ type: "surface" as const, id: s.id })),
+      ...model.arcs.map((a) => ({ type: "arc" as const, id: a.id })),
+      ...model.circles.map((c) => ({ type: "circle" as const, id: c.id })),
+      ...model.ellipses.map((el) => ({ type: "ellipse" as const, id: el.id })),
+      ...model.dimensions.map((d) => ({ type: "dimension" as const, id: d.id })),
+      ...model.hatches.map((h) => ({ type: "hatch" as const, id: h.id })),
     ];
     if (items.length === 0) { log("Nothing to select.", "info"); return; }
     const primary = items[items.length - 1];
     cad.setSelection({ type: primary.type, id: primary.id, items });
     log(`Selected ${items.length} object${items.length === 1 ? "" : "s"}.`);
-  }, [model.points, model.linework, model.texts, model.surfaces, cad, log]);
+  }, [model.points, model.linework, model.texts, model.surfaces, model.arcs, model.circles, model.ellipses, model.dimensions, model.hatches, cad, log]);
 
   const findPoint = useCallback(
     (pno: string): NE | null => {
@@ -917,9 +980,9 @@ function CadWorkspaceContent({
     const m = mode.trim().toUpperCase();
     if (m === "BB") {
       const p1no = await dialog.prompt("From point 1 (Pt #):");
-      const az1 = await dialog.prompt("Azimuth from point 1 (deg):");
+      const az1 = await dialog.prompt("Bearing from point 1 (deg):");
       const p2no = await dialog.prompt("From point 2 (Pt #):");
-      const az2 = await dialog.prompt("Azimuth from point 2 (deg):");
+      const az2 = await dialog.prompt("Bearing from point 2 (deg):");
       const p1 = p1no ? findPoint(p1no) : null;
       const p2 = p2no ? findPoint(p2no) : null;
       if (!p1 || !p2 || az1 == null || az2 == null) { log("Intersection: invalid input.", "error"); return; }
@@ -978,29 +1041,20 @@ function CadWorkspaceContent({
     log(`Area: ${fmtArea(area)}, perimeter ${fmtDistance(perimeter)} (${lw.vertices.length} vertices)`);
   }, [cad.selection, model.linework, log]);
 
-  const handleImportCsv = useCallback(
-    (file: File) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const text = String(reader.result ?? "");
-        setCsvImport({ open: true, fileName: file.name, text });
-      };
-      reader.onerror = () => log("Failed to read CSV file.", "error");
-      reader.readAsText(file);
-    },
-    [log],
-  );
-
-  const commitCsvImport = useCallback(
-    (mapping: CsvColumnMapping, hasHeader: boolean) => {
-      setCsvImport((s) => ({ ...s, open: false }));
-      const result = parsePointsCsv(csvImport.text, mapping, hasHeader);
-      const count = cad.importPoints(result.points, model.activeLayerId);
-      log(`Imported ${count} point(s)${result.skipped ? `, skipped ${result.skipped}` : ""}.`);
-      result.errors.slice(0, 3).forEach((e) => log(e, "error"));
+  const importProjectPoints = useCallback(
+    (rows: { pointNo: string; n: number; e: number; z: number | null; code: string }[]) => {
+      const existingNos = new Set(cad.model.points.map((p) => p.pointNo.trim()));
+      const toImport = rows.filter((r) => !existingNos.has(r.pointNo.trim()));
+      if (toImport.length === 0) {
+        log("No new project points to import — all selected point numbers already exist.", "info");
+        return;
+      }
+      cad.ensureLayerById("PROJECT");
+      const count = cad.importPoints(toImport, "PROJECT");
+      log(`Imported ${count} project point(s) from workspace.`);
       fitExtents();
     },
-    [cad, csvImport.text, model.activeLayerId, log, fitExtents],
+    [cad, log, fitExtents],
   );
 
   const exportDxf = useCallback(() => {
@@ -1011,6 +1065,13 @@ function CadWorkspaceContent({
     const dxf = modelToDxf(model);
     const safe = activeProject.id.replace(/[^a-z0-9_-]/gi, "_");
     downloadText(`${safe}.dxf`, dxf, "application/dxf");
+    addProjectOutput(activeProject.id, {
+      label: "CAD DXF Export",
+      description: `${model.points.length} point(s), ${model.linework.length} line object(s)`,
+      fileName: `${safe}.dxf`,
+      mimeType: "application/dxf",
+      content: dxf,
+    });
     log("Exported DXF.");
   }, [model, activeProject.id, log]);
 
@@ -1019,6 +1080,13 @@ function CadWorkspaceContent({
     const csv = pointsToCsv(model.points);
     const safe = activeProject.id.replace(/[^a-z0-9_-]/gi, "_");
     downloadText(`${safe}_points.csv`, csv, "text/csv");
+    addProjectOutput(activeProject.id, {
+      label: "CAD Points CSV",
+      description: `${model.points.length} point(s)`,
+      fileName: `${safe}_points.csv`,
+      mimeType: "text/csv",
+      content: csv,
+    });
     log(`Exported ${model.points.length} point(s) to CSV.`);
   }, [model, activeProject.id, log]);
 
@@ -1049,54 +1117,265 @@ function CadWorkspaceContent({
     const geojson = await modelToGeoJson(toGeoModel(model.points, model.linework));
     const safe = activeProject.id.replace(/[^a-z0-9_-]/gi, "_");
     downloadText(`${safe}.geojson`, geojson, "application/geo+json");
+    addProjectOutput(activeProject.id, {
+      label: "CAD GeoJSON Export",
+      description: `${model.points.length} point(s), ${model.linework.length} line object(s)`,
+      fileName: `${safe}.geojson`,
+      mimeType: "application/geo+json",
+      content: geojson,
+    });
     log(
       `Exported ${model.points.length} point(s) and ${model.linework.length} line(s) to GeoJSON (${lastGeomBackend()}).`,
     );
   }, [model, activeProject.id, log]);
 
-  const handleImportGeoJson = useCallback(
-    (file: File) => {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const text = String(reader.result ?? "");
-        const gm = await modelFromGeoJson(text);
-        if (gm.errors.length > 0) {
-          gm.errors.slice(0, 5).forEach((e) => log(e, "error"));
+  // ── DXF / DWG import from workspace files ─────────────────────────────────
+
+  const importCadFile = useCallback(
+    async (file: File) => {
+      try {
+        const result = await parseCadFile(file);
+        const layerIdByName = new Map<string, string>();
+        const layerIdPrefix = "CAD_";
+
+        for (const layerName of result.layerNames) {
+          const slug =
+            layerName === "0"
+              ? "0"
+              : `${layerIdPrefix}${layerName.replace(/[^a-zA-Z0-9_-]/g, "_").toUpperCase()}`;
+          const layer = cad.ensureLayerById(slug);
+          const updates: Partial<{ name: string; color: string }> = {};
+          if (layer.name !== layerName && layerName !== "0") {
+            updates.name = layerName;
+          }
+          const layerStyle = result.layerStyles[layerName];
+          if (layerStyle?.color && layerStyle.color.startsWith("#")) {
+            updates.color = layerStyle.color.toLowerCase() === "#ffffff" ? "#000000" : layerStyle.color;
+          }
+          if (Object.keys(updates).length > 0) {
+            cad.updateLayer(layer.id, updates);
+          }
+          layerIdByName.set(layerName, layer.id);
         }
-        gm.warnings.slice(0, 5).forEach((w) => log(w, "info"));
-        const crsNote = gm.crs ? ` CRS: ${gm.crs}` : "";
-        const count = cad.importPoints(
-          gm.points.map((p) => ({
-            pointNo: p.pointNo || "",
+
+        let pointCount = 0;
+        let lineCount = 0;
+        let textCount = 0;
+        let skippedPaper = 0;
+
+        const toColor = (style?: { color?: string | null }): string | undefined => {
+          const c = style?.color;
+          if (!c?.startsWith("#")) return undefined;
+          // Pure white is invisible on the light CAD canvas; map to black.
+          return c.toLowerCase() === "#ffffff" ? "#000000" : c;
+        };
+
+        for (const p of result.points) {
+          if (p.paperSpace) {
+            skippedPaper++;
+            continue;
+          }
+          if (!Number.isFinite(p.n) || !Number.isFinite(p.e)) continue;
+          cad.addPoint({
+            pointNo: cad.nextPointNo(),
             n: p.n,
             e: p.e,
-            z: p.z ?? null,
-            code: p.code ?? "",
-          })),
-          model.activeLayerId,
-        );
-        for (const l of gm.linework) {
-          if (l.vertices.length < 2) continue;
+            z: p.z,
+            code: p.code || "CAD",
+            layerId: layerIdByName.get(p.layerName) ?? "0",
+            color: toColor(p.style),
+          });
+          pointCount++;
+        }
+
+        for (const lw of result.linework) {
+          if (lw.paperSpace) {
+            skippedPaper++;
+            continue;
+          }
+          const vertices = lw.vertices.filter((v) => Number.isFinite(v.n) && Number.isFinite(v.e));
+          if (vertices.length === 0) continue;
           cad.addLinework({
-            kind: l.closed ? "boundary" : "polyline",
-            vertices: l.vertices.map((v) => ({ n: v.n, e: v.e })),
-            closed: l.closed,
-            layerId: model.activeLayerId,
+            kind: lw.kind === "line" ? "line" : "polyline",
+            vertices: vertices.map((v) => ({ n: v.n, e: v.e })),
+            closed: lw.closed,
+            layerId: layerIdByName.get(lw.layerName) ?? "0",
+            color: toColor(lw.style),
+          });
+          lineCount++;
+        }
+
+        for (const t of result.texts) {
+          if (t.paperSpace) {
+            skippedPaper++;
+            continue;
+          }
+          if (!Number.isFinite(t.n) || !Number.isFinite(t.e)) continue;
+          cad.addText({
+            n: t.n,
+            e: t.e,
+            text: t.text,
+            layerId: layerIdByName.get(t.layerName) ?? "0",
+            height: t.height,
+            rotation: t.rotation,
+            color: toColor(t.style),
+          });
+          textCount++;
+        }
+
+        for (const a of result.arcs) {
+          if (a.paperSpace) {
+            skippedPaper++;
+            continue;
+          }
+          if (!Number.isFinite(a.centerN) || !Number.isFinite(a.centerE)) continue;
+          cad.addArc({
+            center: { n: a.centerN, e: a.centerE },
+            radius: a.radius,
+            startAngle: a.startAngle,
+            endAngle: a.endAngle,
+            layerId: layerIdByName.get(a.layerName) ?? "0",
+            color: toColor(a.style),
           });
         }
-        if (gm.points.length === 0 && gm.linework.length === 0 && gm.errors.length > 0) {
-          log("GeoJSON import failed — no points or linework were imported.", "error");
-          return;
+
+        for (const c of result.circles) {
+          if (c.paperSpace) {
+            skippedPaper++;
+            continue;
+          }
+          if (!Number.isFinite(c.centerN) || !Number.isFinite(c.centerE)) continue;
+          cad.addCircle({
+            center: { n: c.centerN, e: c.centerE },
+            radius: c.radius,
+            layerId: layerIdByName.get(c.layerName) ?? "0",
+            color: toColor(c.style),
+          });
         }
-        log(
-          `Imported ${count} point(s) and ${gm.linework.length} line(s) from GeoJSON (${lastGeomBackend()}).${crsNote}`,
-        );
+
+        for (const h of result.hatches) {
+          if (h.paperSpace) {
+            skippedPaper++;
+            continue;
+          }
+          const outer = h.vertices.filter((v) => Number.isFinite(v.n) && Number.isFinite(v.e));
+          if (outer.length < 3) continue;
+          cad.addHatch({
+            vertices: outer.map((v) => ({ n: v.n, e: v.e })),
+            holes: h.holes
+              ?.map((hole) => hole.filter((v) => Number.isFinite(v.n) && Number.isFinite(v.e)))
+              .filter((hole) => hole.length >= 3),
+            pattern: h.pattern ?? null,
+            patternScale: h.patternScale ?? null,
+            patternAngle: h.patternAngle ?? null,
+            layerId: layerIdByName.get(h.layerName) ?? "0",
+            color: toColor(h.style),
+          });
+        }
+
+        for (const d of result.dimensions) {
+          if (d.paperSpace) {
+            skippedPaper++;
+            continue;
+          }
+          if (!Number.isFinite(d.textN) || !Number.isFinite(d.textE)) continue;
+          cad.addDimension({
+            kind: d.kind === "angular" || d.kind === "radial" || d.kind === "diameter"
+              ? (d.kind as "linear" | "angular" | "radial" | "diameter")
+              : "linear",
+            text: d.text,
+            textPosition: { n: d.textN, e: d.textE },
+            defPoints: d.defPoints.filter((p) => Number.isFinite(p.n) && Number.isFinite(p.e)).map((p) => ({ n: p.n, e: p.e })),
+            angle: d.angle ?? null,
+            layerId: layerIdByName.get(d.layerName) ?? "0",
+            color: toColor(d.style),
+          });
+        }
+
+        for (const el of result.ellipses) {
+          if (el.paperSpace) {
+            skippedPaper++;
+            continue;
+          }
+          if (!Number.isFinite(el.centerN) || !Number.isFinite(el.centerE)) continue;
+          cad.addEllipse({
+            center: { n: el.centerN, e: el.centerE },
+            semiMajor: el.semiMajor,
+            semiMinor: el.semiMinor,
+            rotation: el.rotation,
+            layerId: layerIdByName.get(el.layerName) ?? "0",
+            color: toColor(el.style),
+          });
+        }
+
+        for (const ins of result.inserts) {
+          if (ins.paperSpace) {
+            skippedPaper++;
+            continue;
+          }
+          if (!Number.isFinite(ins.n) || !Number.isFinite(ins.e)) continue;
+          cad.addText({
+            n: ins.n,
+            e: ins.e,
+            text: ins.blockName,
+            layerId: layerIdByName.get(ins.layerName) ?? "0",
+            color: toColor(ins.style),
+          });
+          textCount++;
+        }
+
         fitExtents();
-      };
-      reader.onerror = () => log("Failed to read GeoJSON file.", "error");
-      reader.readAsText(file);
+        const backend = lastCadBackend();
+        const parts = [
+          `${pointCount} point(s)`,
+          `${lineCount} line object(s)`,
+          `${textCount} text object(s)`,
+          `${result.circles.length} circle(s)`,
+          `${result.arcs.length} arc(s)`,
+          `${result.ellipses.length} ellipse(s)`,
+          `${result.hatches.length} hatch(es)`,
+          `${result.dimensions.length} dimension(s)`,
+          `${result.inserts.length} block insert(s)`,
+        ];
+        log(`Imported ${file.name} (${backend}): ${parts.join(", ")}.`);
+        if (skippedPaper > 0) {
+          log(`Skipped ${skippedPaper} paper-space entity approximation(s).`, "info");
+        }
+
+        // Print a quick extents summary so users/devs can see where the geometry landed.
+        const nVals = result.points.map((p) => p.n)
+          .concat(result.linework.flatMap((lw) => lw.vertices.map((v) => v.n)))
+          .concat(result.circles.map((c) => c.centerN))
+          .concat(result.ellipses.map((el) => el.centerN))
+          .concat(result.inserts.map((ins) => ins.n));
+        const eVals = result.points.map((p) => p.e)
+          .concat(result.linework.flatMap((lw) => lw.vertices.map((v) => v.e)))
+          .concat(result.circles.map((c) => c.centerE))
+          .concat(result.ellipses.map((el) => el.centerE))
+          .concat(result.inserts.map((ins) => ins.e));
+        if (nVals.length > 0 && eVals.length > 0) {
+          const nFinite = nVals.filter(Number.isFinite);
+          const eFinite = eVals.filter(Number.isFinite);
+          if (nFinite.length > 0 && eFinite.length > 0) {
+            log(
+              `Extents: N ${Math.min(...nFinite).toFixed(2)}..${Math.max(...nFinite).toFixed(2)} · E ${Math.min(...eFinite).toFixed(2)}..${Math.max(...eFinite).toFixed(2)}`,
+              "info",
+            );
+          }
+        }
+
+        const unsupported = [...new Set(result.unsupported)];
+        if (unsupported.length > 0) {
+          log(
+            `Skipped unsupported entities: ${unsupported.slice(0, 5).join(", ")}${unsupported.length > 5 ? "..." : ""}`,
+            "info",
+          );
+        }
+      } catch (err) {
+        log(err instanceof Error ? err.message : "Failed to parse CAD file.", "error");
+      }
     },
-    [cad, model.activeLayerId, log, fitExtents],
+    [cad, fitExtents, log],
   );
 
   // ── Geometry (GeoRust geo) ─────────────────────────────────────────────────
@@ -1675,6 +1954,25 @@ function CadWorkspaceContent({
     log(`Placed ${pts.length} coordinate label(s).`);
   }, [cad, model.points, settings.coordDecimals, activeColor, log]);
 
+  const commandCtx = useMemo(
+    () => ({
+      cad,
+      bearingFormat,
+      axisConvention: settings.axisConvention,
+      setTool: changeTool,
+      log,
+      fitExtents,
+      layout: {
+        toModel: () => layoutApi.setActive(MODEL_TAB),
+        toLayout: openLayout,
+        newLayout: handleAddLayout,
+        plot: requestPlot,
+        names: () => layoutApi.layouts.map((l) => l.name),
+      },
+    }),
+    [cad, bearingFormat, settings.axisConvention, changeTool, log, fitExtents, layoutApi, openLayout, handleAddLayout, requestPlot],
+  );
+
   const handleRibbonAction = useCallback(
     (actionId: string) => {
       const [group, sub] = actionId.split(":");
@@ -1691,9 +1989,11 @@ function CadWorkspaceContent({
           else if (sub === "redo") { if (cad.redo()) log("Redo."); else log("Nothing to redo.", "info"); }
           else if (sub === "explode") explodeSelection();
           break;
+        case "project":
+          if (sub === "points") setProjectPointsOpen(true);
+          break;
         case "import":
-          if (sub === "csv") fileInputRef.current?.click();
-          else if (sub === "geojson") geojsonInputRef.current?.click();
+          if (sub === "dxf") setImportDxfOpen(true);
           break;
         case "f2f":
           if (sub === "linework") processLinework();
@@ -1752,6 +2052,10 @@ function CadWorkspaceContent({
           else if (sub === "label-coord") labelCoordinates();
           else log(`Unhandled action: ${actionId}`, "error");
           break;
+        case "cmd":
+          if (sub === "hatch") runCommand("HATCH", commandCtx);
+          else log(`Unhandled action: ${actionId}`, "error");
+          break;
         default:
           log(`Unhandled action: ${actionId}`, "error");
       }
@@ -1763,7 +2067,7 @@ function CadWorkspaceContent({
       buildContours, computeVolumeToElevation,
       computeVolumeBetween, exportCutFillReport, analyseSurfaceTerrain,
       labelBoundarySegments, labelArea, labelCoordinates, log, cad, openLayout,
-      model.linework, model.surfaces,
+      model.linework, model.surfaces, commandCtx,
     ],
   );
 
@@ -1790,23 +2094,9 @@ function CadWorkspaceContent({
         }
       }
 
-      runCommand(raw, {
-        cad,
-        bearingFormat,
-        axisConvention: settings.axisConvention,
-        setTool: changeTool,
-        log,
-        fitExtents,
-        layout: {
-          toModel: () => layoutApi.setActive(MODEL_TAB),
-          toLayout: openLayout,
-          newLayout: handleAddLayout,
-          plot: requestPlot,
-          names: () => layoutApi.layouts.map((l) => l.name),
-        },
-      });
+      runCommand(raw, commandCtx);
     },
-    [cad, bearingFormat, settings.axisConvention, settings.angleEntry, tool, pendingVertices, setPendingVertices, changeTool, log, fitExtents, layoutApi, openLayout, handleAddLayout, requestPlot],
+    [commandCtx, settings.angleEntry, settings.axisConvention, tool, pendingVertices, setPendingVertices, bearingFormat, log],
   );
 
   const handleToggle = useCallback((key: "snap" | "ortho" | "grid" | "osnap") => {
@@ -1816,11 +2106,11 @@ function CadWorkspaceContent({
   const handleMenuAction = useCallback(
     (action: CadMenuAction) => {
       switch (action) {
-        case "file:import-csv":
-          fileInputRef.current?.click();
+        case "file:project-points":
+          setProjectPointsOpen(true);
           break;
-        case "file:import-geojson":
-          geojsonInputRef.current?.click();
+        case "file:import-dxf":
+          setImportDxfOpen(true);
           break;
         case "file:export-dxf":
           exportDxf();
@@ -1868,7 +2158,7 @@ function CadWorkspaceContent({
           break;
       }
     },
-    [cad, deleteSelection, exportCsv, exportDxf, exportGeoJson, fileInputRef, fitExtents, geojsonInputRef, handleToggle, log, openLayout, settingsApi],
+    [cad, deleteSelection, exportCsv, exportDxf, exportGeoJson, fitExtents, handleToggle, log, openLayout, settingsApi],
   );
 
   const handleKeyDown = useCallback(
@@ -1945,7 +2235,7 @@ function CadWorkspaceContent({
       const t = map[ev.key.toLowerCase()];
       if (t) changeTool(t);
     },
-    [commitPending, cancelPending, deleteSelection, selectAll, changeTool, handleToggle, pendingVertices, runningLineId, cad, lastTool, tool, repeatLastTool, log],
+    [commitPending, cancelPending, deleteSelection, selectAll, changeTool, handleToggle, pendingVertices, cad, lastTool, tool, repeatLastTool, log],
   );
 
   const handleContextMenu = useCallback((ev: React.MouseEvent) => {
@@ -1958,12 +2248,13 @@ function CadWorkspaceContent({
   const scaleLabelMemo = useMemo(() => scaleLabel, [scaleLabel]);
   const drawingStats = useMemo(
     () => [
+      { label: "CRS", value: cadCrsLabel(activeProject), title: cadCrsTooltip(activeProject) },
       { label: "PTS", value: model.points.length },
       { label: "LINES", value: model.linework.length },
       { label: "TEXT", value: model.texts.length },
       { label: "SURF", value: model.surfaces.length },
     ],
-    [model.linework.length, model.points.length, model.texts.length, model.surfaces.length],
+    [model.linework.length, model.points.length, model.texts.length, model.surfaces.length, activeProject],
   );
 
   const commandPrompt = useMemo(() => {
@@ -2001,27 +2292,20 @@ function CadWorkspaceContent({
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".csv,.txt"
-        style={{ display: "none" }}
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) handleImportCsv(f);
-          e.target.value = "";
-        }}
-      />
-      <input
-        ref={geojsonInputRef}
-        type="file"
-        accept=".geojson,.json"
-        style={{ display: "none" }}
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) handleImportGeoJson(f);
-          e.target.value = "";
-        }}
+      {projectPointsOpen && (
+        <CadProjectPointsSelector
+          projectId={activeProject.id}
+          onImport={importProjectPoints}
+          onClose={() => setProjectPointsOpen(false)}
+        />
+      )}
+
+      <CadImportDxfDialog
+        open={importDxfOpen}
+        workspaceId={workspaceId}
+        projectId={activeProject.id}
+        onClose={() => setImportDxfOpen(false)}
+        onImport={importCadFile}
       />
 
       <header className="cad-topbar">
@@ -2040,7 +2324,7 @@ function CadWorkspaceContent({
         <div className="cad-topbar-center hide-on-mobile">
           <span className="cad-topbar-center-stats" aria-label="Drawing summary">
             {drawingStats.map((stat) => (
-              <span className="cad-stat-pill" key={stat.label}>
+              <span className="cad-stat-pill" key={stat.label} title={stat.title ?? ''}>
                 <strong>{stat.value}</strong>
                 <span>{stat.label}</span>
               </span>
@@ -2292,15 +2576,6 @@ function CadWorkspaceContent({
           log={log}
         />
       )}
-
-      <CadCsvImportDialog
-        open={csvImport.open}
-        fileName={csvImport.fileName}
-        csvText={csvImport.text}
-        axisConvention={settings.axisConvention}
-        onImport={commitCsvImport}
-        onCancel={() => setCsvImport((s) => ({ ...s, open: false }))}
-      />
 
       <CadPointDialog
         open={pointForm.open}

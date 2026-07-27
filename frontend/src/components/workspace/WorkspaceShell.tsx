@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "../../styles/project-hub.css";
-import { Menu, Search, X } from "lucide-react";
+import { Menu } from "lucide-react";
 import { useServerStatus } from "../../lib/serverStatus.ts";
 import { useOfflineSyncStatus } from "../../lib/hooks/useOfflineSyncStatus.ts";
 import {
@@ -29,15 +29,8 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
-  SheetTrigger,
 } from "../ui/sheet.tsx";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "../ui/dialog.tsx";
+import { DialogTemplate } from "../templates/DialogTemplate.tsx";
 
 interface WorkspaceShellProps {
   user: UiUser;
@@ -1107,7 +1100,6 @@ function WorkspaceTopbar({
             <Menu className="h-5 w-5" />
           </Button>
           <img src="/logo.svg" alt="SiteSurveyor" className="hub-logo" />
-          <span className="hub-brand">SiteSurveyor for Engineers</span>
         </div>
 
         <WorkspaceSearch
@@ -1190,25 +1182,21 @@ function WorkspaceTopbar({
         </div>
       </header>
 
-      <Dialog open={showAbout} onOpenChange={setShowAbout}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader className="items-center text-center">
-            <img
-              src="/logo.svg"
-              alt="SiteSurveyor Logo"
-              className="mb-2 h-16 w-auto"
-            />
-            <DialogTitle>SiteSurveyor for Engineers</DialogTitle>
-            <DialogDescription>Version 2.0</DialogDescription>
-          </DialogHeader>
-          <div className="rounded-lg border bg-muted/40 p-4 text-center text-sm">
+      <DialogTemplate
+        open={showAbout}
+        onOpenChange={setShowAbout}
+        title="SiteSurveyor for Engineers"
+        description="Version 2.0"
+        size="md"
+        footer={<Button className="w-full" onClick={() => setShowAbout(false)}>Close</Button>}
+      >
+        <div className="flex flex-col items-center gap-4">
+          <img src="/logo.svg" alt="SiteSurveyor Logo" className="h-16 w-auto" />
+          <div className="w-full rounded-lg border bg-muted/40 p-4 text-center text-sm">
             A product of <strong>Eineva Incorporated</strong>
           </div>
-          <Button className="w-full" onClick={() => setShowAbout(false)}>
-            Close
-          </Button>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </DialogTemplate>
     </>
   );
 }
@@ -1275,14 +1263,17 @@ export default function WorkspaceShell({
 
   // Track recently visited views (most recent first, deduped, capped at 5).
   useEffect(() => {
-    setRecentViews((prev) =>
-      prev[0] === activeView
-        ? prev
-        : [activeView, ...prev.filter((view) => view !== activeView)].slice(
-            0,
-            5,
-          ),
-    );
+    const id = window.setTimeout(() => {
+      setRecentViews((prev) =>
+        prev[0] === activeView
+          ? prev
+          : [activeView, ...prev.filter((view) => view !== activeView)].slice(
+              0,
+              5,
+            ),
+      );
+    }, 0);
+    return () => window.clearTimeout(id);
   }, [activeView]);
 
   const shouldHideGlobalChrome =

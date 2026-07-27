@@ -6,6 +6,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import {
   connectWallet,
@@ -95,7 +96,7 @@ export function useSolanaWallet(): UseSolanaWalletResult {
 
   useEffect(() => {
     let mounted = true;
-    void waitForProvider().then((p) => {
+    void waitForProvider().then(() => {
       if (!mounted) return;
       refreshInstalled();
     });
@@ -156,9 +157,7 @@ export function useSolanaWallet(): UseSolanaWalletResult {
     }
   }, []);
 
-  useEffect(() => {
-    void refreshBalances();
-  }, [walletAddress, refreshBalances]);
+  useAsyncAction(refreshBalances, [walletAddress, refreshBalances]);
 
   // Poll balances every 15s while connected.
   useEffect(() => {

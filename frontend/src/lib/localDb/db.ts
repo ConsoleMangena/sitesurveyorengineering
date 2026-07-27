@@ -5,6 +5,7 @@ const LokiJSAdapter =
   (LokiJSAdapterImport as unknown as { default?: typeof LokiJSAdapterImport }).default ??
   LokiJSAdapterImport
 import { wmSchema } from './wmSchema.ts'
+import { migrations } from './migrations.ts'
 import { generateLocalId } from './utils.ts'
 import {
   Project,
@@ -122,10 +123,10 @@ function deserializeRaw(raw: Record<string, unknown>): Record<string, unknown> {
 }
 
 function applyRaw(record: Model, raw: Record<string, unknown>): void {
-  const setter = (record as unknown as { _setRaw: (key: string, value: unknown) => void })._setRaw
+  const model = record as unknown as { _setRaw: (key: string, value: unknown) => void }
   for (const [key, value] of Object.entries(raw)) {
     if (key === 'id') continue
-    setter(key, toDbValue(key, value))
+    model._setRaw(key, toDbValue(key, value))
   }
 }
 
@@ -264,6 +265,7 @@ export async function getLocalDatabase(userId: string): Promise<LocalDb> {
     const wmDb = new Database({
       adapter: new LokiJSAdapter({
         schema: wmSchema,
+        migrations,
         useWebWorker: false,
         useIncrementalIndexedDB: true,
       }),

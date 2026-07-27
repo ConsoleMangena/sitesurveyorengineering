@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import {
   base64ToBuffer,
@@ -20,7 +21,6 @@ import {
   importEncryptedWalletFromMnemonic,
   isEmbeddedWalletSupported,
   type EmbeddedWallet,
-  type EncryptedWallet,
 } from "./embeddedWallet";
 import {
   loadEmbeddedWallet,
@@ -158,7 +158,7 @@ export interface UseEmbeddedSolanaWalletResult {
 }
 
 export function useEmbeddedSolanaWallet(): UseEmbeddedSolanaWalletResult {
-  const [supported, setSupported] = useState(false);
+  const [supported] = useState(() => isEmbeddedWalletSupported());
   const [exists, setExists] = useState(false);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [unlockedWallet, setUnlockedWallet] = useState<EmbeddedWallet | null>(null);
@@ -181,10 +181,6 @@ export function useEmbeddedSolanaWallet(): UseEmbeddedSolanaWalletResult {
     usdcLoading: false,
   });
   const [balanceError, setBalanceError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setSupported(isEmbeddedWalletSupported());
-  }, []);
 
   const loadWallet = useCallback(async () => {
     setLoading(true);
@@ -214,9 +210,7 @@ export function useEmbeddedSolanaWallet(): UseEmbeddedSolanaWalletResult {
     }
   }, []);
 
-  useEffect(() => {
-    void loadWallet();
-  }, [loadWallet]);
+  useAsyncAction(loadWallet, [loadWallet]);
 
   const refreshBalances = useCallback(async () => {
     const address = unlockedWallet?.walletAddress ?? walletAddress;
@@ -323,9 +317,7 @@ export function useEmbeddedSolanaWallet(): UseEmbeddedSolanaWalletResult {
     }
   }, [unlockedWallet, walletAddress]);
 
-  useEffect(() => {
-    void refreshBalances();
-  }, [walletAddress, unlockedWallet, refreshBalances]);
+  useAsyncAction(refreshBalances, [walletAddress, unlockedWallet, refreshBalances]);
 
   useEffect(() => {
     if (!walletAddress) return;
@@ -333,20 +325,20 @@ export function useEmbeddedSolanaWallet(): UseEmbeddedSolanaWalletResult {
     return () => window.clearInterval(id);
   }, [walletAddress, refreshBalances]);
 
-  // Count down lockout seconds for UI.
+  // Count down lockout seconds for the UI.
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   useEffect(() => {
-    if (!lockoutUntil || lockoutUntil <= Date.now()) {
-      setLockoutSeconds(0);
-      return;
-    }
-    setLockoutSeconds(Math.ceil((lockoutUntil - Date.now()) / 1000));
-    const id = window.setInterval(() => {
+    if (!lockoutUntil) return;
+    const tick = () => {
       const remaining = Math.ceil((lockoutUntil - Date.now()) / 1000);
       setLockoutSeconds(remaining > 0 ? remaining : 0);
-      if (remaining <= 0) window.clearInterval(id);
-    }, 1000);
-    return () => window.clearInterval(id);
+    };
+    const immediateId = window.setTimeout(tick, 0);
+    const id = window.setInterval(tick, 1000);
+    return () => {
+      window.clearTimeout(immediateId);
+      window.clearInterval(id);
+    };
   }, [lockoutUntil]);
 
   const createWallet = useCallback(

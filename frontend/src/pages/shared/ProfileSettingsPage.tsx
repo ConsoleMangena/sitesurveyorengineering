@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { AlertTriangle, Trash2, Upload, User } from "lucide-react";
+import { AlertTriangle, Trash2, Upload } from "lucide-react";
 import {
   getMyProfile,
   updateMyProfile,
@@ -20,16 +20,8 @@ import {
   CardTitle,
   CardDescription,
 } from "../../components/ui/card.tsx";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "../../components/ui/dialog.tsx";
+import { DialogTemplate } from "../../components/templates/DialogTemplate.tsx";
 import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert.tsx";
-import { Badge } from "../../components/ui/badge.tsx";
 import { Separator } from "../../components/ui/separator.tsx";
 
 export default function ProfileSettingsPage() {
@@ -309,9 +301,9 @@ export default function ProfileSettingsPage() {
               <Separator />
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="space-y-0.5">
-                  <Label className="text-sm text-destructive">Delete Account</Label>
+                  <Label className="text-sm text-destructive">Delete Account & Data</Label>
                   <p className="text-xs text-muted-foreground">
-                    Start a 30-day deletion process
+                    Permanently delete your account and all data you own
                   </p>
                 </div>
                 <Button
@@ -332,39 +324,18 @@ export default function ProfileSettingsPage() {
         </div>
       </div>
 
-      <Dialog open={showDeleteAccount} onOpenChange={setShowDeleteAccount}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive">
-              <AlertTriangle className="h-5 w-5" /> Delete your account?
-            </DialogTitle>
-            <DialogDescription>
-              This starts a 30-day grace period. After that, your profile,
-              embedded wallet, and personal data will be permanently removed.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="text-sm text-muted-foreground">
-            You cannot undo this from the app. Workspace owners must transfer
-            ownership or delete those workspaces first.
-          </div>
-          {deleteError && (
-            <Alert variant="destructive">
-              <AlertDescription>{deleteError}</AlertDescription>
-            </Alert>
-          )}
-          <div className="space-y-2">
-            <Label htmlFor="delete-confirm">
-              Type <strong>delete</strong> to confirm
-            </Label>
-            <Input
-              id="delete-confirm"
-              value={deleteConfirmText}
-              onChange={(e) => setDeleteConfirmText(e.target.value)}
-              placeholder="delete"
-              autoFocus
-            />
-          </div>
-          <DialogFooter className="flex-col gap-2 sm:flex-row">
+      <DialogTemplate
+        open={showDeleteAccount}
+        onOpenChange={setShowDeleteAccount}
+        title={
+          <span className="flex items-center gap-2 text-destructive">
+            <AlertTriangle className="h-5 w-5" /> Delete your account?
+          </span>
+        }
+        description="This will immediately and permanently delete your account, profile, embedded wallet, and all workspaces and data you own."
+        size="sm"
+        footer={
+          <>
             <Button
               variant="outline"
               onClick={() => setShowDeleteAccount(false)}
@@ -382,9 +353,33 @@ export default function ProfileSettingsPage() {
             >
               {deleteLoading ? "Deleting…" : "Delete Account"}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            You cannot undo this. If you own workspaces with other members, you must transfer
+            ownership or delete those workspaces first.
+          </p>
+          {deleteError && (
+            <Alert variant="destructive">
+              <AlertDescription>{deleteError}</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="delete-confirm">
+              Type <strong>delete</strong> to confirm
+            </Label>
+            <Input
+              id="delete-confirm"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder="delete"
+              autoFocus
+            />
+          </div>
+        </div>
+      </DialogTemplate>
     </div>
   );
 }

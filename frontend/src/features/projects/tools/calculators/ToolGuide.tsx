@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { HelpCircle, ChevronDown } from "lucide-react";
 
 /** A single step in an interactive tool guide. */
 export interface GuideStep {
@@ -26,7 +27,7 @@ export interface ToolGuide {
  * never blocks the tool itself.
  */
 export function ToolGuidePanel({ guide }: { guide: ToolGuide }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   return (
     <div className={`svt-guide ${open ? "open" : ""}`}>
       <button
@@ -36,10 +37,10 @@ export function ToolGuidePanel({ guide }: { guide: ToolGuide }) {
         onClick={() => setOpen((v) => !v)}
       >
         <span className="svt-guide-toggle-main">
-          <span className="svt-guide-icon" aria-hidden="true">?</span>
-          How to use this tool
+          <HelpCircle size={18} className="svt-guide-icon" aria-hidden="true" />
+          <span>How to use this tool</span>
         </span>
-        <span className="svt-guide-chevron" aria-hidden="true">{open ? "▲" : "▼"}</span>
+        <ChevronDown size={16} className={`svt-guide-chevron ${open ? "open" : ""}`} aria-hidden="true" />
       </button>
       {open && (
         <div className="svt-guide-body">

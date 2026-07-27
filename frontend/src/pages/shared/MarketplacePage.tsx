@@ -1,10 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import {
   Package,
-  Layers,
   Search,
   Plus,
-  X,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -25,6 +23,9 @@ import {
   type MarketplaceListingWithAsset,
 } from "../../lib/repositories/marketplace.ts";
 import {
+  listAllMarketplaceListings,
+} from "../../lib/repositories/adminPlatform.ts";
+import {
   createMarketplaceRequest,
   hasPendingRequest,
 } from "../../lib/repositories/marketplaceRequests.ts";
@@ -32,21 +33,14 @@ import { notifyMarketplaceRequest } from "../../lib/repositories/notificationEve
 import { getWorkspaceById } from "../../lib/repositories/workspaces.ts";
 import SelectDropdown from "../../components/SelectDropdown.tsx";
 import PageLoader from "../../components/PageLoader.tsx";
-import MarketplaceFeatures from "./MarketplaceFeatures.tsx";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import { Button } from "../../components/ui/button.tsx";
 import { Input } from "../../components/ui/input.tsx";
 import { Label } from "../../components/ui/label.tsx";
 import { Textarea } from "../../components/ui/textarea.tsx";
 import { Badge } from "../../components/ui/badge.tsx";
 import { Card, CardContent } from "../../components/ui/card.tsx";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "../../components/ui/dialog.tsx";
+import { DialogTemplate } from "../../components/templates/DialogTemplate.tsx";
 import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx";
 import { Switch } from "../../components/ui/switch.tsx";
@@ -195,20 +189,15 @@ type FilterType =
   | "Controller"
   | "Calibration Service";
 
-type MarketplaceSegment = "instruments" | "features";
-
 interface MarketplacePageProps {
   workspaceId: string;
   isPlatformAdmin?: boolean;
-  onNavigate?: (view: string) => void;
 }
 
 export default function MarketplacePage({
   workspaceId,
   isPlatformAdmin = false,
-  onNavigate,
 }: MarketplacePageProps) {
-  const [segment, setSegment] = useState<MarketplaceSegment>("instruments");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<FilterType>("all");
   const [selectedListing, setSelectedListing] = useState<MarketplaceListingWithAsset | null>(null);
@@ -243,18 +232,18 @@ export default function MarketplacePage({
   const fetchListings = useCallback(async () => {
     try {
       setFetchError(null);
-      const data = await listMarketplaceListings(workspaceId);
+      const data = isPlatformAdmin
+        ? await listAllMarketplaceListings()
+        : await listMarketplaceListings(workspaceId);
       setListingState(data);
     } catch (err: unknown) {
       setFetchError(err instanceof Error ? err.message : "Failed to load listings");
     } finally {
       setLoading(false);
     }
-  }, [workspaceId]);
+  }, [isPlatformAdmin, workspaceId]);
 
-  useEffect(() => {
-    fetchListings();
-  }, [fetchListings]);
+  useAsyncAction(fetchListings, [fetchListings]);
 
   const filtered = listingState.filter((l) => {
     if (typeFilter !== "all" && l.type !== typeFilter) return false;
@@ -269,7 +258,8 @@ export default function MarketplacePage({
   });
   const pageSize = 10;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const effectivePage = Math.min(page, totalPages);
+  const paginated = filtered.slice((effectivePage - 1) * pageSize, effectivePage * pageSize);
 
   const clearMarketplaceFilters = () => {
     setSearch("");
@@ -406,14 +396,6 @@ export default function MarketplacePage({
     }
   };
 
-  useEffect(() => {
-    setPage(1);
-  }, [search, typeFilter]);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
-
   const filterTabs: { label: string; value: FilterType }[] = [
     { label: "All", value: "all" },
     { label: "Total Stations", value: "Total Station" },
@@ -428,11 +410,6 @@ export default function MarketplacePage({
   const saleListings = listingState.filter((l) => l.listing_type !== "hire").length;
   const hireListings = listingState.filter((l) => l.listing_type === "hire").length;
   const inUseListings = listingState.filter((l) => l.assets?.status === "deployed").length;
-
-  const headerText =
-    segment === "instruments"
-      ? "Browse available survey instruments and calibration services"
-      : "Subscribe to system features and software add-ons";
 
   return (
     <DashboardShell>
@@ -449,9 +426,9 @@ export default function MarketplacePage({
 
       <DashboardHeader
         title="Marketplace"
-        description={headerText}
+        description="Browse available survey instruments and calibration services"
         actions={
-          segment === "instruments" && isPlatformAdmin ? (
+          isPlatformAdmin ? (
             <Button onClick={openCreateListing}>
               <Plus className="mr-2 h-4 w-4" /> List a global instrument
             </Button>
@@ -459,20 +436,7 @@ export default function MarketplacePage({
         }
       />
 
-      <Tabs value={segment} onValueChange={(value) => setSegment(value as MarketplaceSegment)}>
-        <TabsList className="grid w-full grid-cols-2 sm:w-[400px]">
-          <TabsTrigger value="instruments">
-            <Package className="mr-2 h-4 w-4" /> Instruments & Hiring
-          </TabsTrigger>
-          <TabsTrigger value="features">
-            <Layers className="mr-2 h-4 w-4" /> System Features
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
-
-      {segment === "features" ? (
-        <MarketplaceFeatures workspaceId={workspaceId} onNavigate={onNavigate} />
-      ) : loading ? (
+      {loading ? (
         <PageLoader />
       ) : (
         <>
@@ -481,25 +445,25 @@ export default function MarketplacePage({
               title="Total Listings"
               value={String(totalListings)}
               subtext="Instruments & services"
-              icon={<Package className="size-3.5" />}
+              icon={<Package className="size-4" />}
             />
             <KpiCard
               title="For Sale"
               value={String(saleListings)}
               subtext="Available to purchase"
-              icon={<ShoppingCart className="size-3.5" />}
+              icon={<ShoppingCart className="size-4" />}
             />
             <KpiCard
               title="For Hire"
               value={String(hireListings)}
               subtext="Rent per day"
-              icon={<Clock className="size-3.5" />}
+              icon={<Clock className="size-4" />}
             />
             <KpiCard
               title="In Use"
               value={String(inUseListings)}
               subtext="Currently deployed"
-              icon={<Activity className="size-3.5" />}
+              icon={<Activity className="size-4" />}
             />
           </div>
 
@@ -530,298 +494,180 @@ export default function MarketplacePage({
               </Tabs>
             </div>
 
-          <Dialog open={!!selectedListing} onOpenChange={() => setSelectedListing(null)}>
-            <DialogContent className="sm:max-w-[480px]">
-              {selectedListing && (
+          <DialogTemplate
+            open={!!selectedListing}
+            onOpenChange={() => setSelectedListing(null)}
+            title={selectedListing?.name ?? "Listing Details"}
+            description={
+              selectedListing ? (
                 <>
-                  <DialogHeader>
-                    <div className="flex items-start gap-4">
-                      <div className="text-primary">
-                        <ListingIcon type={selectedListing.type} />
-                      </div>
-                      <div>
-                        <DialogTitle>{selectedListing.name}</DialogTitle>
-                        <DialogDescription>
-                          {selectedListing.type} ·{" "}
-                          <Badge variant={conditionVariant[selectedListing.condition] as never}>
-                            {selectedListing.condition}
-                          </Badge>
-                        </DialogDescription>
-                      </div>
-                    </div>
-                  </DialogHeader>
-
-                  <div className="space-y-4">
-                    <p className="text-2xl font-semibold text-foreground">
-                      ${selectedListing.price.toLocaleString()}{" "}
-                      <span className="text-sm font-normal text-muted-foreground">
-                        {selectedListing.currency}{" "}
-                        {selectedListing.listing_type === "hire" ? "/ day" : "one-time"}
-                      </span>
-                    </p>
-
-                    {selectedListing.description && (
-                      <p className="text-sm text-muted-foreground">
-                        {selectedListing.description}
-                      </p>
-                    )}
-                    {selectedListing.specs && selectedListing.specs.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {selectedListing.specs.map((s) => (
-                          <Badge key={s} variant="secondary">
-                            {s}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-
-                    <Card>
-                      <CardContent className="space-y-2 py-4 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">
-                            {selectedListing.condition === "Service" ? "Provider" : "Seller"}
-                          </span>
-                          <span className="font-medium text-foreground">{selectedListing.seller}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Location</span>
-                          <span className="font-medium text-foreground">{selectedListing.location}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Posted</span>
-                          <span className="font-medium text-foreground">
-                            {new Date(selectedListing.created_at).toLocaleDateString()}
-                          </span>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    {showRequestForm && (
-                      <div className="space-y-3 rounded-lg border bg-muted/40 p-4">
-                        <h4 className="text-sm font-semibold">
-                          {selectedListing.listing_type === "hire"
-                            ? "Request to Hire"
-                            : "Request to Purchase"}
-                        </h4>
-                        {selectedListing.listing_type === "hire" && (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div className="space-y-1.5">
-                              <Label className="text-xs">Start Date</Label>
-                              <Input
-                                type="date"
-                                value={requestStartDate}
-                                onChange={(e) => setRequestStartDate(e.target.value)}
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label className="text-xs">End Date</Label>
-                              <Input
-                                type="date"
-                                value={requestEndDate}
-                                onChange={(e) => setRequestEndDate(e.target.value)}
-                              />
-                            </div>
-                          </div>
-                        )}
-                        <Textarea
-                          placeholder="Add a message to the seller (optional)..."
-                          value={requestMessage}
-                          onChange={(e) => setRequestMessage(e.target.value)}
-                          rows={3}
-                        />
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setShowRequestForm(false)}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            size="sm"
-                            disabled={requestSending}
-                            onClick={handleSubmitRequest}
-                          >
-                            {requestSending ? (
-                              <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending...
-                              </>
-                            ) : (
-                              "Send Request"
-                            )}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-
-                    {requestSent && (
-                      <Alert variant="success">
-                        <CheckCircle2 className="h-4 w-4" />
-                        <AlertDescription>
-                          Request sent successfully! The seller will be notified.
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                  </div>
-
-                  <DialogFooter className="flex-col gap-2 sm:flex-row">
-                    <Button
-                      variant="outline"
-                      onClick={() => setSelectedListing(null)}
-                      className="w-full sm:w-auto"
-                    >
-                      Close
-                    </Button>
-                    {!showRequestForm && !requestSent && (
-                      selectedListing.workspace_id === workspaceId ? (
-                        isPlatformAdmin ? (
-                          <>
-                            <Button
-                              variant="outline"
-                              onClick={() => openEditListing(selectedListing)}
-                              className="w-full sm:w-auto"
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              variant="destructive"
-                              onClick={() => removeListing(selectedListing.id)}
-                              className="w-full sm:w-auto"
-                            >
-                              Delete
-                            </Button>
-                          </>
-                        ) : (
-                          <Button variant="outline" disabled className="w-full sm:w-auto">
-                            Your Listing
-                          </Button>
-                        )
-                      ) : selectedListing.assets?.status === "deployed" ? (
-                        <Button variant="outline" disabled className="w-full sm:w-auto">
-                          Currently In Use
-                        </Button>
-                      ) : alreadyRequested ? (
-                        <Button disabled className="w-full sm:w-auto">
-                          <CheckCircle2 className="mr-2 h-4 w-4" /> Request Pending
-                        </Button>
-                      ) : (
+                  {selectedListing.type} ·{" "}
+                  <Badge variant={conditionVariant[selectedListing.condition] as never}>
+                    {selectedListing.condition}
+                  </Badge>
+                </>
+              ) : null
+            }
+            size="md"
+            footer={
+              selectedListing ? (
+                <>
+                  <Button variant="outline" onClick={() => setSelectedListing(null)} className="w-full sm:w-auto">
+                    Close
+                  </Button>
+                  {!showRequestForm && !requestSent && (
+                    isPlatformAdmin ? (
+                      <>
                         <Button
-                          onClick={() => setShowRequestForm(true)}
+                          variant="outline"
+                          onClick={() => openEditListing(selectedListing)}
                           className="w-full sm:w-auto"
                         >
-                          {selectedListing.listing_type === "hire"
-                            ? "Request Hire"
-                            : "Request Item"}
+                          Edit
                         </Button>
-                      )
-                    )}
-                  </DialogFooter>
+                        <Button
+                          variant="destructive"
+                          onClick={() => removeListing(selectedListing?.id)}
+                          className="w-full sm:w-auto"
+                        >
+                          Delete
+                        </Button>
+                      </>
+                    ) : selectedListing.workspace_id === workspaceId ? (
+                      <Button variant="outline" disabled className="w-full sm:w-auto">
+                        Your Listing
+                      </Button>
+                    ) : selectedListing.assets?.status === "deployed" ? (
+                      <Button variant="outline" disabled className="w-full sm:w-auto">
+                        Currently In Use
+                      </Button>
+                    ) : alreadyRequested ? (
+                      <Button disabled className="w-full sm:w-auto">
+                        <CheckCircle2 className="mr-2 h-4 w-4" /> Request Pending
+                      </Button>
+                    ) : (
+                      <Button onClick={() => setShowRequestForm(true)} className="w-full sm:w-auto">
+                        {selectedListing.listing_type === "hire" ? "Request Hire" : "Request Item"}
+                      </Button>
+                    )
+                  )}
                 </>
-              )}
-            </DialogContent>
-          </Dialog>
+              ) : undefined
+            }
+          >
+            {selectedListing && (
+              <div className="space-y-4">
+                <p className="text-2xl font-semibold text-foreground">
+                  ${selectedListing.price.toLocaleString()}{" "}
+                  <span className="text-sm font-normal text-muted-foreground">
+                    {selectedListing.currency}{" "}
+                    {selectedListing.listing_type === "hire" ? "/ day" : "one-time"}
+                  </span>
+                </p>
 
-          <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
-            <DialogContent className="sm:max-w-[520px]">
-              <DialogHeader>
-                <DialogTitle>
-                  {editingId ? "Edit listing" : "List an instrument"}
-                </DialogTitle>
-                <DialogDescription>
-                  Listing assets for hire is free for your workspace.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="sm:col-span-2 space-y-2">
-                  <Label>Name *</Label>
-                  <Input
-                    value={mName}
-                    onChange={(e) => setMName(e.target.value)}
-                    placeholder="e.g. Leica TS16"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Type</Label>
-                  <SelectDropdown options={TYPE_OPTIONS} value={mType} onChange={setMType} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Condition</Label>
-                  <SelectDropdown
-                    options={CONDITION_OPTIONS}
-                    value={mCondition}
-                    onChange={setMCondition}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Price *</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    value={mPrice}
-                    onChange={(e) => setMPrice(e.target.value)}
-                    placeholder="0"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Currency</Label>
-                  <Input
-                    value={mCurrency}
-                    onChange={(e) => setMCurrency(e.target.value)}
-                    placeholder="USD"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Seller / Provider *</Label>
-                  <Input
-                    value={mSeller}
-                    onChange={(e) => setMSeller(e.target.value)}
-                    placeholder="Your firm or name"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Location *</Label>
-                  <Input
-                    value={mLocation}
-                    onChange={(e) => setMLocation(e.target.value)}
-                    placeholder="City, country"
-                  />
-                </div>
-                <div className="sm:col-span-2 space-y-2">
-                  <Label>Description</Label>
-                  <Textarea
-                    value={mDescription}
-                    onChange={(e) => setMDescription(e.target.value)}
-                    placeholder="Optional details"
-                    rows={3}
-                  />
-                </div>
-                <div className="sm:col-span-2 space-y-2">
-                  <Label>Specs (comma separated)</Label>
-                  <Input
-                    value={mSpecs}
-                    onChange={(e) => setMSpecs(e.target.value)}
-                    placeholder="2'' accuracy, 1000m range"
-                  />
-                </div>
-                {isPlatformAdmin && (
-                  <div className="sm:col-span-2 flex items-center gap-3 rounded-md border p-3">
-                    <Switch
-                      id="listing-global"
-                      checked={mIsGlobal}
-                      onCheckedChange={setMIsGlobal}
-                    />
-                    <Label htmlFor="listing-global" className="cursor-pointer">
-                      Publish globally (visible to all workspaces)
-                    </Label>
+                {selectedListing.description && (
+                  <p className="text-sm text-muted-foreground">{selectedListing.description}</p>
+                )}
+                {selectedListing.specs && selectedListing.specs.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedListing.specs.map((s) => (
+                      <Badge key={s} variant="secondary">
+                        {s}
+                      </Badge>
+                    ))}
                   </div>
                 )}
+
+                <Card>
+                  <CardContent className="space-y-2 py-4 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        {selectedListing.condition === "Service" ? "Provider" : "Seller"}
+                      </span>
+                      <span className="font-medium text-foreground">{selectedListing.seller}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Location</span>
+                      <span className="font-medium text-foreground">{selectedListing.location}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Posted</span>
+                      <span className="font-medium text-foreground">
+                        {new Date(selectedListing.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {showRequestForm && (
+                  <div className="space-y-3 rounded-lg border bg-muted/40 p-4">
+                    <h4 className="text-sm font-semibold">
+                      {selectedListing.listing_type === "hire" ? "Request to Hire" : "Request to Purchase"}
+                    </h4>
+                    {selectedListing.listing_type === "hire" && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Start Date</Label>
+                          <Input
+                            type="date"
+                            value={requestStartDate}
+                            onChange={(e) => setRequestStartDate(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">End Date</Label>
+                          <Input
+                            type="date"
+                            value={requestEndDate}
+                            onChange={(e) => setRequestEndDate(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    <Textarea
+                      placeholder="Add a message to the seller (optional)..."
+                      value={requestMessage}
+                      onChange={(e) => setRequestMessage(e.target.value)}
+                      rows={3}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setShowRequestForm(false)}>
+                        Cancel
+                      </Button>
+                      <Button size="sm" disabled={requestSending} onClick={handleSubmitRequest}>
+                        {requestSending ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending...
+                          </>
+                        ) : (
+                          "Send Request"
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {requestSent && (
+                  <Alert variant="success">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <AlertDescription>
+                      Request sent successfully! The seller will be notified.
+                    </AlertDescription>
+                  </Alert>
+                )}
               </div>
-              <DialogFooter className="gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setEditorOpen(false)}
-                  disabled={savingListing}
-                >
+            )}
+          </DialogTemplate>
+
+          <DialogTemplate
+            open={editorOpen}
+            onOpenChange={setEditorOpen}
+            title={editingId ? "Edit listing" : "List an instrument"}
+            description="Listing assets for hire is free for your workspace."
+            size="lg"
+            footer={
+              <>
+                <Button variant="outline" onClick={() => setEditorOpen(false)} disabled={savingListing}>
                   Cancel
                 </Button>
                 <Button onClick={saveListing} disabled={savingListing}>
@@ -835,9 +681,91 @@ export default function MarketplacePage({
                     "Publish listing"
                   )}
                 </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+              </>
+            }
+          >
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2 space-y-2">
+                <Label>Name *</Label>
+                <Input
+                  value={mName}
+                  onChange={(e) => setMName(e.target.value)}
+                  placeholder="e.g. Leica TS16"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Type</Label>
+                <SelectDropdown options={TYPE_OPTIONS} value={mType} onChange={setMType} />
+              </div>
+              <div className="space-y-2">
+                <Label>Condition</Label>
+                <SelectDropdown options={CONDITION_OPTIONS} value={mCondition} onChange={setMCondition} />
+              </div>
+              <div className="space-y-2">
+                <Label>Price *</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={mPrice}
+                  onChange={(e) => setMPrice(e.target.value)}
+                  placeholder="0"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Currency</Label>
+                <Input
+                  value={mCurrency}
+                  onChange={(e) => setMCurrency(e.target.value)}
+                  placeholder="USD"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Seller / Provider *</Label>
+                <Input
+                  value={mSeller}
+                  onChange={(e) => setMSeller(e.target.value)}
+                  placeholder="Your firm or name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Location *</Label>
+                <Input
+                  value={mLocation}
+                  onChange={(e) => setMLocation(e.target.value)}
+                  placeholder="City, country"
+                />
+              </div>
+              <div className="sm:col-span-2 space-y-2">
+                <Label>Description</Label>
+                <Textarea
+                  value={mDescription}
+                  onChange={(e) => setMDescription(e.target.value)}
+                  placeholder="Optional details"
+                  rows={3}
+                />
+              </div>
+              <div className="sm:col-span-2 space-y-2">
+                <Label>Specs (comma separated)</Label>
+                <Input
+                  value={mSpecs}
+                  onChange={(e) => setMSpecs(e.target.value)}
+                  placeholder="2'' accuracy, 1000m range"
+                />
+              </div>
+              {isPlatformAdmin && (
+                <div className="sm:col-span-2 flex items-center gap-3 rounded-md border p-3">
+                  <Switch
+                    id="listing-global"
+                    checked={mIsGlobal}
+                    onCheckedChange={setMIsGlobal}
+                  />
+                  <Label htmlFor="listing-global" className="cursor-pointer">
+                    Publish globally (visible to all workspaces)
+                  </Label>
+                </div>
+              )}
+            </div>
+          </DialogTemplate>
 
           {filtered.length === 0 ? (
             <Card>
@@ -918,18 +846,18 @@ export default function MarketplacePage({
                     variant="outline"
                     size="sm"
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page <= 1}
+                    disabled={effectivePage <= 1}
                   >
                     <ChevronLeft className="mr-1 h-4 w-4" /> Previous
                   </Button>
                   <span className="text-sm text-muted-foreground">
-                    Page {page} / {totalPages}
+                    Page {effectivePage} / {totalPages}
                   </span>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={page >= totalPages}
+                    disabled={effectivePage >= totalPages}
                   >
                     Next <ChevronRight className="ml-1 h-4 w-4" />
                   </Button>

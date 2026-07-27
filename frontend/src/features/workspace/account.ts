@@ -43,11 +43,12 @@ export const SHARED_VIEWS: WorkspaceView[] = [
   "schedule",
   "billing",
   "timeTracking",
+  "team",
 ];
 
 export const PERSONAL_ONLY_VIEWS: WorkspaceView[] = ["invoices", "contacts"];
 
-export const BUSINESS_ONLY_VIEWS: WorkspaceView[] = ["dispatch", "team"];
+export const BUSINESS_ONLY_VIEWS: WorkspaceView[] = ["dispatch"];
 
 export const ADMIN_PLATFORM_VIEWS: WorkspaceView[] = [
   "admin_overview",
@@ -55,8 +56,6 @@ export const ADMIN_PLATFORM_VIEWS: WorkspaceView[] = [
   "admin_users",
   "admin_workspaces",
   "admin_audit",
-  "admin_feature_requests",
-  "admin_licenses",
 ];
 
 function mergePlatformAdminViews(

@@ -6,10 +6,7 @@ import SessionExpiredBanner from "./components/SessionExpiredBanner";
 import ProtectedRoute from "./components/ProtectedRoute";
 import WorkspaceRouter from "./components/WorkspaceRouter";
 import GlobalLoader from "./components/GlobalLoader";
-import { LicenseProvider } from "./contexts/LicenseContext";
 import { EmbeddedWalletProvider } from "./contexts/EmbeddedWalletContext.tsx";
-import LicenseGate from "./components/license/LicenseGate";
-import BuildConfigBanner from "./components/license/BuildConfigBanner";
 import LoginPage from "./pages/auth/LoginPage";
 import SignupPage from "./pages/auth/SignupPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
@@ -22,6 +19,11 @@ import {
   getCurrentSession,
   onAuthStateChange,
 } from "./lib/auth/session.ts";
+import {
+  saveCachedUser,
+  loadCachedUser,
+  clearCachedUser,
+} from "./lib/auth/authCache.ts";
 import { mapAppUserToUiUser } from "./features/workspace/account.ts";
 import { useAuthStore } from "./lib/auth/auth-store";
 
@@ -104,6 +106,7 @@ export default function App() {
     try {
       const session = await getCurrentSession();
       if (!session) {
+        clearCachedUser();
         setUser(null);
         setLoading(false);
         return;
@@ -111,10 +114,16 @@ export default function App() {
 
       const { user: mappedUser, diagnostics } = await mapUserWithRetries();
       if (mappedUser) {
+        saveCachedUser(mappedUser);
         setUser(mappedUser);
       } else {
-        setError(workspaceNotReadyMessage(diagnostics));
-        setUser(null);
+        const cached = loadCachedUser();
+        if (cached && cached.id === session.user.id) {
+          setUser(cached);
+        } else {
+          setError(workspaceNotReadyMessage(diagnostics));
+          setUser(null);
+        }
       }
     } catch (err) {
       setUser(null);
@@ -147,6 +156,7 @@ export default function App() {
         return;
       }
       if (event === "SIGNED_OUT") {
+        clearCachedUser();
         setSessionExpired(true);
         return;
       }
@@ -172,7 +182,6 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <BuildConfigBanner />
       <GlobalLoader />
       <BrowserRouter>
         <SessionExpiredBanner />
@@ -219,13 +228,9 @@ export default function App() {
           />
           <Route element={<ProtectedRoute />}>
             <Route path="/" element={
-              <LicenseProvider>
-                <LicenseGate>
-                  <EmbeddedWalletProvider>
-                    <WorkspaceRouter />
-                  </EmbeddedWalletProvider>
-                </LicenseGate>
-              </LicenseProvider>
+              <EmbeddedWalletProvider>
+                <WorkspaceRouter />
+              </EmbeddedWalletProvider>
             } />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

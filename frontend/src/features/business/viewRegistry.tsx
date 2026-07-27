@@ -3,15 +3,12 @@ import DispatchPage from "../../pages/business/DispatchPage";
 import ProfessionalsPage from "../../pages/business/ProfessionalsPage";
 import TeamPage from "../../pages/business/TeamPage";
 import SchedulePage from "../../pages/personal/SchedulePage";
-import AssetManagementPage from "../../pages/shared/AssetManagementPage";
 import ContactsPage from "../../pages/shared/ContactsPage";
 import InvoicesPage from "../../pages/shared/InvoicesPage";
 import JobsPage from "../../pages/shared/JobsPage";
-import MarketplacePage from "../../pages/shared/MarketplacePage";
 import NotificationsPage from "../../pages/shared/NotificationsPage";
 import ProfileSettingsPage from "../../pages/shared/ProfileSettingsPage";
 import QuotesPage from "../../pages/shared/QuotesPage";
-import TimeTrackingPage from "../../pages/shared/TimeTrackingPage";
 /* eslint-disable react-refresh/only-export-components */
 // ^ view registries export render helper functions, not components. Lazy page
 // components defined here are only consumed inside this file.
@@ -28,9 +25,11 @@ const AdminAuditPage = lazy(() => import("../../pages/admin/AdminAuditPage"));
 const AdminOverviewPage = lazy(() => import("../../pages/admin/AdminOverviewPage"));
 const AdminUsersPage = lazy(() => import("../../pages/admin/AdminUsersPage"));
 const AdminWorkspacesPage = lazy(() => import("../../pages/admin/AdminWorkspacesPage"));
-const AdminFeatureRequestsPage = lazy(() => import("../../pages/admin/AdminFeatureRequestsPage"));
-const AdminLicensesPage = lazy(() => import("../../pages/admin/AdminLicensesPage"));
+
 const ProjectHubPage = lazy(() => import("../../pages/shared/ProjectHubPage"));
+const TimeTrackingPage = lazy(() => import("../../pages/shared/TimeTrackingPage"));
+const AssetManagementPage = lazy(() => import("../../pages/shared/AssetManagementPage"));
+const MarketplacePage = lazy(() => import("../../pages/shared/MarketplacePage"));
 
 interface BusinessViewRegistryOptions {
   user: UiUser;
@@ -47,7 +46,7 @@ export function renderBusinessView(
 
   switch (activeView) {
     case "dashboard":
-      return <BusinessDashboardPage userName={user.name} workspaceId={user.workspaceId} />;
+      return <BusinessDashboardPage userName={user.name} workspaceId={user.workspaceId} onNavigate={onNavigate} />;
 
     case "files":
       return (
@@ -75,21 +74,30 @@ export function renderBusinessView(
       );
 
     case "timeTracking":
-      return <TimeTrackingPage workspaceId={user.workspaceId} />;
+      return (
+        <Suspense fallback={<PageLoader />}>
+          <TimeTrackingPage workspaceId={user.workspaceId} />
+        </Suspense>
+      );
 
     case "dispatch":
       return <DispatchPage workspaceId={user.workspaceId} />;
 
     case "assets":
-      return <AssetManagementPage workspaceId={user.workspaceId} />;
+      return (
+        <Suspense fallback={<PageLoader />}>
+          <AssetManagementPage workspaceId={user.workspaceId} />
+        </Suspense>
+      );
 
     case "marketplace":
       return (
-        <MarketplacePage
-          workspaceId={user.workspaceId}
-          isPlatformAdmin={user.isPlatformAdmin}
-          onNavigate={onNavigate}
-        />
+        <Suspense fallback={<PageLoader />}>
+          <MarketplacePage
+            workspaceId={user.workspaceId}
+            isPlatformAdmin={user.isPlatformAdmin}
+          />
+        </Suspense>
       );
 
     case "professionals":
@@ -112,7 +120,7 @@ export function renderBusinessView(
       );
 
     case "schedule":
-      return <SchedulePage workspaceId={user.workspaceId} workspaceType={user.accountType} />;
+      return <SchedulePage workspaceId={user.workspaceId} />;
 
     case "billing":
       return (
@@ -158,24 +166,10 @@ export function renderBusinessView(
         </Suspense>
       );
 
-    case "admin_feature_requests":
-      return (
-        <Suspense fallback={<PageLoader />}>
-          <AdminFeatureRequestsPage isPlatformAdmin={user.isPlatformAdmin} />
-        </Suspense>
-      );
-
     case "admin_audit":
       return (
         <Suspense fallback={<PageLoader />}>
           <AdminAuditPage isPlatformAdmin={user.isPlatformAdmin} />
-        </Suspense>
-      );
-
-    case "admin_licenses":
-      return (
-        <Suspense fallback={<PageLoader />}>
-          <AdminLicensesPage isPlatformAdmin={user.isPlatformAdmin} />
         </Suspense>
       );
 

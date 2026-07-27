@@ -12,7 +12,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/ca
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx";
 import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
 import { ScrollArea } from "../../components/ui/scroll-area.tsx";
-import { Separator } from "../../components/ui/separator.tsx";
 import { cn } from "../../lib/utils.ts";
 
 interface NotificationsPageProps {

@@ -1,7 +1,11 @@
 import React from 'react';
+import { Loader2 } from "lucide-react";
 import type { HubProject } from '../../../pages/shared/ProjectHubPage.tsx';
+import type { CrsType } from '../../../lib/mappers.ts';
 import type { ProjectActivity } from '../../../lib/repositories/projects.ts';
 import type { OrganizationRow } from '../../../lib/repositories/organizations.ts';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import SelectDropdown from '../../../components/SelectDropdown.tsx';
 
 interface ProjectSettingsProps {
@@ -16,6 +20,22 @@ interface ProjectSettingsProps {
   setEditPhase: (v: string) => void;
   editDatum: string;
   setEditDatum: (v: string) => void;
+  editAxisConvention: 'yx' | 'xy';
+  setEditAxisConvention: (v: 'yx' | 'xy') => void;
+  editCrsType: CrsType;
+  setEditCrsType: (v: CrsType) => void;
+  editCrsEpsg: string;
+  setEditCrsEpsg: (v: string) => void;
+  editLocalOriginE: string;
+  setEditLocalOriginE: (v: string) => void;
+  editLocalOriginN: string;
+  setEditLocalOriginN: (v: string) => void;
+  editBearingFormat: string;
+  setEditBearingFormat: (v: string) => void;
+  editAngleEntry: string;
+  setEditAngleEntry: (v: string) => void;
+  editCoordDecimals: string;
+  setEditCoordDecimals: (v: string) => void;
   editStatus: string;
   setEditStatus: (v: string) => void;
   editDesc: string;
@@ -54,6 +74,22 @@ export function ProjectSettings({
   setEditPhase,
   editDatum,
   setEditDatum,
+  editAxisConvention,
+  setEditAxisConvention,
+  editCrsType,
+  setEditCrsType,
+  editCrsEpsg,
+  setEditCrsEpsg,
+  editLocalOriginE,
+  setEditLocalOriginE,
+  editLocalOriginN,
+  setEditLocalOriginN,
+  editBearingFormat,
+  setEditBearingFormat,
+  editAngleEntry,
+  setEditAngleEntry,
+  editCoordDecimals,
+  setEditCoordDecimals,
   editStatus,
   setEditStatus,
   editDesc,
@@ -123,10 +159,6 @@ export function ProjectSettings({
 
           <div className="responsive-grid-2" style={{ marginBottom: '16px' }}>
             <div className="form-group">
-              <label className="form-label" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Datum / CRS</label>
-              <input type="text" className="input-field" value={editDatum} onChange={e => setEditDatum(e.target.value)} />
-            </div>
-            <div className="form-group">
               <label className="form-label" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Status</label>
               <select className="input-field" value={editStatus} onChange={e => setEditStatus(e.target.value)}>
                 <option>Draft</option>
@@ -135,6 +167,73 @@ export function ProjectSettings({
                 <option>Completed</option>
                 <option>Archived</option>
               </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Axis Convention</label>
+              <select className="input-field" value={editAxisConvention} onChange={e => setEditAxisConvention(e.target.value as 'yx' | 'xy')}>
+                <option value="yx">Y, X (Zimbabwe / RSA Gauss — Y = Easting first)</option>
+                <option value="xy">X, Y (UTM / International — X = Easting first)</option>
+              </select>
+              <p className="text-xs text-muted-foreground mt-1">Controls coordinate readouts in CAD and every COGO & Computation tool.</p>
+            </div>
+          </div>
+
+          <div className="form-group" style={{ marginBottom: '16px' }}>
+            <label className="form-label" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Coordinate System Type</label>
+            <select className="input-field" value={editCrsType} onChange={e => setEditCrsType(e.target.value as CrsType)}>
+              <option value="local">Local site grid (arbitrary project origin)</option>
+              <option value="projected">Projected CRS (UTM, SPCS, Gauss-Conform, ...)</option>
+              <option value="other">Other / unspecified</option>
+            </select>
+          </div>
+
+          {editCrsType === 'projected' && (
+            <div className="form-group" style={{ marginBottom: '16px' }}>
+              <label className="form-label" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>EPSG Code (optional)</label>
+              <input type="text" className="input-field" value={editCrsEpsg} onChange={e => setEditCrsEpsg(e.target.value)} placeholder="e.g. 32736" />
+            </div>
+          )}
+
+          {editCrsType === 'local' && (
+            <div className="responsive-grid-2" style={{ marginBottom: '16px' }}>
+              <div className="form-group">
+                <label className="form-label" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Local Origin Easting</label>
+                <input type="text" className="input-field" value={editLocalOriginE} onChange={e => setEditLocalOriginE(e.target.value)} placeholder="Value treated as 0 in local grid" />
+              </div>
+              <div className="form-group">
+                <label className="form-label" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Local Origin Northing</label>
+                <input type="text" className="input-field" value={editLocalOriginN} onChange={e => setEditLocalOriginN(e.target.value)} placeholder="Value treated as 0 in local grid" />
+              </div>
+            </div>
+          )}
+
+          <div className="form-group" style={{ marginBottom: '16px' }}>
+            <label className="form-label" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Datum Name</label>
+            <input type="text" className="input-field" value={editDatum} onChange={e => setEditDatum(e.target.value)} placeholder="e.g. WGS84, Arc 1950, site local..." />
+            <p className="text-xs text-muted-foreground mt-1">A short human-readable datum label. Use the fields above for the technical CRS / EPSG code.</p>
+          </div>
+
+          <div className="responsive-grid-3" style={{ marginBottom: '16px' }}>
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Bearing Format</label>
+              <select className="input-field" value={editBearingFormat} onChange={e => setEditBearingFormat(e.target.value)}>
+                <option value="azimuth">WCB / Forward Bearing (D°M'S")</option>
+                <option value="quadrant">Reduced Bearing (N/S .. E/W)</option>
+                <option value="gon">Gon / Grad</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Angle Entry</label>
+              <select className="input-field" value={editAngleEntry} onChange={e => setEditAngleEntry(e.target.value)}>
+                <option value="packed">Packed DD.MMSS</option>
+                <option value="dms">D M S fields</option>
+                <option value="decimal">Decimal degrees</option>
+                <option value="gon">Gon / Grad</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Coordinate Decimals</label>
+              <input type="number" className="input-field" min="0" max="6" value={editCoordDecimals} onChange={e => setEditCoordDecimals(e.target.value)} />
             </div>
           </div>
 
@@ -190,16 +289,29 @@ export function ProjectSettings({
                 <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: member.status === 'active' ? 'var(--color-success)' : 'var(--color-warning)' }}>{member.status}</span>
               </div>
             ))}
-            <button className="btn btn-outline btn-sm" style={{ marginTop: '8px', width: '100%' }} onClick={() => setShowAssignModal(true)} disabled={!canInviteProjectMembers}>Assign New Member</button>
+            <button className="btn btn-outline btn-sm" style={{ marginTop: '8px' }} onClick={() => setShowAssignModal(true)} disabled={!canInviteProjectMembers}>Assign Member</button>
           </div>
         </div>
 
         <div className="card project-workspace-card" style={{ padding: '24px' }}>
           <h3 className="project-dashboard-card-title" style={{ margin: 0, marginBottom: '16px' }}>Project Activity Log</h3>
           <div className="project-dashboard-timeline" style={{ maxHeight: '400px', overflowY: 'auto' }}>
-            <form onSubmit={handleAddActivity} style={{ marginBottom: '16px', display: 'flex', gap: '8px' }}>
-              <input className="input-field" placeholder="Add a log entry..." style={{ height: '36px', fontSize: '13px' }} value={newActivityText} onChange={e => setNewActivityText(e.target.value)} />
-              <button type="submit" className="btn btn-primary btn-sm" disabled={submittingActivity || !newActivityText.trim()}>Log</button>
+            <form onSubmit={handleAddActivity} className="flex flex-col sm:flex-row gap-2 mb-4">
+              <Input
+                placeholder="Add a log entry..."
+                value={newActivityText}
+                onChange={(e) => setNewActivityText(e.target.value)}
+                className="h-9 text-sm"
+              />
+              <Button
+                type="submit"
+                size="sm"
+                disabled={submittingActivity || !newActivityText.trim()}
+                className="shrink-0"
+              >
+                {submittingActivity ? <Loader2 size={14} className="animate-spin mr-1.5" /> : null}
+                Log
+              </Button>
             </form>
             {activities.length > 0 && settingsActivitySections[settingsActivitySectionIndex] ? (
               <>
@@ -223,36 +335,43 @@ export function ProjectSettings({
                           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{log.user_name} &bull; {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         </div>
                       </div>
-                      <button
+                      <Button
                         type="button"
-                        className="btn btn-outline btn-sm"
+                        variant="outline"
+                        size="sm"
                         onClick={() => handleDeleteActivity(log.id)}
                         disabled={deletingActivityId === log.id}
-                        style={{ padding: '2px 8px', lineHeight: 1.2 }}
+                        className="h-7 px-2 text-xs"
                       >
-                        {deletingActivityId === log.id ? '...' : 'Delete'}
-                      </button>
+                        {deletingActivityId === log.id ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          'Delete'
+                        )}
+                      </Button>
                     </div>
                   ))}
                 </div>
                 </section>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-                  <button
+                <div className="flex justify-between gap-2">
+                  <Button
                     type="button"
-                    className="btn btn-outline btn-sm"
-                    onClick={() => setSettingsActivitySectionIndex(prev => Math.max(0, prev - 1))}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSettingsActivitySectionIndex((prev) => Math.max(0, prev - 1))}
                     disabled={settingsActivitySectionIndex <= 0}
                   >
                     Previous
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
-                    className="btn btn-outline btn-sm"
-                    onClick={() => setSettingsActivitySectionIndex(prev => Math.min(settingsActivitySections.length - 1, prev + 1))}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSettingsActivitySectionIndex((prev) => Math.min(settingsActivitySections.length - 1, prev + 1))}
                     disabled={settingsActivitySectionIndex >= settingsActivitySections.length - 1}
                   >
                     Next
-                  </button>
+                  </Button>
                 </div>
               </>
             ) : (

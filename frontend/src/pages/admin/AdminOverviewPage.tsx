@@ -1,11 +1,13 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 
 import {
   DashboardHeader,
   DashboardShell,
 } from "@/components/dashboard/DashboardShell.tsx";
 import PageLoader from "@/components/PageLoader.tsx";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import { AdminPlatformDashboard } from "@/features/admin/dashboard/admin-platform-dashboard";
+import { ProfessionalPortfolioCard } from "@/features/personal/components/ProfessionalPortfolioCard.tsx";
 import {
   countProfiles,
   listProfilesSummary,
@@ -15,10 +17,14 @@ import {
 
 interface AdminOverviewPageProps {
   isPlatformAdmin: boolean;
+  workspaceId?: string;
+  userName?: string;
 }
 
 export default function AdminOverviewPage({
   isPlatformAdmin,
+  workspaceId,
+  userName,
 }: AdminOverviewPageProps) {
   const [rows, setRows] = useState<WorkspaceRowAdmin[]>([]);
   const [userCount, setUserCount] = useState<number | null>(null);
@@ -50,9 +56,7 @@ export default function AdminOverviewPage({
     }
   }, [isPlatformAdmin]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useAsyncAction(load, [load]);
 
   if (!isPlatformAdmin) {
     return null;
@@ -61,6 +65,10 @@ export default function AdminOverviewPage({
   return (
     <DashboardShell className="hub-body admin-console-page">
       <DashboardHeader title="Admin console" subtitle="Platform-wide metrics and workspaces" />
+
+      {workspaceId && (
+        <ProfessionalPortfolioCard workspaceId={workspaceId} userName={userName} />
+      )}
 
       {error && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">

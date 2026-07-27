@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { RefreshCw, Loader2, ChevronDown } from "lucide-react";
 
 import PageLoader from "@/components/PageLoader.tsx";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -115,13 +116,9 @@ export default function AdminAuditPage({ isPlatformAdmin }: AdminAuditPageProps)
     [isPlatformAdmin, filterWsId, filterAction],
   );
 
-  useEffect(() => {
-    void loadWorkspaces();
-  }, [loadWorkspaces]);
+  useAsyncAction(loadWorkspaces, [loadWorkspaces]);
 
-  useEffect(() => {
-    void loadPage(0, false);
-  }, [loadPage]);
+  useAsyncAction(() => loadPage(0, false), [loadPage]);
 
   const actionOptions = useMemo(() => {
     const set = new Set(entries.map((e) => e.action));
@@ -194,52 +191,56 @@ export default function AdminAuditPage({ isPlatformAdmin }: AdminAuditPageProps)
           <Card className="border-border/60 overflow-hidden">
             <CardContent className="p-0">
               <ResponsiveTable>
-                <Table>
+                <Table className="min-w-[900px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>When</TableHead>
-                      <TableHead>Workspace</TableHead>
-                      <TableHead>Actor</TableHead>
-                      <TableHead>Table</TableHead>
-                      <TableHead>Action</TableHead>
-                      <TableHead>Entity ID</TableHead>
-                      <TableHead>Details</TableHead>
+                      <TableHead className="w-[140px]">When</TableHead>
+                      <TableHead className="min-w-[180px]">Workspace</TableHead>
+                      <TableHead className="min-w-[180px]">Actor</TableHead>
+                      <TableHead className="w-[120px]">Table</TableHead>
+                      <TableHead className="w-[110px]">Action</TableHead>
+                      <TableHead className="w-[110px]">Entity ID</TableHead>
+                      <TableHead className="min-w-[160px]">Details</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {entries.map((ev) => (
                       <TableRow key={ev.id}>
-                        <TableCell className="text-muted-foreground whitespace-nowrap">
+                        <TableCell className="align-middle text-muted-foreground whitespace-nowrap">
                           {formatWhen(ev.created_at)}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="align-middle">
                           {ev.workspace_id ? (
-                            wsLabels.get(ev.workspace_id) ?? `${ev.workspace_id.slice(0, 8)}…`
+                            <span className="block truncate max-w-[220px]" title={wsLabels.get(ev.workspace_id) ?? ev.workspace_id}>
+                              {wsLabels.get(ev.workspace_id) ?? `${ev.workspace_id.slice(0, 8)}…`}
+                            </span>
                           ) : (
                             <span className="text-sm text-muted-foreground">—</span>
                           )}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="align-middle">
                           {ev.actor_user_id ? (
-                            actorLabels.get(ev.actor_user_id) ?? `${ev.actor_user_id.slice(0, 8)}…`
+                            <span className="block truncate max-w-[220px]" title={actorLabels.get(ev.actor_user_id) ?? ev.actor_user_id}>
+                              {actorLabels.get(ev.actor_user_id) ?? `${ev.actor_user_id.slice(0, 8)}…`}
+                            </span>
                           ) : (
                             <span className="text-sm text-muted-foreground">system</span>
                           )}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="align-middle">
                           <code className="text-xs">{ev.entity_table}</code>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="align-middle whitespace-nowrap">
                           <Badge variant="outline">{ev.action}</Badge>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="align-middle">
                           {ev.entity_id ? (
                             <code className="text-[11px]">{ev.entity_id.slice(0, 8)}…</code>
                           ) : (
                             <span className="text-sm text-muted-foreground">—</span>
                           )}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="align-middle">
                           {Object.keys(ev.details).length > 0 ? (
                             <details>
                               <summary className="cursor-pointer text-xs">

@@ -5,7 +5,7 @@
  * scale/skew for local grid distortions. All angles are decimal degrees.
  */
 
-import { type NE, normalizeAzimuth, RAD, DEG } from "./cogo.ts";
+import { type NE, DEG } from "./cogo.ts";
 
 const DEG_RAD = Math.PI / 180;
 const EPS = 1e-24;

@@ -365,10 +365,15 @@ textarea.input-field {
 }
 
 /* Ensure splash logo looks great on all screens */
+.splash-screen .splash-logo-wrap {
+  --splash-logo-size: clamp(56px, 12vw, 84px);
+}
+
 .splash-screen .splash-logo {
-  width: clamp(120px, 30vw, 200px);
-  height: auto;
-  max-width: 70vw;
+  width: var(--splash-logo-size);
+  height: var(--splash-logo-size);
+  max-width: 84px;
+  max-height: 84px;
   object-fit: contain;
   display: block;
 }
@@ -380,8 +385,8 @@ textarea.input-field {
   --surface-muted: #f3f6fb;
   --border: #e2e8f0;
   --border-heavy: #cbd5e1;
-  --text: #64748b;
-  --text-h: #0f172a;
+  --text: #334155;
+  --text-h: #020617;
   --accent: #1d4ed8;
   --accent-bg: rgba(29, 78, 216, 0.09);
   --accent-border: rgba(29, 78, 216, 0.32);
@@ -394,14 +399,14 @@ textarea.input-field {
   --focus-ring: 0 0 0 4px color-mix(in oklab, var(--accent) 18%, transparent);
 
   /* Text / extras */
-  --placeholder: #94a3b8;
-  --text-secondary: #64748b;
-  --text-muted: #94a3b8;
+  --placeholder: #64748b;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
   --muted-foreground: var(--text-muted);
   --background: var(--bg);
   --foreground: var(--text-h);
   --color-count: var(--accent);
-  --cad-text-dim: #6b7280;
+  --cad-text-dim: #475569;
 }
 
 [data-theme="dark"] {

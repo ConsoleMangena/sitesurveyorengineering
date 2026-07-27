@@ -359,7 +359,11 @@ fn chain_segments(segments: Vec<Seg>) -> Vec<Vec<Vertex>> {
 fn compute_chain_tol(segments: &[Seg]) -> f64 {
     let mut max_coord = 0.0_f64;
     for (a, b) in segments {
-        max_coord = max_coord.max(a.n.abs()).max(a.e.abs()).max(b.n.abs()).max(b.e.abs());
+        max_coord = max_coord
+            .max(a.n.abs())
+            .max(a.e.abs())
+            .max(b.n.abs())
+            .max(b.e.abs());
     }
     (max_coord * 1e-9).max(1e-6)
 }
@@ -422,12 +426,8 @@ mod tests {
 
     #[test]
     fn grid_contour_rejects_bad_dimensions() {
-        assert!(
-            generate_contours_from_grid(&[1.0, 2.0], 3, 3, 0.0, 0.0, 1.0, &[1.0]).is_err()
-        );
-        assert!(
-            generate_contours_from_grid(&[], 0, 0, 0.0, 0.0, 1.0, &[1.0]).is_err()
-        );
+        assert!(generate_contours_from_grid(&[1.0, 2.0], 3, 3, 0.0, 0.0, 1.0, &[1.0]).is_err());
+        assert!(generate_contours_from_grid(&[], 0, 0, 0.0, 0.0, 1.0, &[1.0]).is_err());
     }
 
     #[test]

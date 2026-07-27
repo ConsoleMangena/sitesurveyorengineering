@@ -1,11 +1,4 @@
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog.tsx";
+import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Printer, X } from "lucide-react";
 import { REPORT_CSS } from "./io/report.ts";
@@ -37,31 +30,33 @@ export function CadReportDialog({ open, title, html, onClose }: CadReportDialogP
   };
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
-      <DialogContent className="sm:max-w-4xl p-0 gap-0 overflow-hidden">
-        <DialogHeader className="px-6 pt-5 pb-3 border-b">
-          <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
-          <DialogDescription className="text-xs text-foreground/70">
-            Cut / fill volume summary. Use the print button for a PDF-friendly copy.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="bg-white">
-          <iframe
-            title={title}
-            srcDoc={srcDoc}
-            style={{ width: "100%", height: "60vh", border: "none", display: "block" }}
-          />
-        </div>
-        <DialogFooter className="px-6 py-3 border-t gap-2">
+    <DialogTemplate
+      open={open}
+      onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}
+      title={title}
+      description="Cut / fill volume summary. Use the print button for a PDF-friendly copy."
+      size="full"
+      className="sm:max-w-4xl p-0 overflow-hidden"
+      contentClassName="p-0 overflow-hidden"
+      footer={
+        <>
           <Button variant="outline" size="sm" onClick={handlePrint} className="gap-2">
             <Printer size={14} /> Print / PDF
           </Button>
           <Button size="sm" onClick={onClose} className="gap-2">
             <X size={14} /> Close
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </>
+      }
+    >
+      <div className="bg-white">
+        <iframe
+          title={title}
+          srcDoc={srcDoc}
+          style={{ width: "100%", height: "60vh", border: "none", display: "block" }}
+        />
+      </div>
+    </DialogTemplate>
   );
 }
 

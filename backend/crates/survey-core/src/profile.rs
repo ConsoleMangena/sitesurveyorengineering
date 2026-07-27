@@ -107,14 +107,11 @@ pub fn extract_cross_section(
     let (cum, total) = polyline_chainages(polyline);
     if chainage < 0.0 || chainage > total {
         return Err(SurveyError::OutOfBounds {
-            reason: format!(
-                "chainage {chainage} outside polyline range [0, {total}]"
-            ),
+            reason: format!("chainage {chainage} outside polyline range [0, {total}]"),
         });
     }
 
-    let (centre_n, centre_e, tangent_n, tangent_e) =
-        locate_on_polyline(polyline, &cum, chainage);
+    let (centre_n, centre_e, tangent_n, tangent_e) = locate_on_polyline(polyline, &cum, chainage);
     let len = tangent_n.hypot(tangent_e);
     if len < 1e-12 {
         return Err(SurveyError::DegenerateGeometry {
@@ -153,39 +150,20 @@ fn polyline_chainages(polyline: &[Vertex]) -> (Vec<f64>, f64) {
     (cum, total)
 }
 
-fn point_on_polyline(
-    tin: &Tin,
-    polyline: &[Vertex],
-    cum: &[f64],
-    chainage: f64,
-) -> ProfilePoint {
+fn point_on_polyline(tin: &Tin, polyline: &[Vertex], cum: &[f64], chainage: f64) -> ProfilePoint {
     let (n, e, _, _) = locate_on_polyline(polyline, cum, chainage);
     let z = sample_z(tin, n, e);
-    ProfilePoint {
-        chainage,
-        n,
-        e,
-        z,
-    }
+    ProfilePoint { chainage, n, e, z }
 }
 
 /// Locate the plan coordinate on a polyline at a given chainage and return the
 /// (unnormalised) tangent vector of the containing segment.
-fn locate_on_polyline(
-    polyline: &[Vertex],
-    cum: &[f64],
-    chainage: f64,
-) -> (f64, f64, f64, f64) {
+fn locate_on_polyline(polyline: &[Vertex], cum: &[f64], chainage: f64) -> (f64, f64, f64, f64) {
     let n = polyline.len();
     if chainage <= 0.0 {
         let next = polyline[1];
         let start = polyline[0];
-        return (
-            start.n,
-            start.e,
-            next.n - start.n,
-            next.e - start.e,
-        );
+        return (start.n, start.e, next.n - start.n, next.e - start.e);
     }
     if chainage >= cum[n - 1] {
         let prev = polyline[n - 2];

@@ -1,19 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { RefreshCw, Search, Loader2, ShieldCheck, ShieldX } from "lucide-react";
 
 import PageLoader from "@/components/PageLoader.tsx";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
 import {
   Select,
   SelectContent,
@@ -85,9 +79,7 @@ export default function AdminUsersPage({
     }
   }, [isPlatformAdmin]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useAsyncAction(load, [load]);
 
   const filtered = useMemo(() => {
     let result = profiles;
@@ -106,11 +98,8 @@ export default function AdminUsersPage({
   }, [profiles, query, filterAdmin]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  useEffect(() => {
-    setPage(1);
-  }, [query, filterAdmin]);
+  const effectivePage = Math.min(page, totalPages);
+  const paginated = filtered.slice((effectivePage - 1) * PAGE_SIZE, effectivePage * PAGE_SIZE);
 
   const openDetail = async (userId: string) => {
     setDetailLoading(true);
@@ -221,16 +210,16 @@ export default function AdminUsersPage({
           <Card className="border-border/60 overflow-hidden">
             <CardContent className="p-0">
               <ResponsiveTable>
-                <Table>
+                <Table className="min-w-[760px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Title</TableHead>
-                      <TableHead>Signup type</TableHead>
-                      <TableHead>Admin</TableHead>
-                      <TableHead>Joined</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead className="min-w-[170px]">Name</TableHead>
+                      <TableHead className="min-w-[220px]">Email</TableHead>
+                      <TableHead className="min-w-[140px]">Title</TableHead>
+                      <TableHead className="w-[110px]">Signup type</TableHead>
+                      <TableHead className="w-[110px]">Admin</TableHead>
+                      <TableHead className="w-[120px]">Joined</TableHead>
+                      <TableHead className="w-[90px] text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -246,17 +235,27 @@ export default function AdminUsersPage({
                     ) : (
                       paginated.map((p) => (
                         <TableRow key={p.id}>
-                          <TableCell className="font-medium">
-                            {p.full_name || "—"}
+                          <TableCell className="align-middle font-medium">
+                            <span className="block truncate max-w-[200px]" title={p.full_name || undefined}>
+                              {p.full_name || "—"}
+                            </span>
                           </TableCell>
-                          <TableCell className="text-muted-foreground">{p.email ?? "—"}</TableCell>
-                          <TableCell>{p.professional_title ?? "—"}</TableCell>
-                          <TableCell>
+                          <TableCell className="align-middle text-muted-foreground">
+                            <span className="block truncate max-w-[220px]" title={p.email ?? undefined}>
+                              {p.email ?? "—"}
+                            </span>
+                          </TableCell>
+                          <TableCell className="align-middle">
+                            <span className="block truncate max-w-[160px]" title={p.professional_title ?? undefined}>
+                              {p.professional_title ?? "—"}
+                            </span>
+                          </TableCell>
+                          <TableCell className="align-middle whitespace-nowrap">
                             <Badge variant="outline">
                               {p.auth_signup_account_type ?? "—"}
                             </Badge>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="align-middle whitespace-nowrap">
                             {p.is_platform_admin ? (
                               <Badge
                                 variant="purple"
@@ -269,10 +268,10 @@ export default function AdminUsersPage({
                               <span className="text-sm text-muted-foreground">—</span>
                             )}
                           </TableCell>
-                          <TableCell className="text-muted-foreground">
+                          <TableCell className="align-middle text-muted-foreground whitespace-nowrap">
                             {formatDate(p.created_at)}
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="align-middle text-right">
                             <Button
                               variant="outline"
                               size="sm"
@@ -296,18 +295,18 @@ export default function AdminUsersPage({
               <Button
                 variant="outline"
                 size="sm"
-                disabled={page <= 1}
+                disabled={effectivePage <= 1}
                 onClick={() => setPage((p) => p - 1)}
               >
                 Previous
               </Button>
               <span className="text-sm text-muted-foreground">
-                Page {page} of {totalPages}
+                Page {effectivePage} of {totalPages}
               </span>
               <Button
                 variant="outline"
                 size="sm"
-                disabled={page >= totalPages}
+                disabled={effectivePage >= totalPages}
                 onClick={() => setPage((p) => p + 1)}
               >
                 Next
@@ -317,81 +316,14 @@ export default function AdminUsersPage({
         </>
       )}
 
-      <Dialog open={!!detailUser} onOpenChange={(open) => !open && setDetailUser(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>User detail</DialogTitle>
-            <DialogDescription>
-              Workspace memberships and platform admin privileges.
-            </DialogDescription>
-          </DialogHeader>
-
-          {detailLoading || !detailUser ? (
-            <PageLoader compact />
-          ) : (
-            <div className="space-y-5">
-              <div className="space-y-1">
-                <p className="text-base font-semibold">{detailUser.full_name || "Unnamed"}</p>
-                <p className="text-sm text-muted-foreground">{detailUser.email ?? ""}</p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <span className="text-xs text-muted-foreground">Title</span>
-                  <p className="text-sm font-medium">
-                    {detailUser.professional_title ?? "—"}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-xs text-muted-foreground">Signup type</span>
-                  <p className="text-sm font-medium">
-                    <Badge variant="outline">
-                      {detailUser.auth_signup_account_type ?? "—"}
-                    </Badge>
-                  </p>
-                </div>
-                <div>
-                  <span className="text-xs text-muted-foreground">Platform admin</span>
-                  <p className="text-sm font-medium">
-                    {detailUser.is_platform_admin ? (
-                      <Badge variant="purple">Yes</Badge>
-                    ) : (
-                      <Badge variant="secondary">No</Badge>
-                    )}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-xs text-muted-foreground">Joined</span>
-                  <p className="text-sm font-medium">{formatDate(detailUser.created_at)}</p>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <h4 className="text-sm font-semibold">
-                  Workspace memberships ({detailUser.workspaces.length})
-                </h4>
-                {detailUser.workspaces.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No workspace memberships.
-                  </p>
-                ) : (
-                  <ul className="divide-y border rounded-md">
-                    {detailUser.workspaces.map((ws) => (
-                      <li
-                        key={ws.workspace_id}
-                        className="flex items-center justify-between px-3 py-2 text-sm"
-                      >
-                        <span>{ws.workspace_name}</span>
-                        <Badge variant="outline">{ws.role}</Badge>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+      <DialogTemplate
+        open={!!detailUser}
+        onOpenChange={(open) => !open && setDetailUser(null)}
+        title="User detail"
+        description="Workspace memberships and platform admin privileges."
+        size="lg"
+        footer={
+          <>
             <Button variant="outline" onClick={() => setDetailUser(null)}>
               Close
             </Button>
@@ -412,9 +344,68 @@ export default function AdminUsersPage({
                 {detailUser.is_platform_admin ? "Revoke admin" : "Grant admin"}
               </Button>
             )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        {detailLoading || !detailUser ? (
+          <PageLoader compact />
+        ) : (
+          <div className="space-y-5">
+            <div className="space-y-1">
+              <p className="text-base font-semibold">{detailUser.full_name || "Unnamed"}</p>
+              <p className="text-sm text-muted-foreground">{detailUser.email ?? ""}</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <span className="text-xs text-muted-foreground">Title</span>
+                <p className="text-sm font-medium">{detailUser.professional_title ?? "—"}</p>
+              </div>
+              <div>
+                <span className="text-xs text-muted-foreground">Signup type</span>
+                <p className="text-sm font-medium">
+                  <Badge variant="outline">{detailUser.auth_signup_account_type ?? "—"}</Badge>
+                </p>
+              </div>
+              <div>
+                <span className="text-xs text-muted-foreground">Platform admin</span>
+                <p className="text-sm font-medium">
+                  {detailUser.is_platform_admin ? (
+                    <Badge variant="purple">Yes</Badge>
+                  ) : (
+                    <Badge variant="secondary">No</Badge>
+                  )}
+                </p>
+              </div>
+              <div>
+                <span className="text-xs text-muted-foreground">Joined</span>
+                <p className="text-sm font-medium">{formatDate(detailUser.created_at)}</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold">
+                Workspace memberships ({detailUser.workspaces.length})
+              </h4>
+              {detailUser.workspaces.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No workspace memberships.</p>
+              ) : (
+                <ul className="divide-y border rounded-md">
+                  {detailUser.workspaces.map((ws) => (
+                    <li
+                      key={ws.workspace_id}
+                      className="flex items-center justify-between px-3 py-2 text-sm"
+                    >
+                      <span>{ws.workspace_name}</span>
+                      <Badge variant="outline">{ws.role}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+      </DialogTemplate>
     </DashboardShell>
   );
 }

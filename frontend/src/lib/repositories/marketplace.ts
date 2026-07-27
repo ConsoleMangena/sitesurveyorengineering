@@ -12,7 +12,7 @@ export async function listMarketplaceListings(workspaceId: string): Promise<Mark
   const { data, error } = await supabase
     .from('marketplace_listings')
     .select('*, assets:asset_id(status)')
-    .eq('workspace_id', workspaceId)
+    .or(`workspace_id.eq.${workspaceId},is_global.eq.true`)
     .order('created_at', { ascending: false })
 
   if (error) {

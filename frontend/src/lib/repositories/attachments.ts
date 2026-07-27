@@ -23,6 +23,9 @@ export async function hashFile(file: Blob): Promise<string> {
 export interface ListAttachmentsOptions {
   folderId?: string | null;
   includeDeleted?: boolean;
+  /** Filter to files linked to a specific table/record, e.g. entityTable="projects" and entityId=projectId. */
+  entityTable?: string | null;
+  entityId?: string | null;
 }
 
 export async function listAttachments(
@@ -42,6 +45,14 @@ export async function listAttachments(
     query = query.is("folder_id", null);
   } else {
     query = query.eq("folder_id", options.folderId);
+  }
+
+  if (options.entityTable) {
+    query = query.eq("entity_table", options.entityTable);
+  }
+
+  if (options.entityId) {
+    query = query.eq("entity_id", options.entityId);
   }
 
   if (!options.includeDeleted) {
@@ -177,6 +188,9 @@ export async function uploadWorkspaceAttachment(
     storageTier?: StorageTier;
     folderId?: string | null;
     tagIds?: string[];
+    /** Link the attachment to a specific record, e.g. entityTable="projects" and entityId=projectId. */
+    entityTable?: string | null;
+    entityId?: string | null;
   } = {},
 ): Promise<AttachmentRow> {
   const user = await getCurrentUser();
@@ -203,8 +217,8 @@ export async function uploadWorkspaceAttachment(
 
   try {
     const attachment = await createAttachment(workspaceId, {
-      entity_table: "workspaces",
-      entity_id: workspaceId,
+      entity_table: options.entityTable ?? "workspaces",
+      entity_id: options.entityId ?? workspaceId,
       bucket_name: bucketName,
       storage_path: storagePath,
       visibility: bucketName === "workspace-public" ? "public" : "private",

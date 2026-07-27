@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import { getCurrentUser } from "../auth/session.ts";
 import { supabase } from "../supabase/client.ts";
 import type { Json, Tables, TablesInsert } from "../supabase/types.ts";
@@ -141,11 +142,18 @@ export function useNotifications(
     }
   }, [workspaceId]);
 
+  useAsyncAction(
+    async () => {
+      if (!workspaceId) return;
+      await refresh();
+    },
+    [workspaceId, refresh],
+  );
+
   useEffect(() => {
     mountedRef.current = true;
     if (!workspaceId) return;
 
-    void refresh();
     // Polling acts as a fallback in case the realtime channel drops.
     const intervalId = window.setInterval(() => void refresh(), NOTIFICATIONS_POLL_MS);
     const onVisibility = () => {

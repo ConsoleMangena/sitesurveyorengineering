@@ -36,7 +36,10 @@ pub fn parse_points_csv(text: &str) -> CsvParseResult {
         if line.is_empty() {
             continue;
         }
-        let cols: Vec<&str> = line.split(&[',', '\t', ';'][..]).map(|s| s.trim()).collect();
+        let cols: Vec<&str> = line
+            .split(&[',', '\t', ';'][..])
+            .map(|s| s.trim())
+            .collect();
         if cols.len() < 3 {
             skipped += 1;
             continue;
@@ -44,10 +47,7 @@ pub fn parse_points_csv(text: &str) -> CsvParseResult {
 
         // Header detection: the first row is a header if its first three
         // columns are all non-numeric.
-        if idx == 0
-            && !looks_numeric(cols[0])
-            && !looks_numeric(cols[1])
-            && !looks_numeric(cols[2])
+        if idx == 0 && !looks_numeric(cols[0]) && !looks_numeric(cols[1]) && !looks_numeric(cols[2])
         {
             continue;
         }
@@ -112,11 +112,7 @@ pub fn points_to_csv(points: &[GeoPoint]) -> String {
         };
         lines.push(format!(
             "{},{:.4},{:.4},{},{}",
-            p.point_no,
-            p.e,
-            p.n,
-            z,
-            p.code
+            p.point_no, p.e, p.n, z, p.code
         ));
     }
     lines.join("\n")

@@ -1,7 +1,7 @@
 import { appSchema, tableSchema } from '@nozbe/watermelondb'
 
 export const wmSchema = appSchema({
-  version: 1,
+  version: 5,
   tables: [
     tableSchema({
       name: 'projects',
@@ -13,6 +13,14 @@ export const wmSchema = appSchema({
         { name: 'description', type: 'string', isOptional: true },
         { name: 'phase', type: 'string', isOptional: true },
         { name: 'datum', type: 'string', isOptional: true },
+        { name: 'axis_convention', type: 'string', isOptional: true },
+        { name: 'crs_type', type: 'string', isOptional: true },
+        { name: 'crs_epsg', type: 'string', isOptional: true },
+        { name: 'local_origin_e', type: 'number', isOptional: true },
+        { name: 'local_origin_n', type: 'number', isOptional: true },
+        { name: 'bearing_format', type: 'string', isOptional: true },
+        { name: 'angle_entry', type: 'string', isOptional: true },
+        { name: 'coord_decimals', type: 'number', isOptional: true },
         { name: 'progress', type: 'number' },
         { name: 'points', type: 'number' },
         { name: 'status', type: 'string' },

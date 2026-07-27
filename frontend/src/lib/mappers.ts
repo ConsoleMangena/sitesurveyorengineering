@@ -91,6 +91,8 @@ export function mapContactRowToUi(row: ContactWithOrg): UiContact {
   };
 }
 
+export type CrsType = 'local' | 'projected' | 'other';
+
 export interface UiHubProject {
   id: string;
   dbId: string;
@@ -100,6 +102,14 @@ export interface UiHubProject {
   description: string;
   phase: string;
   datum: string;
+  axisConvention: "yx" | "xy";
+  crsType: CrsType;
+  crsEpsg: string;
+  localOriginE: number;
+  localOriginN: number;
+  bearingFormat: string;
+  angleEntry: string;
+  coordDecimals: number;
   points: number;
   progress: number;
   status: string;
@@ -117,6 +127,14 @@ export interface ProjectWithOrg {
   description: string | null;
   phase: string | null;
   datum: string | null;
+  axis_convention: string | null;
+  crs_type: string | null;
+  crs_epsg: string | null;
+  local_origin_e: number | null;
+  local_origin_n: number | null;
+  bearing_format: string | null;
+  angle_entry: string | null;
+  coord_decimals: number | null;
   progress: number;
   points: number;
   status: string;
@@ -148,6 +166,14 @@ export function mapProjectRowToHubProject(
     description: row.description ?? "",
     phase: row.phase ?? "",
     datum: row.datum ?? "",
+    axisConvention: row.axis_convention === "xy" ? "xy" : "yx",
+    crsType: (row.crs_type === 'projected' || row.crs_type === 'other') ? row.crs_type : 'local',
+    crsEpsg: row.crs_epsg ?? '',
+    localOriginE: row.local_origin_e ?? 0,
+    localOriginN: row.local_origin_n ?? 0,
+    bearingFormat: row.bearing_format ?? 'azimuth',
+    angleEntry: row.angle_entry ?? 'packed',
+    coordDecimals: row.coord_decimals ?? 3,
     points: row.points,
     progress: Number(row.progress),
     status: row.archived_at ? "Archived" : mapStatus(row.status),
@@ -230,7 +256,9 @@ export interface UiQuote {
   client: string;
   project: string;
   date: string;
+  expiresOn: string | null;
   status: string;
+  notes: string;
   items: { id: string; description: string; qty: number; unit: string; rate: number }[];
 }
 
@@ -254,7 +282,9 @@ export function mapQuoteRowToUi(
     client: row.organization_name ?? "Unspecified",
     project: row.project_name ?? "",
     date: row.issue_date,
+    expiresOn: (row.expires_on as string | null) ?? null,
     status: mapStatus(row.status),
+    notes: (row.notes as string | null) ?? "",
     items: items.map((item) => ({
       id: item.id,
       description: item.description,
@@ -273,6 +303,7 @@ export interface UiInvoice {
   date: string;
   dueDate: string;
   status: string;
+  notes: string;
   items: { id: string; description: string; qty: number; unit: string; rate: number }[];
 }
 
@@ -299,6 +330,7 @@ export function mapInvoiceRowToUi(
     date: row.issue_date,
     dueDate: row.due_date ?? "",
     status: mapStatus(row.status),
+    notes: (row.notes as string | null) ?? "",
     items: items.map((item) => ({
       id: item.id,
       description: item.description,

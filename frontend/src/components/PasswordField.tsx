@@ -10,6 +10,7 @@ interface PasswordFieldProps {
   autoFocus?: boolean;
   showPassword: boolean;
   onToggleShowPassword?: () => void;
+  className?: string;
   children?: React.ReactNode;
 }
 
@@ -58,6 +59,7 @@ export default function PasswordField({
   autoFocus,
   showPassword,
   onToggleShowPassword,
+  className,
   children,
 }: PasswordFieldProps) {
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -72,7 +74,7 @@ export default function PasswordField({
       <div className="password-wrapper">
         <input
           id={id}
-          className="form-input"
+          className={["form-input", className].filter(Boolean).join(" ")}
           type={showPassword ? "text" : "password"}
           placeholder={placeholder}
           value={value}

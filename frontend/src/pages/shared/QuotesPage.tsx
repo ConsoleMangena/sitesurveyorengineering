@@ -6,23 +6,19 @@ import {
   Printer,
   Search,
   FileText,
+  Building2,
 } from "lucide-react";
 
 import PageLoader from "@/components/PageLoader.tsx";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
 import {
   Sheet,
   SheetContent,
@@ -38,6 +34,13 @@ import {
 } from "@/components/ui/select";
 import { DashboardHeader, DashboardShell } from "@/components/dashboard/DashboardShell.tsx";
 import { MetricStrip } from "@/components/dashboard/MetricStrip.tsx";
+import { LineItemsEditor } from "@/components/finance/LineItemsEditor.tsx";
+import { DocumentThemeSelector } from "@/components/finance/DocumentThemeSelector.tsx";
+import { BusinessProfileDialog } from "@/components/finance/BusinessProfileDialog.tsx";
+import { SendPreviewDialog } from "@/components/finance/SendPreviewDialog.tsx";
+import { printDocument } from "@/lib/printDocument.ts";
+import { useBusinessProfile } from "@/lib/businessProfile.ts";
+import { useDocumentDefaults } from "@/lib/documentDefaults.ts";
 import { cn } from "@/lib/utils";
 
 import {
@@ -94,46 +97,72 @@ interface QuoteDetailProps {
   quote: UiQuote;
   items: LineItem[];
   saving: boolean;
+  savingNotes: boolean;
+  notes: string;
+  terms: string;
   onChange: (id: string, field: keyof LineItem, value: string | number) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
   onSave: () => void;
   onExport: () => void;
   onSend: () => void;
+  onNotesChange: (value: string) => void;
+  onSaveNotes: () => void;
+  onTermsChange: (value: string) => void;
 }
 
 function QuoteDetail({
   quote,
   items,
   saving,
+  savingNotes,
+  notes,
+  terms,
   onChange,
   onAdd,
   onRemove,
   onSave,
   onExport,
   onSend,
+  onNotesChange,
+  onSaveNotes,
+  onTermsChange,
 }: QuoteDetailProps) {
+  const subtotal = calculateTotal(items);
+  const vat = subtotal * 0.15;
+  const total = subtotal + vat;
+  const notesChanged = notes !== (quote.notes ?? "");
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold">{quote.id}</h2>
-          <div className="flex flex-wrap items-center gap-2 mt-1 text-sm text-muted-foreground">
-            <Badge variant={statusVariant(quote.status)}>{quote.status}</Badge>
-            <span>Issued: {formatDate(quote.date)}</span>
+          <h2 className="text-2xl font-bold tracking-tight">{quote.id}</h2>
+          <div className="flex flex-wrap items-center gap-2 mt-1.5 text-sm text-muted-foreground">
+            <Badge variant={statusVariant(quote.status)} className="capitalize">
+              {quote.status}
+            </Badge>
+            <span className="text-xs">•</span>
+            <span>Issued {formatDate(quote.date)}</span>
+            {quote.expiresOn && (
+              <>
+                <span className="text-xs">•</span>
+                <span>Expires {formatDate(quote.expiresOn)}</span>
+              </>
+            )}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={onSave} disabled={saving} className="gap-1">
+        <div className="flex flex-wrap gap-2 print:hidden">
+          <Button variant="outline" size="sm" onClick={onSave} disabled={saving} className="gap-1.5">
             {saving ? "Saving..." : <Save size={14} />}
             Save Items
           </Button>
-          <Button variant="outline" size="sm" onClick={onExport} className="gap-1">
+          <Button variant="outline" size="sm" onClick={onExport} className="gap-1.5">
             <Printer size={14} />
-            Export PDF
+            Print/PDF
           </Button>
           {quote.status === "Draft" && (
-            <Button size="sm" onClick={onSend} className="gap-1">
+            <Button size="sm" onClick={onSend} className="gap-1.5">
               <Send size={14} />
               Send to Client
             </Button>
@@ -144,7 +173,7 @@ function QuoteDetail({
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
         {[
           { label: "Bill To", value: quote.client },
-          { label: "Project", value: quote.project },
+          { label: "Project", value: quote.project || "—" },
           { label: "Date Issued", value: formatDate(quote.date) },
           { label: "Status", value: quote.status },
         ].map((meta) => (
@@ -159,68 +188,44 @@ function QuoteDetail({
         ))}
       </div>
 
-      <div className="rounded-lg border overflow-hidden overflow-x-auto">
-        <table className="w-full text-sm min-w-[480px]">
-          <thead className="bg-muted">
-            <tr>
-              <th className="text-left px-4 py-2 font-medium">Description</th>
-              <th className="text-right px-4 py-2 font-medium">Qty</th>
-              <th className="text-right px-4 py-2 font-medium">Unit</th>
-              <th className="text-right px-4 py-2 font-medium">Rate ($)</th>
-              <th className="text-right px-4 py-2 font-medium">Total</th>
-              <th className="px-4 py-2 w-10"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr key={item.id} className="border-t">
-                <td className="px-4 py-2">
-                  <Input
-                    value={item.description}
-                    onChange={(e) => onChange(item.id, "description", e.target.value)}
-                    className="h-8"
-                  />
-                </td>
-                <td className="px-4 py-2">
-                  <Input
-                    type="number"
-                    value={item.qty}
-                    onChange={(e) => onChange(item.id, "qty", e.target.value)}
-                    className="h-8 text-right"
-                  />
-                </td>
-                <td className="px-4 py-2">
-                  <Input
-                    value={item.unit}
-                    onChange={(e) => onChange(item.id, "unit", e.target.value)}
-                    className="h-8 text-right"
-                  />
-                </td>
-                <td className="px-4 py-2">
-                  <Input
-                    type="number"
-                    value={item.rate}
-                    onChange={(e) => onChange(item.id, "rate", e.target.value)}
-                    className="h-8 text-right"
-                  />
-                </td>
-                <td className="px-4 py-2 text-right font-medium">
-                  {formatCurrency((Number(item.qty) || 0) * (Number(item.rate) || 0))}
-                </td>
-                <td className="px-4 py-2">
-                  <Button variant="outline" size="sm" onClick={() => onRemove(item.id)}>
-                    ×
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="p-3 border-t">
-          <Button variant="outline" size="sm" onClick={onAdd} className="gap-1">
-            <Plus size={14} />
-            Add Line Item
-          </Button>
+      <LineItemsEditor
+        items={items}
+        onChange={onChange}
+        onAdd={onAdd}
+        onRemove={onRemove}
+      />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 print:hidden">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="quote-notes" className="text-sm font-medium">
+              Notes
+            </Label>
+            {notesChanged && (
+              <Button size="sm" variant="outline" onClick={onSaveNotes} disabled={savingNotes}>
+                {savingNotes ? "Saving..." : "Save notes"}
+              </Button>
+            )}
+          </div>
+          <Textarea
+            id="quote-notes"
+            rows={3}
+            value={notes}
+            onChange={(e) => onNotesChange(e.target.value)}
+            placeholder="Add any notes visible to the client..."
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="quote-terms" className="text-sm font-medium">
+            Terms & Conditions
+          </Label>
+          <Textarea
+            id="quote-terms"
+            rows={3}
+            value={terms}
+            onChange={(e) => onTermsChange(e.target.value)}
+            placeholder="Payment terms, validity, etc."
+          />
         </div>
       </div>
 
@@ -228,16 +233,16 @@ function QuoteDetail({
         <div className="w-full max-w-xs space-y-2 text-sm bg-muted/40 rounded-lg p-4">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Subtotal</span>
-            <span>{formatCurrency(calculateTotal(items))}</span>
+            <span>{formatCurrency(subtotal)}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">VAT (15%)</span>
-            <span>{formatCurrency(calculateTotal(items) * 0.15)}</span>
+            <span>{formatCurrency(vat)}</span>
           </div>
           <Separator />
           <div className="flex justify-between font-bold">
             <span>Total Amount</span>
-            <span>{formatCurrency(calculateTotal(items) * 1.15)}</span>
+            <span>{formatCurrency(total)}</span>
           </div>
         </div>
       </div>
@@ -272,6 +277,13 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
   const [draftItems, setDraftItems] = useState<LineItem[]>([
     { id: "new-1", description: "", qty: 1, unit: "Hours", rate: 0 },
   ]);
+  const [draftNotes, setDraftNotes] = useState("");
+
+  const { profile, setProfile } = useBusinessProfile();
+  const { defaults, setTheme, setTerms } = useDocumentDefaults();
+  const [businessDialogOpen, setBusinessDialogOpen] = useState(false);
+  const [sendPreviewOpen, setSendPreviewOpen] = useState(false);
+  const [savingNotes, setSavingNotes] = useState(false);
 
   const fetchQuotes = useCallback(async () => {
     try {
@@ -293,26 +305,25 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
     }
   }, [workspaceId, activeQuote]);
 
-  useEffect(() => {
-    void fetchQuotes();
-  }, [fetchQuotes]);
+  useAsyncAction(fetchQuotes, [fetchQuotes]);
 
-  useEffect(() => {
-    Promise.all([
+  const loadFormOptions = useCallback(async () => {
+    const [orgs, projs] = await Promise.all([
       listOrganizations(workspaceId),
       listProjects(workspaceId),
-    ]).then(([orgs, projs]) => {
-      setOrganizations(orgs);
-      setProjectOptions(projs.map((p) => ({ id: p.id, name: p.name })));
-    });
+    ]);
+    setOrganizations(orgs);
+    setProjectOptions(projs.map((p) => ({ id: p.id, name: p.name })));
   }, [workspaceId]);
 
+  useAsyncAction(loadFormOptions, [loadFormOptions]);
+
   useEffect(() => {
-    if (activeQuote) {
-      setLocalItems(JSON.parse(JSON.stringify(activeQuote.items)));
-    } else {
-      setLocalItems([]);
-    }
+    const id = window.setTimeout(() => {
+      setLocalItems(activeQuote ? JSON.parse(JSON.stringify(activeQuote.items)) : []);
+      setDraftNotes(activeQuote?.notes ?? "");
+    }, 0);
+    return () => window.clearTimeout(id);
   }, [activeQuote]);
 
   const updateItem = (id: string, field: keyof LineItem, value: string | number) => {
@@ -330,6 +341,12 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
 
   const handleRemoveLineItem = (id: string) => {
     setLocalItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const updateDraftItem = (id: string, field: keyof LineItem, value: string | number) => {
+    setDraftItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
+    );
   };
 
   const handleSaveItems = async () => {
@@ -353,10 +370,16 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
     }
   };
 
-  const handleSendToClient = async () => {
+  const openSendPreview = () => {
+    if (!activeQuote) return;
+    setSendPreviewOpen(true);
+  };
+
+  const handleSendToClient = async (_message: string) => {
     if (!activeQuote) return;
     try {
       await updateQuote(activeQuote.dbId, { status: "sent" });
+      setSendPreviewOpen(false);
       await fetchQuotes();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to update status");
@@ -377,6 +400,7 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
     setDraftItems([
       { id: `new-${Date.now()}`, description: "", qty: 1, unit: "Hours", rate: 0 },
     ]);
+    setDraftNotes("");
     setIsCreateOpen(true);
   };
 
@@ -408,6 +432,7 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
           issue_date: draft.issue_date,
           expires_on: draft.expires_on || null,
           status: "draft",
+          notes: draftNotes || null,
         },
         cleanedItems,
       );
@@ -459,155 +484,39 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
     };
   }, [quotes]);
 
-  const escapeHtml = (value: string) =>
-    value
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-
   const handleExportPdf = () => {
     if (!activeQuote) return;
+    printDocument({
+      type: "quote",
+      id: activeQuote.id,
+      status: activeQuote.status,
+      client: activeQuote.client,
+      project: activeQuote.project,
+      date: activeQuote.date,
+      expiryDate: activeQuote.expiresOn,
+      items: activeQuote.items.map((item) => ({
+        description: item.description,
+        qty: item.qty,
+        unit: item.unit,
+        rate: item.rate,
+      })),
+      business: profile,
+      notes: activeQuote.notes,
+      terms: defaults.terms,
+      theme: defaults.theme,
+    });
+  };
 
-    const subtotal = calculateTotal(localItems);
-    const vat = subtotal * 0.15;
-    const total = subtotal + vat;
-
-    const rows = localItems
-      .filter((item) => item.description.trim())
-      .map(
-        (item) => `
-          <tr>
-            <td>${escapeHtml(item.description)}</td>
-            <td class="num">${Number(item.qty) || 0}</td>
-            <td>${escapeHtml(item.unit || "—")}</td>
-            <td class="num">${formatCurrency(Number(item.rate) || 0)}</td>
-            <td class="num">${formatCurrency((Number(item.qty) || 0) * (Number(item.rate) || 0))}</td>
-          </tr>`,
-      )
-      .join("");
-
-    const iframe = document.createElement("iframe");
-    iframe.title = `Quotation ${activeQuote.id}`;
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    iframe.setAttribute("aria-hidden", "true");
-    document.body.appendChild(iframe);
-
-    const printDocument = iframe.contentWindow?.document;
-    if (!printDocument) {
-      iframe.remove();
-      setError("Unable to prepare the quotation PDF.");
-      return;
-    }
-
-    printDocument.open();
-    printDocument.write(`<!doctype html>
-<html>
-<head>
-  <title>Quotation ${escapeHtml(activeQuote.id)}</title>
-  <style>
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #172033; background: #f4f7fb; }
-    .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 22mm; background: #fff; }
-    .header { display: flex; justify-content: space-between; gap: 24px; border-bottom: 3px solid #2563eb; padding-bottom: 22px; }
-    .brand { display: flex; align-items: center; gap: 14px; }
-    .brand img { width: 180px; height: auto; object-fit: contain; }
-    .doc-title { text-align: right; }
-    .doc-title h1 { margin: 0; font-size: 30px; letter-spacing: 2px; color: #111827; }
-    .doc-title p { margin: 6px 0 0; color: #64748b; font-size: 13px; }
-    .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 28px 0; }
-    .box { border: 1px solid #dbe3ef; border-radius: 12px; padding: 16px; }
-    .label { color: #64748b; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 8px; }
-    .value { font-size: 15px; font-weight: 700; color: #172033; }
-    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-    th { background: #eff6ff; color: #1d4ed8; text-align: left; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; padding: 11px 10px; border-bottom: 1px solid #bfdbfe; }
-    td { padding: 12px 10px; border-bottom: 1px solid #e5eaf2; font-size: 13px; vertical-align: top; }
-    .num { text-align: right; white-space: nowrap; }
-    .totals { width: 320px; margin-left: auto; margin-top: 22px; border: 1px solid #dbe3ef; border-radius: 12px; overflow: hidden; }
-    .total-row { display: flex; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid #e5eaf2; font-size: 13px; }
-    .total-row:last-child { border-bottom: none; background: #111827; color: #fff; font-size: 16px; font-weight: 800; }
-    .footer { margin-top: 42px; padding-top: 16px; border-top: 1px solid #e5eaf2; color: #64748b; font-size: 12px; display: flex; justify-content: space-between; gap: 16px; }
-    @page { size: A4; margin: 0; }
-    @media print { body { background: #fff; } .page { width: auto; min-height: auto; margin: 0; box-shadow: none; } }
-  </style>
-</head>
-<body>
-  <main class="page">
-    <header class="header">
-      <div class="brand">
-        <img src="${window.location.origin}/logo.png" alt="SiteSurveyor" />
-      </div>
-      <div class="doc-title">
-        <h1>QUOTATION</h1>
-        <p>${escapeHtml(activeQuote.id)}</p>
-      </div>
-    </header>
-
-    <section class="meta">
-      <div class="box">
-        <div class="label">Bill To</div>
-        <div class="value">${escapeHtml(activeQuote.client)}</div>
-      </div>
-      <div class="box">
-        <div class="label">Project</div>
-        <div class="value">${escapeHtml(activeQuote.project || "—")}</div>
-      </div>
-      <div class="box">
-        <div class="label">Date Issued</div>
-        <div class="value">${formatDate(activeQuote.date)}</div>
-      </div>
-      <div class="box">
-        <div class="label">Status</div>
-        <div class="value">${escapeHtml(activeQuote.status)}</div>
-      </div>
-    </section>
-
-    <table>
-      <thead>
-        <tr>
-          <th>Description</th>
-          <th class="num">Qty</th>
-          <th>Unit</th>
-          <th class="num">Rate</th>
-          <th class="num">Total</th>
-        </tr>
-      </thead>
-      <tbody>${rows || `<tr><td colspan="5">No line items</td></tr>`}</tbody>
-    </table>
-
-    <section class="totals">
-      <div class="total-row"><span>Subtotal</span><strong>${formatCurrency(subtotal)}</strong></div>
-      <div class="total-row"><span>VAT (15%)</span><strong>${formatCurrency(vat)}</strong></div>
-      <div class="total-row"><span>Total Amount</span><strong>${formatCurrency(total)}</strong></div>
-    </section>
-
-    <footer class="footer">
-      <span>SiteSurveyor for Engineers</span>
-      <span>Generated ${new Date().toLocaleDateString("en-GB")}</span>
-    </footer>
-  </main>
-</body>
-</html>`);
-    printDocument.close();
-
-    const printFrame = () => {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-      window.setTimeout(() => iframe.remove(), 1000);
-    };
-
-    const logo = printDocument.querySelector("img");
-    if (logo && !logo.complete) {
-      logo.addEventListener("load", printFrame, { once: true });
-      logo.addEventListener("error", printFrame, { once: true });
-    } else {
-      window.setTimeout(printFrame, 100);
+  const handleSaveNotes = async () => {
+    if (!activeQuote) return;
+    setSavingNotes(true);
+    try {
+      await updateQuote(activeQuote.dbId, { notes: draftNotes });
+      await fetchQuotes();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to save notes");
+    } finally {
+      setSavingNotes(false);
     }
   };
 
@@ -625,10 +534,26 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
         title="Quotes"
         subtitle="Manage estimates, compute surveying fees, and issue proposals"
         actions={
-          <Button onClick={openCreateForm} className="gap-2">
-            <Plus size={16} />
-            Create Quote
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <DocumentThemeSelector
+              value={defaults.theme}
+              onChange={setTheme}
+              className="w-[130px]"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setBusinessDialogOpen(true)}
+              className="gap-1.5"
+            >
+              <Building2 size={14} />
+              Business
+            </Button>
+            <Button onClick={openCreateForm} className="gap-2">
+              <Plus size={16} />
+              Create Quote
+            </Button>
+          </div>
         }
       />
 
@@ -759,12 +684,18 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
                 quote={activeQuote}
                 items={localItems}
                 saving={saving}
+                savingNotes={savingNotes}
+                notes={draftNotes}
+                terms={defaults.terms}
                 onChange={updateItem}
                 onAdd={handleAddLineItem}
                 onRemove={handleRemoveLineItem}
                 onSave={handleSaveItems}
                 onExport={handleExportPdf}
-                onSend={handleSendToClient}
+                onSend={openSendPreview}
+                onNotesChange={setDraftNotes}
+                onSaveNotes={handleSaveNotes}
+                onTermsChange={setTerms}
               />
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-3 p-8">
@@ -796,12 +727,18 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
                   quote={activeQuote}
                   items={localItems}
                   saving={saving}
+                  savingNotes={savingNotes}
+                  notes={draftNotes}
+                  terms={defaults.terms}
                   onChange={updateItem}
                   onAdd={handleAddLineItem}
                   onRemove={handleRemoveLineItem}
                   onSave={handleSaveItems}
                   onExport={handleExportPdf}
-                  onSend={handleSendToClient}
+                  onSend={openSendPreview}
+                  onNotesChange={setDraftNotes}
+                  onSaveNotes={handleSaveNotes}
+                  onTermsChange={setTerms}
                 />
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-3 p-8">
@@ -814,184 +751,160 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
         </Sheet>
       </div>
 
-      <Dialog open={isCreateOpen} onOpenChange={(open) => !open && setIsCreateOpen(false)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Create Quote</DialogTitle>
-            <DialogDescription>Prepare a new estimate for a client.</DialogDescription>
-          </DialogHeader>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="quote-number">Quote number</Label>
-              <Input
-                id="quote-number"
-                placeholder="e.g. EST-2026-053"
-                value={draft.quote_number}
-                onChange={(e) => setDraft({ ...draft, quote_number: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Client</Label>
-              <Select
-                value={draft.organization_id}
-                onValueChange={(v) => setDraft({ ...draft, organization_id: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select Client" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">Select Client</SelectItem>
-                  {organizations.map((org) => (
-                    <SelectItem key={org.id} value={org.id}>
-                      {org.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Project</Label>
-              <Select
-                value={draft.project_id}
-                onValueChange={(v) => setDraft({ ...draft, project_id: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select Project" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">Select Project (optional)</SelectItem>
-                  {projectOptions.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="quote-issue">Issue date</Label>
-              <Input
-                id="quote-issue"
-                type="date"
-                value={draft.issue_date}
-                onChange={(e) => setDraft({ ...draft, issue_date: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="quote-expires">Expires on</Label>
-              <Input
-                id="quote-expires"
-                type="date"
-                placeholder="Expires on"
-                value={draft.expires_on}
-                onChange={(e) => setDraft({ ...draft, expires_on: e.target.value })}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <Label>Line items</Label>
-            {draftItems.map((item) => (
-              <div key={item.id} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
-                <div className="sm:col-span-5">
-                  <Input
-                    placeholder="Description"
-                    value={item.description}
-                    onChange={(e) =>
-                      setDraftItems((prev) =>
-                        prev.map((i) => (i.id === item.id ? { ...i, description: e.target.value } : i)),
-                      )
-                    }
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <Input
-                    type="number"
-                    placeholder="Qty"
-                    value={item.qty}
-                    onChange={(e) =>
-                      setDraftItems((prev) =>
-                        prev.map((i) => (i.id === item.id ? { ...i, qty: Number(e.target.value) } : i)),
-                      )
-                    }
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <Input
-                    placeholder="Unit"
-                    value={item.unit}
-                    onChange={(e) =>
-                      setDraftItems((prev) =>
-                        prev.map((i) => (i.id === item.id ? { ...i, unit: e.target.value } : i)),
-                      )
-                    }
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <Input
-                    type="number"
-                    placeholder="Rate"
-                    value={item.rate}
-                    onChange={(e) =>
-                      setDraftItems((prev) =>
-                        prev.map((i) => (i.id === item.id ? { ...i, rate: Number(e.target.value) } : i)),
-                      )
-                    }
-                  />
-                </div>
-                <div className="sm:col-span-1 flex justify-end">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setDraftItems((prev) =>
-                        prev.length === 1 ? prev : prev.filter((i) => i.id !== item.id),
-                      )
-                    }
-                    disabled={draftItems.length === 1}
-                  >
-                    ×
-                  </Button>
-                </div>
-              </div>
-            ))}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                setDraftItems((prev) => [
-                  ...prev,
-                  { id: `new-${Date.now()}`, description: "", qty: 1, unit: "Hours", rate: 0 },
-                ])
-              }
-              className="gap-1"
-            >
-              <Plus size={14} />
-              Add Line Item
-            </Button>
-          </div>
-
-          <div className="flex justify-between items-center border-t pt-4">
-            <div className="text-sm">
-              <span className="text-muted-foreground">Total:</span>{" "}
-              <strong>{formatCurrency(calculateTotal(draftItems) * 1.15)}</strong>
-            </div>
-            {createError && (
-              <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                {createError}
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+      <DialogTemplate
+        open={isCreateOpen}
+        onOpenChange={(open) => !open && setIsCreateOpen(false)}
+        title="Create Quote"
+        description="Prepare a new estimate for a client."
+        size="full"
+        footer={
+          <>
             <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
               Cancel
             </Button>
             <Button onClick={submitCreateQuote}>Create Quote</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="quote-number">Quote number</Label>
+            <Input
+              id="quote-number"
+              placeholder="e.g. EST-2026-053"
+              value={draft.quote_number}
+              onChange={(e) => setDraft({ ...draft, quote_number: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Client</Label>
+            <Select
+              value={draft.organization_id}
+              onValueChange={(v) => setDraft({ ...draft, organization_id: v })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select Client" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Select Client</SelectItem>
+                {organizations.map((org) => (
+                  <SelectItem key={org.id} value={org.id}>
+                    {org.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Project</Label>
+            <Select
+              value={draft.project_id}
+              onValueChange={(v) => setDraft({ ...draft, project_id: v })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select Project" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Select Project (optional)</SelectItem>
+                {projectOptions.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="quote-issue">Issue date</Label>
+            <Input
+              id="quote-issue"
+              type="date"
+              value={draft.issue_date}
+              onChange={(e) => setDraft({ ...draft, issue_date: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="quote-expires">Expires on</Label>
+            <Input
+              id="quote-expires"
+              type="date"
+              placeholder="Expires on"
+              value={draft.expires_on}
+              onChange={(e) => setDraft({ ...draft, expires_on: e.target.value })}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <Label>Line items</Label>
+          <LineItemsEditor
+            items={draftItems}
+            onChange={updateDraftItem}
+            onAdd={() =>
+              setDraftItems((prev) => [
+                ...prev,
+                { id: `new-${Date.now()}`, description: "", qty: 1, unit: "Hours", rate: 0 },
+              ])
+            }
+            onRemove={(id) =>
+              setDraftItems((prev) => (prev.length === 1 ? prev : prev.filter((i) => i.id !== id)))
+            }
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="create-notes">Notes</Label>
+            <Textarea
+              id="create-notes"
+              rows={3}
+              value={draftNotes}
+              onChange={(e) => setDraftNotes(e.target.value)}
+              placeholder="Notes visible to the client"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="create-terms">Terms & Conditions</Label>
+            <Textarea
+              id="create-terms"
+              rows={3}
+              value={defaults.terms}
+              onChange={(e) => setTerms(e.target.value)}
+              placeholder="Payment terms, validity, etc."
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-between items-center border-t pt-4">
+          <div className="text-sm">
+            <span className="text-muted-foreground">Total:</span>{" "}
+            <strong>{formatCurrency(calculateTotal(draftItems) * 1.15)}</strong>
+          </div>
+          {createError && (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {createError}
+            </div>
+          )}
+        </div>
+      </DialogTemplate>
+
+      <BusinessProfileDialog
+        open={businessDialogOpen}
+        onOpenChange={setBusinessDialogOpen}
+        profile={profile}
+        onSave={setProfile}
+      />
+
+      {activeQuote && (
+        <SendPreviewDialog
+          open={sendPreviewOpen}
+          onOpenChange={setSendPreviewOpen}
+          documentId={activeQuote.id}
+          clientName={activeQuote.client}
+          documentType="quote"
+          onSend={handleSendToClient}
+        />
+      )}
     </DashboardShell>
   );
 }

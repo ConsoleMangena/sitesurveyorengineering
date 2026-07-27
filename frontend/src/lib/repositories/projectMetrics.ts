@@ -1,4 +1,5 @@
 import { getCadDrawing } from "./cadDrawings.ts";
+import { cadStorageKey } from "../../features/projects/components/cad/cadModel.ts";
 
 /**
  * Real, data-backed metrics for a project workspace dashboard.
@@ -26,27 +27,53 @@ interface CadModelShape {
 
 const QA_CODES = ["QA", "CHECK", "FLAG", "REVIEW"];
 
-export async function getProjectMetrics(projectId: string): Promise<ProjectMetrics> {
+function isProjectMetricsOnline(): boolean {
+  return typeof navigator !== "undefined" && navigator.onLine;
+}
+
+function loadCachedCadShape(projectId: string): CadModelShape | null {
+  try {
+    const raw = localStorage.getItem(cadStorageKey(projectId));
+    if (!raw) return null;
+    return JSON.parse(raw) as CadModelShape;
+  } catch {
+    return null;
+  }
+}
+
+function metricsFromShape(model: CadModelShape | null): ProjectMetrics {
   const empty: ProjectMetrics = { points: 0, linework: 0, surfaces: 0, qaFlags: 0 };
+  if (!model) return empty;
+
+  const points = Array.isArray(model.points) ? model.points : [];
+  const qaFlags = points.filter((p) => {
+    const code = (p.code ?? "").toUpperCase();
+    return QA_CODES.some((q) => code.includes(q));
+  }).length;
+
+  return {
+    points: points.length,
+    linework: Array.isArray(model.linework) ? model.linework.length : 0,
+    surfaces: Array.isArray(model.surfaces) ? model.surfaces.length : 0,
+    qaFlags,
+  };
+}
+
+export async function getProjectMetrics(projectId: string): Promise<ProjectMetrics> {
+  // When offline, read from the same localStorage cache the CAD workspace uses.
+  if (!isProjectMetricsOnline()) {
+    return metricsFromShape(loadCachedCadShape(projectId));
+  }
 
   try {
     const record = await getCadDrawing(projectId);
     const model = (record?.model ?? null) as CadModelShape | null;
-    if (!model) return empty;
-
-    const points = Array.isArray(model.points) ? model.points : [];
-    const qaFlags = points.filter((p) => {
-      const code = (p.code ?? "").toUpperCase();
-      return QA_CODES.some((q) => code.includes(q));
-    }).length;
-
-    return {
-      points: points.length,
-      linework: Array.isArray(model.linework) ? model.linework.length : 0,
-      surfaces: Array.isArray(model.surfaces) ? model.surfaces.length : 0,
-      qaFlags,
-    };
+    if (!model) {
+      // Nothing on the server yet, but there might be a local-only drawing.
+      return metricsFromShape(loadCachedCadShape(projectId));
+    }
+    return metricsFromShape(model);
   } catch {
-    return empty;
+    return metricsFromShape(loadCachedCadShape(projectId));
   }
 }

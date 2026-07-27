@@ -11,8 +11,8 @@
 //! preserve `f64` precision. Callers do not need to shift manually.
 
 pub mod alignment;
-pub mod cogo;
 pub mod circle_fit;
+pub mod cogo;
 pub mod constrained_tin;
 pub mod contour;
 pub mod csv_io;
@@ -56,14 +56,18 @@ impl fmt::Display for SurveyError {
             SurveyError::InsufficientPoints { got, need } => {
                 write!(f, "insufficient points: got {got}, need at least {need}")
             }
-            SurveyError::DegenerateGeometry { reason } => write!(f, "degenerate geometry: {reason}"),
+            SurveyError::DegenerateGeometry { reason } => {
+                write!(f, "degenerate geometry: {reason}")
+            }
             SurveyError::InvalidParameter { name, value } => {
                 write!(f, "invalid parameter '{name}': {value}")
             }
             SurveyError::FootprintMismatch { reason } => write!(f, "footprint mismatch: {reason}"),
             SurveyError::OutOfBounds { reason } => write!(f, "out of bounds: {reason}"),
             SurveyError::ParseError { message } => write!(f, "parse error: {message}"),
-            SurveyError::ComputationFailed { message } => write!(f, "computation failed: {message}"),
+            SurveyError::ComputationFailed { message } => {
+                write!(f, "computation failed: {message}")
+            }
         }
     }
 }

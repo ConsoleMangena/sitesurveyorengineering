@@ -17,10 +17,9 @@ export interface MetricStripMetric {
 interface MetricStripProps {
   metrics: MetricStripMetric[];
   loading?: boolean;
-  compact?: boolean;
 }
 
-function DefaultIcon({ color }: { color: string }) {
+function defaultIcon(accentColor: string) {
   return (
     <svg
       width="16"
@@ -31,7 +30,7 @@ function DefaultIcon({ color }: { color: string }) {
       strokeWidth="2.2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      style={{ color }}
+      style={{ color: accentColor }}
     >
       <circle cx="12" cy="12" r="10" />
       <path d="M12 16v-4" />
@@ -40,26 +39,26 @@ function DefaultIcon({ color }: { color: string }) {
   );
 }
 
-function MetricSkeleton({ compact }: { compact?: boolean }) {
+function MetricSkeleton() {
   return (
-    <Card className="border-border/60">
-      <CardContent className={cn("flex items-center", compact ? "gap-2 p-2" : "gap-3 sm:gap-4 p-3 sm:p-5")}>
-        <Skeleton className={cn("rounded-lg", compact ? "h-7 w-7" : "h-8 w-8 sm:h-10 sm:w-10")} />
+    <Card className="h-full border-border/60">
+      <CardContent className="flex items-center gap-3 p-3">
+        <Skeleton className="rounded-lg h-7 w-7" />
         <div className="flex flex-col gap-1.5 min-w-0">
-          <Skeleton className="h-3.5 w-20" />
-          <Skeleton className={cn(compact ? "h-4 w-12" : "h-5 sm:h-6 w-14 sm:w-16")} />
+          <Skeleton className="h-3 w-20" />
+          <Skeleton className="h-4 w-12" />
         </div>
       </CardContent>
     </Card>
   );
 }
 
-export function MetricStrip({ metrics, loading = false, compact = false }: MetricStripProps) {
+export function MetricStrip({ metrics, loading = false }: MetricStripProps) {
   if (loading) {
     return (
-      <div className={cn("grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4", compact ? "gap-2" : "gap-3 sm:gap-4")}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
         {Array.from({ length: 4 }).map((_, i) => (
-          <MetricSkeleton key={i} compact={compact} />
+          <MetricSkeleton key={i} />
         ))}
       </div>
     );
@@ -67,9 +66,10 @@ export function MetricStrip({ metrics, loading = false, compact = false }: Metri
 
   return (
     <div
-      className={cn("grid", compact ? "gap-2" : "gap-3 sm:gap-4")}
+      data-testid="metric-strip"
+      className="grid gap-2"
       style={{
-        gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))",
+        gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))",
       }}
     >
       {metrics.map((metric, index) => {
@@ -78,7 +78,7 @@ export function MetricStrip({ metrics, loading = false, compact = false }: Metri
           <Card
             key={metric.label + index}
             className={cn(
-              "border-border/60 transition-all duration-200 group relative overflow-hidden",
+              "h-full border-border/60 bg-card shadow-sm transition-all duration-200 group relative overflow-hidden",
               clickable && "cursor-pointer hover:shadow-md hover:-translate-y-0.5",
             )}
             onClick={metric.onClick}
@@ -95,51 +95,30 @@ export function MetricStrip({ metrics, loading = false, compact = false }: Metri
                 : undefined
             }
           >
-            <CardContent className={cn("flex items-center", compact ? "gap-2 p-2" : "gap-3 sm:gap-4 p-3 sm:p-5")}>
+            <CardContent className="flex items-center gap-3 p-3">
               <div
-                className={cn(
-                  "flex shrink-0 items-center justify-center rounded-lg transition-transform duration-200 group-hover:scale-110",
-                  compact ? "h-7 w-7" : "h-8 w-8 sm:h-10 sm:w-10",
-                )}
-                style={{
-                  background: `${metric.accentColor}18`,
-                  color: metric.accentColor,
-                }}
-                aria-hidden="true"
+                className="flex size-7 shrink-0 items-center justify-center rounded-lg border bg-muted"
+                style={{ color: metric.accentColor }}
               >
                 {metric.icon ? (
-                  <span className="flex items-center justify-center">
-                    {metric.icon}
-                  </span>
+                  <span className="flex items-center justify-center size-4">{metric.icon}</span>
                 ) : (
-                  <DefaultIcon color={metric.accentColor} />
+                  defaultIcon(metric.accentColor)
                 )}
               </div>
-              <div className="flex flex-col min-w-0">
-                <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wide text-muted-foreground truncate">
-                  {metric.label}
-                </span>
-                <span
-                  className={cn(
-                    "font-bold text-foreground truncate",
-                    compact ? "text-sm sm:text-base" : "text-base sm:text-lg md:text-xl",
-                  )}
+              <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                <p className="text-[10px] text-muted-foreground truncate">{metric.label}</p>
+                <p
+                  className="text-sm font-semibold text-foreground tabular-nums leading-none tracking-tight truncate"
                   title={metric.value}
                 >
                   {metric.value}
-                </span>
+                </p>
                 {metric.subtext && (
-                  <span className="text-[10px] sm:text-xs text-muted-foreground truncate">
-                    {metric.subtext}
-                  </span>
+                  <p className="text-[10px] text-muted-foreground truncate">{metric.subtext}</p>
                 )}
               </div>
             </CardContent>
-            <div
-              className="absolute bottom-0 left-0 right-0 h-[3px] transition-transform duration-300 origin-left scale-x-0 group-hover:scale-x-100"
-              style={{ background: metric.accentColor }}
-              aria-hidden="true"
-            />
           </Card>
         );
       })}

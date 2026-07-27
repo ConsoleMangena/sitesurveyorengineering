@@ -1765,6 +1765,14 @@ export type Database = {
           created_at: string
           created_by: string | null
           datum: string | null
+          axis_convention: string | null
+          crs_type: string | null
+          crs_epsg: string | null
+          local_origin_e: number | null
+          local_origin_n: number | null
+          bearing_format: string | null
+          angle_entry: string | null
+          coord_decimals: number | null
           description: string | null
           ends_on: string | null
           id: string
@@ -1784,6 +1792,14 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           datum?: string | null
+          axis_convention?: string | null
+          crs_type?: string | null
+          crs_epsg?: string | null
+          local_origin_e?: number | null
+          local_origin_n?: number | null
+          bearing_format?: string | null
+          angle_entry?: string | null
+          coord_decimals?: number | null
           description?: string | null
           ends_on?: string | null
           id?: string
@@ -1803,6 +1819,14 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           datum?: string | null
+          axis_convention?: string | null
+          crs_type?: string | null
+          crs_epsg?: string | null
+          local_origin_e?: number | null
+          local_origin_n?: number | null
+          bearing_format?: string | null
+          angle_entry?: string | null
+          coord_decimals?: number | null
           description?: string | null
           ends_on?: string | null
           id?: string

@@ -21,6 +21,7 @@ import {
   DashboardHeader,
   DashboardShell,
 } from "@/components/dashboard/DashboardShell.tsx";
+import { ProfessionalPortfolioCard } from "../../features/personal/components/ProfessionalPortfolioCard.tsx";
 
 import { listProjects, type ProjectWithOrg } from "../../lib/repositories/projects.ts";
 import { listInvoices, type InvoiceWithDetails } from "../../lib/repositories/invoices.ts";
@@ -175,31 +176,33 @@ export default function PersonalDashboardPage({
         }
       />
 
+      <ProfessionalPortfolioCard workspaceId={workspaceId} userName={userName} />
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-12">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:col-span-12">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:col-span-12">
           <KpiCard
             title="Open Projects"
             value={activeProjectsCount.toString()}
             subtext={`${projects.length} total projects`}
-            icon={<Briefcase className="size-3.5" />}
+            icon={<Briefcase className="size-4" />}
           />
           <KpiCard
             title="Pending Invoices"
             value={`$${pendingInvoicesTotal.toLocaleString()}`}
             subtext={`${pendingInvoices.length} invoices awaiting payment`}
-            icon={<FileText className="size-3.5" />}
+            icon={<FileText className="size-4" />}
           />
           <KpiCard
             title="Quotes Pending"
             value={pendingQuotesCount.toString()}
             subtext="awaiting client decision"
-            icon={<FileCheck className="size-3.5" />}
+            icon={<FileCheck className="size-4" />}
           />
           <KpiCard
             title="Next Calibration"
             value={nextCalibrationDays == null ? "--" : `${nextCalibrationDays}d`}
             subtext={nextCalibrationDays == null ? "No schedule found" : "until next calibration"}
-            icon={<Clock className="size-3.5" />}
+            icon={<Clock className="size-4" />}
           />
         </div>
 
@@ -251,7 +254,6 @@ export default function PersonalDashboardPage({
           <DashboardCard
             title="Today's Schedule"
             icon={<CalendarDays size={16} />}
-            accent
             footer={
               <Button
                 type="button"

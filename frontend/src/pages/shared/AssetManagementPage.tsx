@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type ComponentType } from "react";
+import { useState, useCallback, type ComponentType } from "react";
 import {
   Plus,
   ClipboardList,
@@ -22,14 +22,7 @@ import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
 import {
   Select,
   SelectContent,
@@ -44,6 +37,7 @@ import { KpiCard } from "@/components/dashboard/KpiCard.tsx";
 import { AssetStatusChart } from "@/components/dashboard/AssetStatusChart.tsx";
 import { CalibrationDuePanel } from "@/components/dashboard/CalibrationDuePanel.tsx";
 import { cn } from "@/lib/utils";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 
 import {
   listAssets,
@@ -295,9 +289,7 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
     }
   }, [workspaceId]);
 
-  useEffect(() => {
-    void fetchAssets();
-  }, [fetchAssets]);
+  useAsyncAction(fetchAssets, [fetchAssets]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -390,7 +382,7 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
         setListingForm({ listing_type: "sale", price: "", condition: "New", location: "", description: "", seller: workspaceName });
       }
     } catch (e) {
-      console.error(e);
+      setError(e instanceof Error ? e.message : "Failed to load marketplace listing for this asset.");
     }
 
     setSelectedAsset(null);
@@ -511,37 +503,37 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
           title="Instruments"
           value={instruments.length.toString()}
           subtext="registered"
-          icon={<ClipboardList className="size-3.5" />}
+          icon={<ClipboardList className="size-4" />}
         />
         <KpiCard
           title="Fleet Value"
           value={`$${totalValue.toLocaleString()}`}
           subtext="book value"
-          icon={<DollarSign className="size-3.5" />}
+          icon={<DollarSign className="size-4" />}
         />
         <KpiCard
           title="Utilisation"
           value={`${instruments.length ? Math.round((deployed / instruments.length) * 100) : 0}%`}
           subtext="deployed"
-          icon={<Gauge className="size-3.5" />}
+          icon={<Gauge className="size-4" />}
         />
         <KpiCard
           title="Deployed"
           value={deployed.toString()}
           subtext="in the field"
-          icon={<MapPinned className="size-3.5" />}
+          icon={<MapPinned className="size-4" />}
         />
         <KpiCard
           title="Available"
           value={available.toString()}
           subtext="ready"
-          icon={<CheckCircle2 className="size-3.5" />}
+          icon={<CheckCircle2 className="size-4" />}
         />
         <KpiCard
           title="Calibrations Due"
           value={calibDue.toString()}
           subtext="within 30 days"
-          icon={<AlertTriangle className="size-3.5" />}
+          icon={<AlertTriangle className="size-4" />}
         />
       </div>
 
@@ -810,21 +802,95 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
       </div>
 
       {/* Create Asset Dialog */}
-      <Dialog open={showCreateModal} onOpenChange={(open) => { if (!open) setShowCreateModal(false); }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Add Instrument</DialogTitle>
-            <DialogDescription>Register a new survey instrument in your fleet.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleCreate} className="space-y-4">
+      <DialogTemplate
+        open={showCreateModal}
+        onOpenChange={(open) => { if (!open) setShowCreateModal(false); }}
+        title="Add Instrument"
+        description="Register a new survey instrument in your fleet."
+        size="lg"
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>Cancel</Button>
+            <Button type="submit" form="asset-create-form" disabled={saving}>{saving ? "Saving..." : "Add Instrument"}</Button>
+          </>
+        }
+      >
+        <form id="asset-create-form" onSubmit={handleCreate} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="create-name">Name *</Label>
+            <Input id="create-name" value={createForm.name} onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. Leica TS16" required autoFocus />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="create-name">Name *</Label>
-              <Input id="create-name" value={createForm.name} onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. Leica TS16" required autoFocus />
+              <Label>Kind</Label>
+              <Select value={createForm.kind} onValueChange={(v) => setCreateForm((f) => ({ ...f, kind: v as typeof createForm.kind }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="instrument">Instrument</SelectItem>
+                  <SelectItem value="vehicle">Vehicle</SelectItem>
+                  <SelectItem value="equipment">Equipment</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Category</Label>
+              <Select value={createForm.category} onValueChange={(v) => setCreateForm((f) => ({ ...f, category: v }))}>
+                <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                <SelectContent>
+                  {ASSET_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="create-make">Make</Label>
+              <Input id="create-make" value={createForm.make} onChange={(e) => setCreateForm((f) => ({ ...f, make: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="create-model">Model</Label>
+              <Input id="create-model" value={createForm.model} onChange={(e) => setCreateForm((f) => ({ ...f, model: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="create-serial">Serial Number</Label>
+              <Input id="create-serial" value={createForm.serial_number} onChange={(e) => setCreateForm((f) => ({ ...f, serial_number: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="create-purchase-date">Purchase Date</Label>
+              <Input id="create-purchase-date" type="date" value={createForm.purchase_date} onChange={(e) => setCreateForm((f) => ({ ...f, purchase_date: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="create-purchase-cost">Purchase Cost ($)</Label>
+              <Input id="create-purchase-cost" type="number" value={createForm.purchase_cost} onChange={(e) => setCreateForm((f) => ({ ...f, purchase_cost: e.target.value }))} />
+            </div>
+          </div>
+        </form>
+      </DialogTemplate>
+
+      {/* Edit Asset Dialog */}
+      <DialogTemplate
+        open={showEditModal}
+        onOpenChange={(open) => { if (!open) { setShowEditModal(false); setEditingAssetId(null); } }}
+        title="Edit Instrument"
+        description="Update asset details and marketplace settings."
+        size="full"
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => { setShowEditModal(false); setEditingAssetId(null); }}>Cancel</Button>
+            <Button type="submit" form="asset-edit-form" disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button>
+          </>
+        }
+      >
+        <form id="asset-edit-form" onSubmit={handleSaveEdit} className="space-y-6">
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Asset Details</h3>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-name">Name *</Label>
+              <Input id="edit-name" value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} required autoFocus />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Kind</Label>
-                <Select value={createForm.kind} onValueChange={(v) => setCreateForm((f) => ({ ...f, kind: v as typeof createForm.kind }))}>
+                <Select value={editForm.kind} onValueChange={(v) => setEditForm((f) => ({ ...f, kind: v as typeof editForm.kind }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="instrument">Instrument</SelectItem>
@@ -836,7 +902,7 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
               </div>
               <div className="space-y-1.5">
                 <Label>Category</Label>
-                <Select value={createForm.category} onValueChange={(v) => setCreateForm((f) => ({ ...f, category: v }))}>
+                <Select value={editForm.category} onValueChange={(v) => setEditForm((f) => ({ ...f, category: v }))}>
                   <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
                   <SelectContent>
                     {ASSET_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
@@ -844,263 +910,193 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="create-make">Make</Label>
-                <Input id="create-make" value={createForm.make} onChange={(e) => setCreateForm((f) => ({ ...f, make: e.target.value }))} />
+                <Label htmlFor="edit-make">Make</Label>
+                <Input id="edit-make" value={editForm.make} onChange={(e) => setEditForm((f) => ({ ...f, make: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="create-model">Model</Label>
-                <Input id="create-model" value={createForm.model} onChange={(e) => setCreateForm((f) => ({ ...f, model: e.target.value }))} />
+                <Label htmlFor="edit-model">Model</Label>
+                <Input id="edit-model" value={editForm.model} onChange={(e) => setEditForm((f) => ({ ...f, model: e.target.value }))} />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="create-serial">Serial Number</Label>
-                <Input id="create-serial" value={createForm.serial_number} onChange={(e) => setCreateForm((f) => ({ ...f, serial_number: e.target.value }))} />
+                <Label htmlFor="edit-serial">Serial Number</Label>
+                <Input id="edit-serial" value={editForm.serial_number} onChange={(e) => setEditForm((f) => ({ ...f, serial_number: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="create-purchase-date">Purchase Date</Label>
-                <Input id="create-purchase-date" type="date" value={createForm.purchase_date} onChange={(e) => setCreateForm((f) => ({ ...f, purchase_date: e.target.value }))} />
+                <Label htmlFor="edit-purchase-date">Purchase Date</Label>
+                <Input id="edit-purchase-date" type="date" value={editForm.purchase_date} onChange={(e) => setEditForm((f) => ({ ...f, purchase_date: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="create-purchase-cost">Purchase Cost ($)</Label>
-                <Input id="create-purchase-cost" type="number" value={createForm.purchase_cost} onChange={(e) => setCreateForm((f) => ({ ...f, purchase_cost: e.target.value }))} />
+                <Label htmlFor="edit-purchase-cost">Purchase Cost ($)</Label>
+                <Input id="edit-purchase-cost" type="number" value={editForm.purchase_cost} onChange={(e) => setEditForm((f) => ({ ...f, purchase_cost: e.target.value }))} />
               </div>
             </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>Cancel</Button>
-              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Add Instrument"}</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+          </div>
 
-      {/* Edit Asset Dialog */}
-      <Dialog open={showEditModal} onOpenChange={(open) => { if (!open) { setShowEditModal(false); setEditingAssetId(null); } }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Instrument</DialogTitle>
-            <DialogDescription>Update asset details and marketplace settings.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSaveEdit} className="space-y-6">
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Asset Details</h3>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-name">Name *</Label>
-                <Input id="edit-name" value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} required autoFocus />
-              </div>
+          <Separator />
+
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <Switch id="marketplace" checked={listOnMarketplace} onCheckedChange={setListOnMarketplace} />
+              <Label htmlFor="marketplace">List this asset on the Marketplace</Label>
+            </div>
+            {listOnMarketplace && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <Label>Kind</Label>
-                  <Select value={editForm.kind} onValueChange={(v) => setEditForm((f) => ({ ...f, kind: v as typeof editForm.kind }))}>
+                  <Label>Listing Type</Label>
+                  <Select value={listingForm.listing_type} onValueChange={(v) => setListingForm((f) => ({ ...f, listing_type: v }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="instrument">Instrument</SelectItem>
-                      <SelectItem value="vehicle">Vehicle</SelectItem>
-                      <SelectItem value="equipment">Equipment</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
+                      <SelectItem value="hire">Available for Hire</SelectItem>
+                      <SelectItem value="sale">Available for Sale</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Category</Label>
-                  <Select value={editForm.category} onValueChange={(v) => setEditForm((f) => ({ ...f, category: v }))}>
-                    <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                  <Label htmlFor="listing-price">Price ($) *</Label>
+                  <Input id="listing-price" type="number" value={listingForm.price} onChange={(e) => setListingForm((f) => ({ ...f, price: e.target.value }))} required />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Condition</Label>
+                  <Select value={listingForm.condition} onValueChange={(v) => setListingForm((f) => ({ ...f, condition: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {ASSET_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                      {["New", "Like New", "Good", "Fair"].map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="edit-make">Make</Label>
-                  <Input id="edit-make" value={editForm.make} onChange={(e) => setEditForm((f) => ({ ...f, make: e.target.value }))} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-model">Model</Label>
-                  <Input id="edit-model" value={editForm.model} onChange={(e) => setEditForm((f) => ({ ...f, model: e.target.value }))} />
+                  <Label htmlFor="listing-location">Location</Label>
+                  <Input id="listing-location" value={listingForm.location} onChange={(e) => setListingForm((f) => ({ ...f, location: e.target.value }))} />
                 </div>
                 <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="edit-serial">Serial Number</Label>
-                  <Input id="edit-serial" value={editForm.serial_number} onChange={(e) => setEditForm((f) => ({ ...f, serial_number: e.target.value }))} />
+                  <Label htmlFor="listing-seller">Seller Name / Company</Label>
+                  <Input id="listing-seller" value={listingForm.seller} onChange={(e) => setListingForm((f) => ({ ...f, seller: e.target.value }))} />
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-purchase-date">Purchase Date</Label>
-                  <Input id="edit-purchase-date" type="date" value={editForm.purchase_date} onChange={(e) => setEditForm((f) => ({ ...f, purchase_date: e.target.value }))} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-purchase-cost">Purchase Cost ($)</Label>
-                  <Input id="edit-purchase-cost" type="number" value={editForm.purchase_cost} onChange={(e) => setEditForm((f) => ({ ...f, purchase_cost: e.target.value }))} />
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="listing-description">Listing Description</Label>
+                  <textarea
+                    id="listing-description"
+                    rows={3}
+                    value={listingForm.description}
+                    onChange={(e) => setListingForm((f) => ({ ...f, description: e.target.value }))}
+                    className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  />
                 </div>
               </div>
-            </div>
-
-            <Separator />
-
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <Switch id="marketplace" checked={listOnMarketplace} onCheckedChange={setListOnMarketplace} />
-                <Label htmlFor="marketplace">List this asset on the Marketplace</Label>
-              </div>
-              {listOnMarketplace && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <Label>Listing Type</Label>
-                    <Select value={listingForm.listing_type} onValueChange={(v) => setListingForm((f) => ({ ...f, listing_type: v }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="hire">Available for Hire</SelectItem>
-                        <SelectItem value="sale">Available for Sale</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="listing-price">Price ($) *</Label>
-                    <Input id="listing-price" type="number" value={listingForm.price} onChange={(e) => setListingForm((f) => ({ ...f, price: e.target.value }))} required />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Condition</Label>
-                    <Select value={listingForm.condition} onValueChange={(v) => setListingForm((f) => ({ ...f, condition: v }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {["New", "Like New", "Good", "Fair"].map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="listing-location">Location</Label>
-                    <Input id="listing-location" value={listingForm.location} onChange={(e) => setListingForm((f) => ({ ...f, location: e.target.value }))} />
-                  </div>
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label htmlFor="listing-seller">Seller Name / Company</Label>
-                    <Input id="listing-seller" value={listingForm.seller} onChange={(e) => setListingForm((f) => ({ ...f, seller: e.target.value }))} />
-                  </div>
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label htmlFor="listing-description">Listing Description</Label>
-                    <textarea
-                      id="listing-description"
-                      rows={3}
-                      value={listingForm.description}
-                      onChange={(e) => setListingForm((f) => ({ ...f, description: e.target.value }))}
-                      className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => { setShowEditModal(false); setEditingAssetId(null); }}>Cancel</Button>
-              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+            )}
+          </div>
+        </form>
+      </DialogTemplate>
 
       {/* Asset Detail Dialog */}
-      <Dialog open={selectedAsset !== null} onOpenChange={(open) => { if (!open) setSelectedAsset(null); }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          {selectedAsset && (
+      <DialogTemplate
+        open={selectedAsset !== null}
+        onOpenChange={(open) => { if (!open) setSelectedAsset(null); }}
+        title={selectedAsset?.name ?? "Asset Details"}
+        description={
+          selectedAsset ? (
             <>
-              <DialogHeader>
-                <div className="flex items-center gap-3">
-                  <div className={cn("rounded-lg p-2 border text-muted-foreground", typeBgClass[selectedAsset.type] ?? typeBgClass.Other)}>
-                    <ListingIcon type={selectedAsset.type} />
-                  </div>
-                  <div>
-                    <DialogTitle>{selectedAsset.name}</DialogTitle>
-                    <DialogDescription>{selectedAsset.type} · <Badge variant={statusVariant[selectedAsset.status] ?? "secondary"}>{selectedAsset.status}</Badge></DialogDescription>
-                  </div>
-                </div>
-              </DialogHeader>
-
-              <div className="text-2xl font-bold">
-                ${selectedAsset.currentValue.toLocaleString()}{" "}
-                <span className="text-sm font-normal text-muted-foreground">book value</span>
-              </div>
-
-              {selectedAsset.listing && (
-                <div className="rounded-lg border p-4 space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Marketplace listing</span><span>{selectedAsset.listing.listing_type === "hire" ? "Available for Hire" : "Available for Sale"}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Price</span><span>${selectedAsset.listing.price.toLocaleString()} {selectedAsset.listing.currency}{selectedAsset.listing.listing_type === "hire" ? " / day" : ""}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Condition</span><span>{selectedAsset.listing.condition}</span></div>
-                </div>
-              )}
-
-              <div className="rounded-lg border p-4 space-y-2 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Make / Model</span><span>{selectedAsset.make} {selectedAsset.model}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Serial</span><code>{selectedAsset.serial}</code></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Project</span><span>{selectedAsset.assignedProject}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Purchase Cost</span><span>${selectedAsset.purchaseCost.toLocaleString()} on {selectedAsset.purchaseDate}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Depreciation</span><span>{selectedAsset.purchaseCost > 0 ? Math.round(((selectedAsset.purchaseCost - selectedAsset.currentValue) / selectedAsset.purchaseCost) * 100) : 0}%</span></div>
-              </div>
-
-              {selectedAsset.nextCalibration && (
-                <div className="rounded-lg border p-4 space-y-2 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Last Calibration</span><span>{selectedAsset.lastCalibration}</span></div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Next Due</span>
-                    <span className={calDaysClass(daysUntil(selectedAsset.nextCalibration))}>{selectedAsset.nextCalibration} ({calLabel(daysUntil(selectedAsset.nextCalibration))})</span>
-                  </div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Certificate</span><span>{selectedAsset.calibrationCert}</span></div>
-                </div>
-              )}
-
-              {selectedAsset.maintenanceLog.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Maintenance History</h4>
-                  <div className="relative space-y-3 pl-4 border-l-2 border-muted">
-                    {selectedAsset.maintenanceLog.map((log, i) => (
-                      <div key={i} className="relative text-sm">
-                        <span className="absolute -left-[21px] top-1 h-3 w-3 rounded-full border-2 border-background bg-muted-foreground" />
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
-                          <span className="text-muted-foreground">{log.date}</span>
-                          <span>{log.description}</span>
-                          {log.cost > 0 && <span className="font-medium">${log.cost.toLocaleString()}</span>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
-                {selectedAsset.status === "Available" ? (
-                  <>
-                    <Button variant="outline" onClick={handleOpenEdit}>Edit Asset</Button>
-                    <Button onClick={(e) => openDeployModal(e, selectedAsset.dbId)}>Deploy</Button>
-                  </>
-                ) : (
-                  <Button onClick={handleOpenEdit}>Edit Asset</Button>
-                )}
-              </DialogFooter>
+              {selectedAsset.type} · <Badge variant={statusVariant[selectedAsset.status] ?? "secondary"}>{selectedAsset.status}</Badge>
             </>
-          )}
-        </DialogContent>
-      </Dialog>
+          ) : null
+        }
+        icon={selectedAsset ? <ListingIcon type={selectedAsset.type} /> : null}
+        size="2xl"
+        footer={
+          selectedAsset?.status === "Available" ? (
+            <>
+              <Button variant="outline" onClick={handleOpenEdit}>Edit Asset</Button>
+              <Button onClick={(e) => selectedAsset && openDeployModal(e, selectedAsset.dbId)}>Deploy</Button>
+            </>
+          ) : (
+            <Button onClick={handleOpenEdit}>Edit Asset</Button>
+          )
+        }
+      >
+        {selectedAsset && (
+          <>
+            <div className="text-2xl font-bold">
+              ${selectedAsset.currentValue.toLocaleString()}{" "}
+              <span className="text-sm font-normal text-muted-foreground">book value</span>
+            </div>
+
+            {selectedAsset.listing && (
+              <div className="rounded-lg border p-4 space-y-2 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Marketplace listing</span><span>{selectedAsset.listing.listing_type === "hire" ? "Available for Hire" : "Available for Sale"}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Price</span><span>${selectedAsset.listing.price.toLocaleString()} {selectedAsset.listing.currency}{selectedAsset.listing.listing_type === "hire" ? " / day" : ""}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Condition</span><span>{selectedAsset.listing.condition}</span></div>
+              </div>
+            )}
+
+            <div className="rounded-lg border p-4 space-y-2 text-sm">
+              <div className="flex justify-between"><span className="text-muted-foreground">Make / Model</span><span>{selectedAsset.make} {selectedAsset.model}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Serial</span><code>{selectedAsset.serial}</code></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Project</span><span>{selectedAsset.assignedProject}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Purchase Cost</span><span>${selectedAsset.purchaseCost.toLocaleString()} on {selectedAsset.purchaseDate}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Depreciation</span><span>{selectedAsset.purchaseCost > 0 ? Math.round(((selectedAsset.purchaseCost - selectedAsset.currentValue) / selectedAsset.purchaseCost) * 100) : 0}%</span></div>
+            </div>
+
+            {selectedAsset.nextCalibration && (
+              <div className="rounded-lg border p-4 space-y-2 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Last Calibration</span><span>{selectedAsset.lastCalibration}</span></div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Next Due</span>
+                  <span className={calDaysClass(daysUntil(selectedAsset.nextCalibration))}>{selectedAsset.nextCalibration} ({calLabel(daysUntil(selectedAsset.nextCalibration))})</span>
+                </div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Certificate</span><span>{selectedAsset.calibrationCert}</span></div>
+              </div>
+            )}
+
+            {selectedAsset.maintenanceLog.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Maintenance History</h4>
+                <div className="relative space-y-3 pl-4 border-l-2 border-muted">
+                  {selectedAsset.maintenanceLog.map((log, i) => (
+                    <div key={i} className="relative text-sm">
+                      <span className="absolute -left-[21px] top-1 h-3 w-3 rounded-full border-2 border-background bg-muted-foreground" />
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+                        <span className="text-muted-foreground">{log.date}</span>
+                        <span>{log.description}</span>
+                        {log.cost > 0 && <span className="font-medium">${log.cost.toLocaleString()}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </DialogTemplate>
 
       {/* Deploy Asset Dialog */}
-      <Dialog open={showDeployModal} onOpenChange={(open) => { if (!open) { setShowDeployModal(false); setDeployTargetAssetId(null); } }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Deploy Asset</DialogTitle>
-            <DialogDescription>Assign this instrument to an active project.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleDeploySubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>Select Project</Label>
-              <Select value={deployTargetProjectName} onValueChange={setDeployTargetProjectName}>
-                <SelectTrigger><SelectValue placeholder="Select a project..." /></SelectTrigger>
-                <SelectContent>
-                  {projects.map((p) => <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              {projects.length === 0 && (
-                <p className="text-xs text-muted-foreground">No active projects found. You can add projects in the Project Hub.</p>
-              )}
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => { setShowDeployModal(false); setDeployTargetAssetId(null); }}>Cancel</Button>
-              <Button type="submit" disabled={!deployTargetProjectName}>Deploy Asset</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <DialogTemplate
+        open={showDeployModal}
+        onOpenChange={(open) => { if (!open) { setShowDeployModal(false); setDeployTargetAssetId(null); } }}
+        title="Deploy Asset"
+        description="Assign this instrument to an active project."
+        size="md"
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => { setShowDeployModal(false); setDeployTargetAssetId(null); }}>Cancel</Button>
+            <Button type="submit" form="asset-deploy-form" disabled={!deployTargetProjectName}>Deploy Asset</Button>
+          </>
+        }
+      >
+        <form id="asset-deploy-form" onSubmit={handleDeploySubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Select Project</Label>
+            <Select value={deployTargetProjectName} onValueChange={setDeployTargetProjectName}>
+              <SelectTrigger><SelectValue placeholder="Select a project..." /></SelectTrigger>
+              <SelectContent>
+                {projects.map((p) => <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {projects.length === 0 && (
+              <p className="text-xs text-muted-foreground">No active projects found. You can add projects in the Project Hub.</p>
+            )}
+          </div>
+        </form>
+      </DialogTemplate>
     </DashboardShell>
   );
 }

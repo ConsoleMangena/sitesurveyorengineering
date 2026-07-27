@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import PasswordField from "../../components/PasswordField";
 import GoogleSignInButton from "../../components/GoogleSignInButton";
+import AuthBackground from "../../components/AuthBackground";
 import {
   formatAuthUserFacingError,
   isEmailNotConfirmedError,
@@ -107,7 +108,8 @@ export default function LoginPage() {
 
   return (
     <div className="auth-screen">
-      <Card className="w-full max-w-[380px] mx-auto shadow-lg auth-animate-card">
+      <AuthBackground />
+      <Card className="w-full max-w-[380px] mx-auto shadow-lg auth-animate-card auth-card-glass">
         <CardHeader className="text-center space-y-1 auth-animate-header">
           <img
             src="/logo.svg"
@@ -125,6 +127,7 @@ export default function LoginPage() {
               <Input
                 id="login-email"
                 type="email"
+                className="auth-input"
                 placeholder="you@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -135,6 +138,7 @@ export default function LoginPage() {
 
             <PasswordField
               id="login-password"
+              className="auth-input"
               label="Password"
               value={password}
               onChange={setPassword}
@@ -187,7 +191,7 @@ export default function LoginPage() {
               </div>
             )}
 
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
+            <Button type="submit" className="w-full auth-submit" disabled={isSubmitting}>
               {isSubmitting ? "Signing In..." : "Log In"}
             </Button>
 

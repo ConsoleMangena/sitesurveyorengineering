@@ -6,8 +6,8 @@
 //! the Rust domain model in `survey-core`.
 
 use serde::{Deserialize, Serialize};
-use survey_core::cogo;
 use survey_core::circle_fit;
+use survey_core::cogo;
 use survey_core::constrained_tin::{self, ConstrainedTinOptions};
 use survey_core::csv_io;
 use survey_core::dxf_io::{self, DxfModel};
@@ -90,8 +90,8 @@ pub fn build_constrained_tin(input: JsValue) -> Result<JsValue, JsValue> {
 #[wasm_bindgen]
 pub fn generate_contours(input: JsValue) -> Result<JsValue, JsValue> {
     let parsed: ContourInput = from_js(input)?;
-    let result = contour::generate_contours(&parsed.tin, parsed.interval, parsed.base)
-        .map_err(err_to_js)?;
+    let result =
+        contour::generate_contours(&parsed.tin, parsed.interval, parsed.base).map_err(err_to_js)?;
     to_js(&result)
 }
 
@@ -99,8 +99,7 @@ pub fn generate_contours(input: JsValue) -> Result<JsValue, JsValue> {
 #[wasm_bindgen]
 pub fn volume_to_elevation(input: JsValue) -> Result<JsValue, JsValue> {
     let parsed: VolumeToElevationInput = from_js(input)?;
-    let result = volume::volume_to_elevation(&parsed.tin, parsed.reference)
-        .map_err(err_to_js)?;
+    let result = volume::volume_to_elevation(&parsed.tin, parsed.reference).map_err(err_to_js)?;
     to_js(&result)
 }
 
@@ -223,8 +222,7 @@ pub fn stake_horizontal_curve(input: JsValue) -> Result<JsValue, JsValue> {
     let p: StakeHorizontalInput = from_js(input)?;
     match alignment::horizontal_curve(&p.pi, p.back_azimuth, p.fwd_azimuth, p.radius) {
         Some(curve) => {
-            let stations =
-                alignment::stake_horizontal_curve(&curve, p.back_azimuth, p.interval);
+            let stations = alignment::stake_horizontal_curve(&curve, p.back_azimuth, p.interval);
             #[derive(Serialize)]
             struct Out {
                 curve: alignment::HorizontalCurve,
@@ -326,7 +324,10 @@ pub fn cogo_inverse(input: JsValue) -> Result<JsValue, JsValue> {
         azimuth: f64,
         distance: f64,
     }
-    to_js(&Out { azimuth: az, distance: dist })
+    to_js(&Out {
+        azimuth: az,
+        distance: dist,
+    })
 }
 
 /// Polygon area from `{ ring: Ne[] }`. Returns number (m²).
@@ -363,8 +364,14 @@ struct StakeOutInput {
 pub fn cogo_stake_out(input: JsValue) -> Result<JsValue, JsValue> {
     let p: StakeOutInput = from_js(input)?;
     to_js(
-        &cogo::stake_out(&p.occupied, &p.backsight, &p.target, p.occupied_z, p.target_z)
-            .map_err(err_to_js)?,
+        &cogo::stake_out(
+            &p.occupied,
+            &p.backsight,
+            &p.target,
+            p.occupied_z,
+            p.target_z,
+        )
+        .map_err(err_to_js)?,
     )
 }
 
@@ -404,7 +411,10 @@ struct TraverseInput {
 #[wasm_bindgen]
 pub fn cogo_compute_traverse(input: JsValue) -> Result<JsValue, JsValue> {
     let p: TraverseInput = from_js(input)?;
-    to_js(&cogo::compute_traverse(&p.start, &p.legs, p.traverse_type, p.closing_point.as_ref()).map_err(err_to_js)?)
+    to_js(
+        &cogo::compute_traverse(&p.start, &p.legs, p.traverse_type, p.closing_point.as_ref())
+            .map_err(err_to_js)?,
+    )
 }
 
 #[derive(Serialize, Deserialize)]
@@ -420,13 +430,10 @@ struct AngularTraverseInput {
 #[wasm_bindgen]
 pub fn cogo_reduce_angular_traverse(input: JsValue) -> Result<JsValue, JsValue> {
     let p: AngularTraverseInput = from_js(input)?;
-    to_js(&cogo::reduce_angular_traverse(
-        p.start_azimuth,
-        &p.observations,
-        p.mode,
-        p.closed,
+    to_js(
+        &cogo::reduce_angular_traverse(p.start_azimuth, &p.observations, p.mode, p.closed)
+            .map_err(err_to_js)?,
     )
-    .map_err(err_to_js)?)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -442,7 +449,10 @@ struct LevellingInput {
 #[wasm_bindgen]
 pub fn cogo_reduce_levelling(input: JsValue) -> Result<JsValue, JsValue> {
     let p: LevellingInput = from_js(input)?;
-    to_js(&cogo::reduce_levelling(&p.readings, p.start_rl, p.method, p.known_closing_rl).map_err(err_to_js)?)
+    to_js(
+        &cogo::reduce_levelling(&p.readings, p.start_rl, p.method, p.known_closing_rl)
+            .map_err(err_to_js)?,
+    )
 }
 
 #[derive(Serialize, Deserialize)]
@@ -487,7 +497,10 @@ struct CombinedScaleInput {
 #[wasm_bindgen]
 pub fn cogo_combined_scale_factor(input: JsValue) -> Result<JsValue, JsValue> {
     let p: CombinedScaleInput = from_js(input)?;
-    to_js(&cogo::combined_scale_factor(p.point_scale_factor, p.height_meters, p.earth_radius).map_err(err_to_js)?)
+    to_js(
+        &cogo::combined_scale_factor(p.point_scale_factor, p.height_meters, p.earth_radius)
+            .map_err(err_to_js)?,
+    )
 }
 
 #[derive(Serialize, Deserialize)]
@@ -523,7 +536,10 @@ struct GridVolumeInput {
 #[wasm_bindgen]
 pub fn volume_grid(input: JsValue) -> Result<JsValue, JsValue> {
     let p: GridVolumeInput = from_js(input)?;
-    to_js(&cogo::volume_grid(&p.grid, p.cell_size_x, p.cell_size_y, p.base_level).map_err(err_to_js)?)
+    to_js(
+        &cogo::volume_grid(&p.grid, p.cell_size_x, p.cell_size_y, p.base_level)
+            .map_err(err_to_js)?,
+    )
 }
 
 /// Cross-section volumes from `CrossSection[]`.
@@ -657,7 +673,11 @@ struct AffineDiagnosticsInput {
 #[wasm_bindgen]
 pub fn transform_affine_diagnostics(input: JsValue) -> Result<JsValue, JsValue> {
     let p: AffineDiagnosticsInput = from_js(input)?;
-    to_js(&p.transform.diagnostics(&p.source, &p.target).map_err(err_to_js)?)
+    to_js(
+        &p.transform
+            .diagnostics(&p.source, &p.target)
+            .map_err(err_to_js)?,
+    )
 }
 
 #[derive(Serialize, Deserialize)]
@@ -672,7 +692,10 @@ struct DetectOutliersInput {
 #[wasm_bindgen]
 pub fn transform_detect_outliers(input: JsValue) -> Result<JsValue, JsValue> {
     let p: DetectOutliersInput = from_js(input)?;
-    to_js(&transform::detect_outliers(&p.source, &p.target, p.threshold_multiplier).map_err(err_to_js)?)
+    to_js(
+        &transform::detect_outliers(&p.source, &p.target, p.threshold_multiplier)
+            .map_err(err_to_js)?,
+    )
 }
 
 // ── Geometric intersections (extended COGO) ─────────────────────────────────
@@ -780,14 +803,10 @@ struct CrossSectionInput {
 #[wasm_bindgen]
 pub fn extract_cross_section(input: JsValue) -> Result<JsValue, JsValue> {
     let p: CrossSectionInput = from_js(input)?;
-    to_js(&profile::extract_cross_section(
-        &p.tin,
-        &p.polyline,
-        p.chainage,
-        p.width,
-        p.spacing,
+    to_js(
+        &profile::extract_cross_section(&p.tin, &p.polyline, p.chainage, p.width, p.spacing)
+            .map_err(err_to_js)?,
     )
-    .map_err(err_to_js)?)
 }
 
 // ── CSV import/export ────────────────────────────────────────────────────────

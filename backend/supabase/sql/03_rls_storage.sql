@@ -15,8 +15,6 @@ begin;
 alter table public.profiles enable row level security;
 alter table public.workspaces enable row level security;
 alter table public.workspace_settings enable row level security;
-alter table public.workspace_licenses enable row level security;
-alter table public.license_events enable row level security;
 alter table public.workspace_members enable row level security;
 alter table public.workspace_invitations enable row level security;
 alter table public.organizations enable row level security;
@@ -45,7 +43,6 @@ alter table public.professionals enable row level security;
 alter table public.project_activities enable row level security;
 alter table public.time_entries enable row level security;
 alter table public.expense_entries enable row level security;
-alter table public.promo_code_rules enable row level security;
 alter table public.payment_methods enable row level security;
 alter table public.project_cad_drawings enable row level security;
 alter table public.feature_catalog enable row level security;
@@ -144,74 +141,6 @@ to authenticated
 using (public.can_manage_workspace(workspace_id))
 with check (public.can_manage_workspace(workspace_id));
 
--- ── Workspace licenses ──
-
-drop policy if exists "workspace_licenses_select_member" on public.workspace_licenses;
-create policy "workspace_licenses_select_member"
-on public.workspace_licenses
-for select
-to authenticated
-using (public.is_workspace_member(workspace_id));
-
-drop policy if exists "workspace_licenses_update_manager" on public.workspace_licenses;
-create policy "workspace_licenses_update_manager"
-on public.workspace_licenses
-for update
-to authenticated
-using (public.can_manage_workspace(workspace_id))
-with check (public.can_manage_workspace(workspace_id));
-
-drop policy if exists "workspace_licenses_insert_manager" on public.workspace_licenses;
-create policy "workspace_licenses_insert_manager"
-on public.workspace_licenses
-for insert
-to authenticated
-with check (public.can_manage_workspace(workspace_id));
-
-drop policy if exists "workspace_licenses_select_platform_admin" on public.workspace_licenses;
-create policy "workspace_licenses_select_platform_admin"
-on public.workspace_licenses
-for select
-to authenticated
-using (public.is_platform_admin());
-
-drop policy if exists "workspace_licenses_insert_platform_admin" on public.workspace_licenses;
-create policy "workspace_licenses_insert_platform_admin"
-on public.workspace_licenses
-for insert
-to authenticated
-with check (public.is_platform_admin());
-
-drop policy if exists "workspace_licenses_update_platform_admin" on public.workspace_licenses;
-create policy "workspace_licenses_update_platform_admin"
-on public.workspace_licenses
-for update
-to authenticated
-using (public.is_platform_admin())
-with check (public.is_platform_admin());
-
-drop policy if exists "workspace_licenses_delete_platform_admin" on public.workspace_licenses;
-create policy "workspace_licenses_delete_platform_admin"
-on public.workspace_licenses
-for delete
-to authenticated
-using (public.is_platform_admin());
-
--- ── License events ──
-
-drop policy if exists "license_events_select_member" on public.license_events;
-create policy "license_events_select_member"
-on public.license_events
-for select
-to authenticated
-using (public.is_workspace_member(workspace_id));
-
-drop policy if exists "license_events_select_platform_admin" on public.license_events;
-create policy "license_events_select_platform_admin"
-on public.license_events
-for select
-to authenticated
-using (public.is_platform_admin());
 
 -- ── Workspace members (business workspace only for management) ──
 
@@ -323,7 +252,7 @@ create policy "projects_select_member"
 on public.projects
 for select
 to authenticated
-using (public.is_workspace_member(workspace_id));
+using (public.is_workspace_member(workspace_id) or public.is_platform_admin());
 
 drop policy if exists "projects_manage_ops" on public.projects;
 create policy "projects_manage_ops"
@@ -392,8 +321,11 @@ on public.jobs
 for select
 to authenticated
 using (
-  public.is_business_workspace(workspace_id)
-  and public.is_workspace_member(workspace_id)
+  public.is_platform_admin()
+  or (
+    public.is_business_workspace(workspace_id)
+    and public.is_workspace_member(workspace_id)
+  )
 );
 
 drop policy if exists "jobs_insert_platform_admin" on public.jobs;
@@ -755,7 +687,7 @@ create policy "marketplace_listings_select_member"
 on public.marketplace_listings
 for select
 to authenticated
-using (public.is_workspace_member(workspace_id) or is_global);
+using (public.is_workspace_member(workspace_id) or is_global or public.is_platform_admin());
 
 -- Legacy platform-admin-only policies are superseded by the permission-aware
 -- policies below; drop them so re-runs converge to a single policy per action.
@@ -826,7 +758,7 @@ create policy "professionals_select_member"
 on public.professionals
 for select
 to authenticated
-using (public.is_workspace_member(workspace_id));
+using (public.is_workspace_member(workspace_id) or is_global or public.is_platform_admin());
 
 drop policy if exists "professionals_insert_platform_admin" on public.professionals;
 create policy "professionals_insert_platform_admin"
@@ -1022,14 +954,6 @@ using (
   and user_id = auth.uid()
 );
 
--- ── Promo code rules ──
-
-drop policy if exists "promo_code_rules_select_authenticated" on public.promo_code_rules;
-create policy "promo_code_rules_select_authenticated"
-on public.promo_code_rules
-for select
-to authenticated
-using (active);
 
 -- ── Payment methods ──
 

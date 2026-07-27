@@ -55,16 +55,26 @@ function disableWasmPlugin(): PluginOption {
 }
 
 /**
- * On mobile builds the CAD / 3D viewport is intentionally unavailable (screen
- * size + feature gating). Swap the heavy CadWorkspace module (and its Three.js
- * dependency) for a tiny placeholder so the chunk is not emitted into the mobile
- * bundle. ProjectHubPage itself remains available for project listing/details.
+ * On mobile or CAD-disabled builds the heavy CadWorkspace module (and its
+ * Three.js + WASM dependencies) should not be emitted. Intercept the lazy
+ * import from ProjectHubPage and point it to a lightweight stub instead.
+ *
+ * CAD is enabled by default in development and in the Windows Tauri build.
+ * Web / non-Windows production builds get the stub.
  */
-function mobileCadWorkspacePlugin(): PluginOption {
-  if (process.env.VITE_MOBILE_BUILD !== 'true') return []
-  const stub = path.resolve(__dirname, './src/components/MobileProjectsPlaceholder.tsx')
+function cadWorkspacePlatformPlugin(): PluginOption {
+  const explicitlyEnabled = process.env.VITE_ENABLE_CAD === 'true'
+  const explicitlyDisabled =
+    process.env.VITE_DISABLE_CAD === 'true' ||
+    process.env.VITE_MOBILE_BUILD === 'true'
+  const enabled =
+    explicitlyEnabled ||
+    process.env.NODE_ENV === 'development' ||
+    process.env.TAURI_ENV_PLATFORM === 'windows'
+  if (enabled && !explicitlyDisabled) return []
+  const stub = path.resolve(__dirname, './src/components/CadWorkspaceStub.tsx')
   return {
-    name: 'mobile-cad-workspace',
+    name: 'cad-workspace-platform',
     enforce: 'pre',
     resolveId(id) {
       // Intercept the lazy CadWorkspace import from ProjectHubPage.
@@ -83,7 +93,7 @@ export default defineConfig({
     nodePolyfills(),
     ...wasmPlugins(),
     disableWasmPlugin(),
-    mobileCadWorkspacePlugin(),
+    cadWorkspacePlatformPlugin(),
   ],
   // @solana/web3.js (v1) and its deps reference Node's `global`. Alias it to
   // globalThis so the browser bundle resolves it; `Buffer` is polyfilled in

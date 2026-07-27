@@ -116,6 +116,14 @@ export async function updateInvoice(
   return data;
 }
 
+export async function deleteInvoice(id: string): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("You must be signed in to delete an invoice.");
+
+  const { error } = await supabase.from("invoices").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export async function saveInvoiceItems(
   workspaceId: string,
   invoiceId: string,

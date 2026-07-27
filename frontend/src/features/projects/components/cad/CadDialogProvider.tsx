@@ -1,12 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog.tsx";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { AlertCircle, HelpCircle, MessageSquareText } from "lucide-react";
@@ -112,6 +105,7 @@ export function CadDialogProvider({ children }: { children: React.ReactNode }) {
     <CadDialogContext.Provider value={ctx}>
       {children}
       <CadDialogShell
+        key={current?.id ?? "none"}
         current={current}
         onOpenChange={(open) => {
           if (!open) dismiss();
@@ -143,11 +137,7 @@ function CadDialogShell({
   confirmNo: () => void;
   alertOk: () => void;
 }) {
-  const [draft, setDraft] = useState("");
-
-  useEffect(() => {
-    setDraft(current?.defaultValue ?? "");
-  }, [current]);
+  const [draft, setDraft] = useState(current?.defaultValue ?? "");
 
   const title = current
     ? current.kind === "prompt"
@@ -168,60 +158,27 @@ function CadDialogShell({
     : AlertCircle;
 
   return (
-    <Dialog open={current != null} onOpenChange={onOpenChange}>
-      <DialogContent className={`cad-dialog-content gap-5 rounded-xl border shadow-2xl ${current?.kind === "select" ? "sm:max-w-md" : "sm:max-w-sm"}`}>
-        <DialogHeader className="gap-3">
-          <div className="flex items-center gap-3">
-            <div className="rounded-full bg-primary/10 p-2.5 text-primary">
-              <Icon size={18} className="shrink-0" />
-            </div>
-            <DialogTitle className="text-base font-semibold leading-tight">{title}</DialogTitle>
+    <DialogTemplate
+      open={current != null}
+      onOpenChange={onOpenChange}
+      title={
+        <span className="flex items-center gap-3">
+          <div className="rounded-full bg-primary/10 p-2.5 text-primary">
+            <Icon size={18} className="shrink-0" />
           </div>
-          <DialogDescription className="whitespace-pre-wrap text-sm text-foreground/80">
-            {current?.message}
-          </DialogDescription>
-        </DialogHeader>
-
-        {current?.kind === "prompt" && (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              submitPrompt(draft);
-            }}
-          >
-            <Input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Type here…"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  submitPrompt(null);
-                }
-              }}
-            />
-          </form>
-        )}
-
-        {current?.kind === "select" && (
-          <div className="flex flex-col gap-1.5 max-h-72 overflow-y-auto pr-1">
-            {current.options.map((opt) => (
-              <Button
-                key={opt}
-                variant="outline"
-                size="sm"
-                type="button"
-                onClick={() => submitSelect(opt)}
-                className="justify-start text-left h-auto py-2.5 px-3 hover:border-primary/50 hover:bg-primary/5"
-              >
-                {opt}
-              </Button>
-            ))}
-          </div>
-        )}
-
-        <DialogFooter className="gap-2 sm:gap-2">
+          <span className="text-base font-semibold leading-tight">{title}</span>
+        </span>
+      }
+      description={
+        <span className="whitespace-pre-wrap text-sm text-foreground/80">
+          {current?.message}
+        </span>
+      }
+      size={current?.kind === "select" ? "md" : "sm"}
+      className="cad-dialog-content rounded-xl border shadow-2xl"
+      responsiveFooter={false}
+      footer={
+        <>
           {current?.kind === "prompt" && (
             <>
               <Button variant="outline" size="sm" type="button" onClick={() => submitPrompt(null)}>
@@ -252,8 +209,47 @@ function CadDialogShell({
               Cancel
             </Button>
           )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </>
+      }
+    >
+      {current?.kind === "prompt" && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitPrompt(draft);
+          }}
+        >
+          <Input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Type here…"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                submitPrompt(null);
+              }
+            }}
+          />
+        </form>
+      )}
+
+      {current?.kind === "select" && (
+        <div className="flex flex-col gap-1.5 max-h-72 overflow-y-auto pr-1">
+          {current.options.map((opt) => (
+            <Button
+              key={opt}
+              variant="outline"
+              size="sm"
+              type="button"
+              onClick={() => submitSelect(opt)}
+              className="justify-start text-left h-auto py-2.5 px-3 hover:border-primary/50 hover:bg-primary/5"
+            >
+              {opt}
+            </Button>
+          ))}
+        </div>
+      )}
+    </DialogTemplate>
   );
 }

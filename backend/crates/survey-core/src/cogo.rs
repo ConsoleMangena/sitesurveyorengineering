@@ -264,10 +264,7 @@ pub fn compute_traverse(
     closing_point: Option<&Ne>,
 ) -> crate::Result<TraverseResult> {
     if legs.is_empty() {
-        return Err(SurveyError::InsufficientPoints {
-            got: 0,
-            need: 1,
-        });
+        return Err(SurveyError::InsufficientPoints { got: 0, need: 1 });
     }
     let mut computed = vec![*start];
     let mut perimeter = 0.0;
@@ -368,10 +365,7 @@ pub fn reduce_angular_traverse(
     closed: bool,
 ) -> crate::Result<AngularTraverseResult> {
     if observations.is_empty() {
-        return Err(SurveyError::InsufficientPoints {
-            got: 0,
-            need: 1,
-        });
+        return Err(SurveyError::InsufficientPoints { got: 0, need: 1 });
     }
     let n = observations.len();
     let angle_sum: f64 = observations.iter().map(|o| o.angle).sum();
@@ -489,10 +483,7 @@ pub fn reduce_levelling(
     known_closing_rl: Option<f64>,
 ) -> crate::Result<LevellingResult> {
     if readings.is_empty() {
-        return Err(SurveyError::InsufficientPoints {
-            got: 0,
-            need: 1,
-        });
+        return Err(SurveyError::InsufficientPoints { got: 0, need: 1 });
     }
     if !matches!(readings[0].kind, StaffKind::Bs) {
         return Err(SurveyError::InvalidParameter {
@@ -630,7 +621,14 @@ fn triangle_angle_at(at: &Ne, p1: &Ne, p2: &Ne) -> crate::Result<f64> {
 }
 
 /// Tienstra three-point resection.
-pub fn resection_tienstra(a: &Ne, b: &Ne, c: &Ne, alpha: f64, beta: f64, gamma: f64) -> crate::Result<Ne> {
+pub fn resection_tienstra(
+    a: &Ne,
+    b: &Ne,
+    c: &Ne,
+    alpha: f64,
+    beta: f64,
+    gamma: f64,
+) -> crate::Result<Ne> {
     let ang_a = triangle_angle_at(a, b, c)?;
     let ang_b = triangle_angle_at(b, c, a)?;
     let ang_c = triangle_angle_at(c, a, b)?;
@@ -719,7 +717,12 @@ pub struct GridVolumeResult {
     pub cells: usize,
 }
 
-pub fn volume_grid(grid: &[Vec<f64>], cell_size_x: f64, cell_size_y: f64, base_level: f64) -> crate::Result<GridVolumeResult> {
+pub fn volume_grid(
+    grid: &[Vec<f64>],
+    cell_size_x: f64,
+    cell_size_y: f64,
+    base_level: f64,
+) -> crate::Result<GridVolumeResult> {
     finite_or("cell_size_x", cell_size_x)?;
     finite_or("cell_size_y", cell_size_y)?;
     if grid.len() < 2 {
@@ -751,7 +754,12 @@ pub fn volume_grid(grid: &[Vec<f64>], cell_size_x: f64, cell_size_y: f64, base_l
             cells += 1;
         }
     }
-    Ok(GridVolumeResult { cut, fill, net: cut - fill, cells })
+    Ok(GridVolumeResult {
+        cut,
+        fill,
+        net: cut - fill,
+        cells,
+    })
 }
 
 /// A cross-section at a known chainage, used for road/rail/drain earthworks.
@@ -881,10 +889,22 @@ mod tests {
     fn closed_loop_traverse_adjusts_to_start() {
         let start = Ne::new(0.0, 0.0);
         let legs = vec![
-            TraverseLeg { azimuth: 0.0, distance: 10.0 },
-            TraverseLeg { azimuth: 90.0, distance: 10.0 },
-            TraverseLeg { azimuth: 180.0, distance: 10.0 },
-            TraverseLeg { azimuth: 270.0, distance: 9.9 }, // deliberate small misclosure
+            TraverseLeg {
+                azimuth: 0.0,
+                distance: 10.0,
+            },
+            TraverseLeg {
+                azimuth: 90.0,
+                distance: 10.0,
+            },
+            TraverseLeg {
+                azimuth: 180.0,
+                distance: 10.0,
+            },
+            TraverseLeg {
+                azimuth: 270.0,
+                distance: 9.9,
+            }, // deliberate small misclosure
         ];
         let res = compute_traverse(&start, &legs, TraverseType::ClosedLoop, None).unwrap();
         assert!(res.has_closure);
@@ -898,10 +918,26 @@ mod tests {
     #[test]
     fn reduce_levelling_check_ok() {
         let readings = vec![
-            LevellingReading { label: "BM".into(), kind: StaffKind::Bs, reading: 1.5 },
-            LevellingReading { label: "TP1".into(), kind: StaffKind::Fs, reading: 0.5 },
-            LevellingReading { label: "TP1".into(), kind: StaffKind::Bs, reading: 1.2 },
-            LevellingReading { label: "A".into(), kind: StaffKind::Fs, reading: 0.8 },
+            LevellingReading {
+                label: "BM".into(),
+                kind: StaffKind::Bs,
+                reading: 1.5,
+            },
+            LevellingReading {
+                label: "TP1".into(),
+                kind: StaffKind::Fs,
+                reading: 0.5,
+            },
+            LevellingReading {
+                label: "TP1".into(),
+                kind: StaffKind::Bs,
+                reading: 1.2,
+            },
+            LevellingReading {
+                label: "A".into(),
+                kind: StaffKind::Fs,
+                reading: 0.8,
+            },
         ];
         let res = reduce_levelling(&readings, 100.0, LevellingMethod::RiseFall, None).unwrap();
         assert!(res.check_ok);
@@ -924,8 +960,14 @@ mod tests {
     #[test]
     fn end_area_volume_of_uniform_prism() {
         let sections = vec![
-            CrossSection { chainage: 0.0, area: 20.0 },
-            CrossSection { chainage: 10.0, area: 20.0 },
+            CrossSection {
+                chainage: 0.0,
+                area: 20.0,
+            },
+            CrossSection {
+                chainage: 10.0,
+                area: 20.0,
+            },
         ];
         assert!((volume_end_area(&sections) - 200.0).abs() < 1e-9);
     }
@@ -935,9 +977,18 @@ mod tests {
         // Three equally-spaced sections forming a prismoid: Simpson's 1/3 rule
         // over A0=0, A1=4, A2=0 with h=3 -> V = (3/3)*(0 + 0 + 4*4) = 16.
         let sections = vec![
-            CrossSection { chainage: 0.0, area: 0.0 },
-            CrossSection { chainage: 3.0, area: 4.0 },
-            CrossSection { chainage: 6.0, area: 0.0 },
+            CrossSection {
+                chainage: 0.0,
+                area: 0.0,
+            },
+            CrossSection {
+                chainage: 3.0,
+                area: 4.0,
+            },
+            CrossSection {
+                chainage: 6.0,
+                area: 0.0,
+            },
         ];
         assert!((volume_prismoidal(&sections).unwrap() - 16.0).abs() < 1e-9);
     }
@@ -945,10 +996,22 @@ mod tests {
     #[test]
     fn prismoidal_rejects_even_count() {
         let sections = vec![
-            CrossSection { chainage: 0.0, area: 0.0 },
-            CrossSection { chainage: 3.0, area: 4.0 },
-            CrossSection { chainage: 6.0, area: 0.0 },
-            CrossSection { chainage: 9.0, area: 2.0 },
+            CrossSection {
+                chainage: 0.0,
+                area: 0.0,
+            },
+            CrossSection {
+                chainage: 3.0,
+                area: 4.0,
+            },
+            CrossSection {
+                chainage: 6.0,
+                area: 0.0,
+            },
+            CrossSection {
+                chainage: 9.0,
+                area: 2.0,
+            },
         ];
         assert!(volume_prismoidal(&sections).is_none());
     }

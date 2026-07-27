@@ -14,28 +14,39 @@ begin;
 -- ── Seed: feature catalog (CAD Engine is the first feature) ──
 
 insert into public.feature_catalog (key, name, description, category, price, currency, billing_period)
-values (
-  'cad_engine',
-  'SurveyorAI CAD',
-  'AI-powered CAD engine for engineering surveying: a full-screen drafting workspace with points, linework, surfaces (TIN), layers, COGO and DXF export, plus AI-assisted drafting. Unlocks all CAD-backed project tools.',
-  'Drafting & Computation',
-  20,
-  'USD',
-  'monthly'
-)
+values
+  (
+    'cad_engine',
+    'SurveyorAI CAD',
+    'AI-powered CAD engine for engineering surveying: a full-screen drafting workspace with points, linework, surfaces (TIN), layers, COGO and DXF export, plus AI-assisted drafting. Unlocks all CAD-backed project tools.',
+    'Drafting & Computation',
+    20,
+    'USD',
+    'monthly'
+  ),
+  (
+    'cogo_professional',
+    'COGO Professional Pack',
+    'Professional survey computations: traverse adjustment, intersection, resection, area & volume, and stake-out / set-out.',
+    'COGO & Computation',
+    10,
+    'USD',
+    'monthly'
+  ),
+  (
+    'cogo_advanced',
+    'COGO Advanced Pack',
+    'Advanced road design computations: horizontal curve and vertical curve set-out.',
+    'COGO & Computation',
+    10,
+    'USD',
+    'monthly'
+  )
 on conflict (key) do nothing;
 
 -- Listing assets/instruments for hire in the Marketplace is free for every
 -- workspace, so no 'marketplace_hire' feature/permission is seeded. Any
 -- workspace admin can publish, edit and remove their own hire listings.
-
--- ── Seed: promo code rules ──
-
-insert into public.promo_code_rules (code, trial_days, signup_tier, signup_license_status, seat_bonus, project_cap_boost, asset_cap_boost, active)
-values
-  ('EARLYBIRD', 21, 'pro', 'trialing', 5, 10, 25, true),
-  ('FIELDCREW', 14, 'pro', 'trialing', 2, 5, 15, true)
-on conflict (code) do nothing;
 
 -- ── Backfill: create profiles for auth users missing one ──
 
@@ -136,13 +147,6 @@ ins_workspace_settings as (
   from inserted_workspaces iw
   on conflict (workspace_id) do nothing
   returning workspace_id
-),
-ins_workspace_licenses as (
-  insert into public.workspace_licenses (workspace_id)
-  select iw.id
-  from inserted_workspaces iw
-  on conflict (workspace_id) do nothing
-  returning workspace_id
 )
 select 1;
 
@@ -202,14 +206,5 @@ set
 from first_workspace_per_user fw
 where p.id = fw.user_id
   and p.default_workspace_id is null;
-
--- ── Backfill: snap entitlement caps to tier defaults ──
-
-update public.workspace_licenses wl
-set
-  seat_limit = coalesce(wl.seat_limit, case when wl.tier = 'free' then 1 when wl.tier = 'pro' then 25 else null end),
-  project_cap = coalesce(wl.project_cap, case when wl.tier = 'free' then 12 when wl.tier = 'pro' then 80 else null end),
-  asset_cap = coalesce(wl.asset_cap, case when wl.tier = 'free' then 60 when wl.tier = 'pro' then 400 else null end),
-  storage_cap_bytes = coalesce(wl.storage_cap_bytes, case when wl.tier = 'free' then 536870912 when wl.tier = 'pro' then 5368709120 else null end);
 
 commit;

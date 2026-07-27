@@ -834,3 +834,197 @@
 .auth-shake {
   animation: auth-shake 0.35s var(--ease-standard) both;
 }
+
+/* ── Animated auth background layer ──────────────────────────────────────── */
+.auth-background {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 20%, color-mix(in oklab, var(--accent) 14%, transparent), transparent 36rem),
+    radial-gradient(circle at 80% 80%, color-mix(in oklab, var(--accent-purple) 14%, transparent), transparent 34rem),
+    linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--surface-muted) 88%, white) 0%,
+      color-mix(in oklab, var(--surface-muted) 70%, var(--accent-bg)) 50%,
+      color-mix(in oklab, var(--surface-muted) 75%, var(--accent-bg)) 100%
+    );
+  background-size: 400% 400%;
+  animation: auth-bg-drift 22s ease-in-out infinite;
+}
+
+.auth-background::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(color-mix(in oklab, var(--accent) 3%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in oklab, var(--accent) 3%, transparent) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.8;
+  animation: auth-grid-pulse 10s ease-in-out infinite;
+}
+
+.auth-bg-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, transparent 0%, color-mix(in oklab, var(--surface-muted) 35%, transparent) 100%);
+}
+
+.auth-bg-grid {
+  position: absolute;
+  inset: 0;
+  color: var(--accent);
+  opacity: 0.45;
+  animation: auth-grid-drift 60s linear infinite;
+  mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
+}
+
+.auth-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.55;
+}
+
+.auth-blob-1 {
+  width: 42rem;
+  height: 42rem;
+  top: -14rem;
+  left: -14rem;
+  background: radial-gradient(circle, color-mix(in oklab, var(--accent) 35%, transparent) 0%, transparent 70%);
+  animation: auth-blob-move-1 24s ease-in-out infinite alternate;
+}
+
+.auth-blob-2 {
+  width: 38rem;
+  height: 38rem;
+  bottom: -12rem;
+  right: -12rem;
+  background: radial-gradient(circle, color-mix(in oklab, var(--accent-purple) 32%, transparent) 0%, transparent 70%);
+  animation: auth-blob-move-2 28s ease-in-out infinite alternate;
+}
+
+.auth-blob-3 {
+  width: 26rem;
+  height: 26rem;
+  top: 40%;
+  left: 55%;
+  background: radial-gradient(circle, color-mix(in oklab, var(--accent) 22%, transparent) 0%, transparent 70%);
+  animation: auth-blob-move-3 32s ease-in-out infinite alternate;
+}
+
+@keyframes auth-blob-move-1 {
+  0% { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(10%, 8%) scale(1.08); }
+}
+
+@keyframes auth-blob-move-2 {
+  0% { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(-8%, -10%) scale(1.12); }
+}
+
+@keyframes auth-blob-move-3 {
+  0% { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(6%, -6%) scale(1.15); }
+}
+
+@keyframes auth-grid-drift {
+  0% { transform: translate(0, 0); }
+  100% { transform: translate(-40px, -40px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-background,
+  .auth-background::before,
+  .auth-blob,
+  .auth-bg-grid {
+    animation: none !important;
+  }
+}
+
+/* ── Glass-like auth card ──────────────────────────────────────────────── */
+.auth-card-glass {
+  position: relative;
+  z-index: 1;
+  background: color-mix(in oklab, var(--surface) 92%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  box-shadow:
+    0 8px 32px color-mix(in oklab, var(--accent) 8%, transparent),
+    0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="dark"] .auth-card-glass {
+  background: color-mix(in oklab, var(--surface) 88%, transparent);
+  border-color: color-mix(in oklab, var(--border) 55%, transparent);
+  box-shadow:
+    0 14px 40px rgba(0, 0, 0, 0.45),
+    0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/* ── Polished auth inputs ─────────────────────────────────────────────── */
+.auth-input {
+  min-height: 42px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--surface) 96%, transparent);
+  font-size: 14px;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease,
+    transform 0.12s ease;
+}
+
+.auth-input:hover {
+  border-color: color-mix(in oklab, var(--accent) 50%, var(--border));
+}
+
+.auth-input:focus,
+.auth-input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+  background: var(--surface);
+}
+
+[data-theme="dark"] .auth-input {
+  background: color-mix(in oklab, var(--surface) 90%, transparent);
+}
+
+.password-wrapper .auth-input {
+  padding-right: 44px;
+}
+
+/* ── Polished submit button ───────────────────────────────────────────── */
+.auth-submit {
+  min-height: 44px;
+  border-radius: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  transition:
+    transform 0.12s var(--ease-standard),
+    box-shadow 0.18s var(--ease-standard),
+    background 0.18s var(--ease-standard),
+    opacity 0.18s var(--ease-standard);
+}
+
+.auth-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px color-mix(in oklab, var(--accent) 22%, transparent);
+}
+
+.auth-submit:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.auth-submit:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}

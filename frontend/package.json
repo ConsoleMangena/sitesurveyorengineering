@@ -10,7 +10,10 @@
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "preview": "vite preview",
-    "tauri": "npm --prefix ../backend run tauri",
+    "tauri:dev": "npm --prefix ../backend run tauri:dev",
+    "tauri:dev:win": "npm --prefix ../backend run tauri:dev:win",
+    "tauri:build": "npm --prefix ../backend run tauri:build",
+    "tauri:build:win": "npm --prefix ../backend run tauri:build:win",
     "build:wasm": "bash ../backend/crates/build-wasm.sh"
   },
   "dependencies": {

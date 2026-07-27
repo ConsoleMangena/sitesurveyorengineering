@@ -1,5 +1,8 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-mod license;
+use tauri::Manager;
+
+#[cfg(feature = "gdal")]
+mod gdal_setup;
 mod solana_rpc;
 mod survey;
 
@@ -11,8 +14,14 @@ fn greet(name: &str) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            let resource_dir = app.path().resource_dir().ok();
+            #[cfg(feature = "gdal")]
+            gdal_setup::initialize(resource_dir.as_deref());
+            let _ = resource_dir;
+            Ok(())
+        })
         .plugin(tauri_plugin_opener::init())
-        .manage(license::LicenseManager::new())
         .invoke_handler(tauri::generate_handler![
             greet,
             survey::build_tin,
@@ -39,21 +48,14 @@ pub fn run() {
             survey::proj_available,
             survey::reproject,
             survey::gdal_available,
+            survey::parse_cad_file_gdal,
             survey::raster_bounds,
             survey::shapefile_available,
             survey::read_shapefile_points,
             survey::las_available,
             survey::read_las_points,
-            license::license_fingerprint,
-            license::license_status,
-            license::license_activate,
-            license::license_refresh,
-            license::license_deactivate,
-            license::license_is_valid,
-            license::license_selfcheck,
             solana_rpc::solana_rpc_request,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-

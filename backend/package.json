@@ -4,6 +4,15 @@
   "scripts": {
     "build": "npm --prefix ../frontend run build",
     "dev": "npm --prefix ../frontend run dev",
-    "tauri": "npm --prefix ../frontend exec --no -- tauri"
+    "tauri:dev": "node ../scripts/dev-windows.mjs",
+    "tauri:dev:win": "node ../scripts/dev-windows.mjs",
+    "tauri:build": "npm run bundle:gdal && node ../frontend/node_modules/@tauri-apps/cli/tauri.js build --features gdal",
+    "tauri:build:win": "npm run bundle:gdal && node ../frontend/node_modules/@tauri-apps/cli/tauri.js build --features gdal",
+    "cargo:build:gdal": "cargo build --features gdal",
+    "cargo:check:gdal": "cargo check --features gdal",
+    "download:gdal": "node ../scripts/download-gdal.mjs",
+    "bundle:gdal": "node ../scripts/download-gdal.mjs --if-missing && node ../scripts/bundle-gdal.mjs",
+    "setup:gdal": "node ../scripts/download-gdal.mjs --if-missing && node ../scripts/bundle-gdal.mjs",
+    "clean:gdal": "node ../scripts/clean-gdal.mjs"
   }
 }

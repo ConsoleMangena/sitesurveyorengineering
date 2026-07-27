@@ -181,7 +181,7 @@ export default function SolanaWalletCard({
             disabled={connecting}
             aria-busy={connecting}
           >
-            {connecting ? "Connecting…" : "Connect Solana Wallet"}
+            {connecting ? "Connecting…" : "Connect Wallet"}
           </button>
         ) : (
           <div className="wallet-install-links">

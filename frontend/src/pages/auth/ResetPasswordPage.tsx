@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PasswordField from "../../components/PasswordField";
+import AuthBackground from "../../components/AuthBackground";
 import { getCurrentSession, updatePassword } from "../../lib/auth/session.ts";
 import { useAuthStore } from "../../lib/auth/auth-store";
 import { Button } from "../../components/ui/button.tsx";
@@ -76,7 +77,7 @@ export default function ResetPasswordPage() {
   };
 
   const renderChecking = () => (
-    <Card className="mx-auto w-full max-w-[380px]">
+    <Card className="mx-auto w-full max-w-[380px] auth-card-glass">
       <CardContent className="py-8 text-center text-muted-foreground">
         Checking reset session...
       </CardContent>
@@ -84,7 +85,7 @@ export default function ResetPasswordPage() {
   );
 
   const renderInvalid = () => (
-    <Card className="mx-auto w-full max-w-[380px] auth-animate-card">
+    <Card className="mx-auto w-full max-w-[380px] auth-animate-card auth-card-glass">
       <CardHeader className="text-center auth-animate-header">
         <img
           src="/logo.svg"
@@ -106,12 +107,13 @@ export default function ResetPasswordPage() {
 
   return (
     <div className="auth-screen px-4 py-8">
+      <AuthBackground />
       {checkingSession
         ? renderChecking()
         : !isRecoveryValid
           ? renderInvalid()
           : (
-            <Card className="mx-auto w-full max-w-[380px] auth-animate-card">
+            <Card className="mx-auto w-full max-w-[380px] auth-animate-card auth-card-glass">
               <CardHeader className="text-center auth-animate-header">
                 <img
                   src="/logo.svg"
@@ -127,6 +129,7 @@ export default function ResetPasswordPage() {
                 <form className="space-y-4 auth-animate-stagger" onSubmit={handleSubmit}>
                   <PasswordField
                     id="reset-password"
+                    className="auth-input"
                     label="New Password"
                     value={password}
                     onChange={setPassword}
@@ -138,6 +141,7 @@ export default function ResetPasswordPage() {
 
                   <PasswordField
                     id="reset-confirm-password"
+                    className="auth-input"
                     label="Confirm New Password"
                     value={confirmPassword}
                     onChange={setConfirmPassword}
@@ -157,7 +161,7 @@ export default function ResetPasswordPage() {
                     </Alert>
                   )}
 
-                  <Button type="submit" className="w-full" disabled={isSubmitting}>
+                  <Button type="submit" className="w-full auth-submit" disabled={isSubmitting}>
                     {isSubmitting ? "Updating..." : "Update Password"}
                   </Button>
                 </form>

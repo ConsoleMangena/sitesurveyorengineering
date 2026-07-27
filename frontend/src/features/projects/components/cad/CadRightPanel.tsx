@@ -11,8 +11,9 @@ import { CadCogoPanel } from "./CadCogoPanel.tsx";
 import { useCadDialog } from "./cadDialogContext.ts";
 import { axisBadgeLabels, type AxisConvention } from "./cadSettings.ts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.tsx";
+import { CadPanelTemplate } from "@/components/templates/CadPanelTemplate.tsx";
 import {
-  Lock, LockOpen, ChevronRight, Layers, ListTree, MapPinned, Calculator,
+  Lock, LockOpen, Layers, ListTree, MapPinned, Calculator,
   Plus, Trash2, Check, X, Pencil,
 } from "lucide-react";
 
@@ -69,38 +70,14 @@ export function CadRightPanel({
   const [tab, setTab] = useState<PanelTab>("layers");
   const [collapsed, setCollapsed] = useState(false);
 
-  if (collapsed) {
-    return (
-      <div className="cad-right-panel collapsed">
-        <button
-          className="cad-panel-collapse"
-          onClick={() => setCollapsed(false)}
-          title="Expand panel"
-          type="button"
-          style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)" }}
-        >
-          <ChevronRight size={12} />
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div className="cad-right-panel">
-      <div className="cad-panel-header cad-right-panel-header">
-        <div>
-          <div className="cad-panel-eyebrow">Inspector</div>
-          <div className="cad-panel-title">{TAB_LABELS[tab]}</div>
-        </div>
-        <button
-          className="cad-panel-collapse"
-          onClick={() => setCollapsed(true)}
-          title="Collapse panel"
-          type="button"
-        >
-          <ChevronRight size={14} style={{ transform: "rotate(180deg)" }} />
-        </button>
-      </div>
+    <CadPanelTemplate
+      open={!collapsed}
+      onOpenChange={(open) => setCollapsed(!open)}
+      side="right"
+      eyebrow="Inspector"
+      title={TAB_LABELS[tab]}
+    >
       <Tabs value={tab} onValueChange={(v) => setTab(v as PanelTab)} className="flex flex-col flex-1 min-h-0">
         <TabsList className="grid w-full grid-cols-4 h-9 bg-transparent p-1">
           {(["layers", "props", "points", "cogo"] as PanelTab[]).map((t) => {
@@ -119,20 +96,20 @@ export function CadRightPanel({
           })}
         </TabsList>
 
-        <TabsContent value="layers" className="flex-1 min-h-0 m-0 data-[state=inactive]:hidden">
+        <TabsContent value="layers" className="flex-1 min-h-0 m-0 overflow-hidden flex flex-col data-[state=inactive]:hidden">
           <LayersTab cad={cad} model={model} />
         </TabsContent>
-        <TabsContent value="props" className="flex-1 min-h-0 m-0 data-[state=inactive]:hidden">
+        <TabsContent value="props" className="flex-1 min-h-0 m-0 overflow-hidden flex flex-col data-[state=inactive]:hidden">
           <PropsTab cad={cad} model={model} selection={selection} bearingFormat={bearingFormat} axisConvention={axisConvention} />
         </TabsContent>
-        <TabsContent value="points" className="flex-1 min-h-0 m-0 data-[state=inactive]:hidden">
+        <TabsContent value="points" className="flex-1 min-h-0 m-0 overflow-hidden flex flex-col data-[state=inactive]:hidden">
           <PointsTab cad={cad} model={model} />
         </TabsContent>
-        <TabsContent value="cogo" className="flex-1 min-h-0 m-0 data-[state=inactive]:hidden">
+        <TabsContent value="cogo" className="flex-1 min-h-0 m-0 overflow-hidden flex flex-col data-[state=inactive]:hidden">
           <CadCogoPanel cad={cad} model={model} selection={selection} bearingFormat={bearingFormat} axisConvention={axisConvention} angleEntry={angleEntry} log={log} />
         </TabsContent>
       </Tabs>
-    </div>
+    </CadPanelTemplate>
   );
 }
 
@@ -221,7 +198,7 @@ function LayersTab({ cad, model }: { cad: UseCadModel; model: CadModelState }) {
           }}
           title="Create a new layer and rename it"
         >
-          <Plus size={12} /> New layer
+          <Plus size={12} /> New
         </button>
       </div>
 
@@ -383,6 +360,11 @@ function PropsTab({
               else if (it.type === "linework") cad.deleteLinework(it.id);
               else if (it.type === "text") cad.deleteText(it.id);
               else if (it.type === "surface") cad.deleteSurface(it.id);
+              else if (it.type === "arc") cad.deleteArc(it.id);
+              else if (it.type === "circle") cad.deleteCircle(it.id);
+              else if (it.type === "ellipse") cad.deleteEllipse(it.id);
+              else if (it.type === "dimension") cad.deleteDimension(it.id);
+              else if (it.type === "hatch") cad.deleteHatch(it.id);
             }
           }}
         >
@@ -479,6 +461,94 @@ function PropsTab({
     );
   }
 
+  if (selection.type === "circle" && selection.id) {
+    const c = model.circles.find((x) => x.id === selection.id);
+    if (!c) return <EmptyProps />;
+    return (
+      <div className="cad-panel-block">
+        <div className="cad-panel-title" style={{ padding: 0 }}>Circle</div>
+        <div className="cad-prop-list">
+          <div><span>Radius</span><strong>{fmtDistance(c.radius)}</strong></div>
+          <div><span>Center {axLabels.first}</span><strong>{c.center.e.toFixed(3)}</strong></div>
+          <div><span>Center {axLabels.second}</span><strong>{c.center.n.toFixed(3)}</strong></div>
+        </div>
+        <ColorRow value={c.color ?? null} onChange={(color) => cad.updateCircle(c.id, { color })} />
+        <button className="cad-chip-btn" type="button" onClick={() => cad.deleteCircle(c.id)}>Delete circle</button>
+      </div>
+    );
+  }
+
+  if (selection.type === "ellipse" && selection.id) {
+    const el = model.ellipses.find((x) => x.id === selection.id);
+    if (!el) return <EmptyProps />;
+    return (
+      <div className="cad-panel-block">
+        <div className="cad-panel-title" style={{ padding: 0 }}>Ellipse</div>
+        <div className="cad-prop-list">
+          <div><span>Semi-major</span><strong>{fmtDistance(el.semiMajor)}</strong></div>
+          <div><span>Semi-minor</span><strong>{fmtDistance(el.semiMinor)}</strong></div>
+          <div><span>Rotation</span><strong>{el.rotation.toFixed(2)}°</strong></div>
+        </div>
+        <ColorRow value={el.color ?? null} onChange={(color) => cad.updateEllipse(el.id, { color })} />
+        <button className="cad-chip-btn" type="button" onClick={() => cad.deleteEllipse(el.id)}>Delete ellipse</button>
+      </div>
+    );
+  }
+
+  if (selection.type === "arc" && selection.id) {
+    const a = model.arcs.find((x) => x.id === selection.id);
+    if (!a) return <EmptyProps />;
+    return (
+      <div className="cad-panel-block">
+        <div className="cad-panel-title" style={{ padding: 0 }}>Arc</div>
+        <div className="cad-prop-list">
+          <div><span>Radius</span><strong>{fmtDistance(a.radius)}</strong></div>
+          <div><span>Start angle</span><strong>{a.startAngle.toFixed(2)}°</strong></div>
+          <div><span>End angle</span><strong>{a.endAngle.toFixed(2)}°</strong></div>
+        </div>
+        <ColorRow value={a.color ?? null} onChange={(color) => cad.updateArc(a.id, { color })} />
+        <button className="cad-chip-btn" type="button" onClick={() => cad.deleteArc(a.id)}>Delete arc</button>
+      </div>
+    );
+  }
+
+  if (selection.type === "dimension" && selection.id) {
+    const d = model.dimensions.find((x) => x.id === selection.id);
+    if (!d) return <EmptyProps />;
+    return (
+      <div className="cad-panel-block">
+        <div className="cad-panel-title" style={{ padding: 0 }}>Dimension</div>
+        <EditableRow key={`${d.id}-text`} label="Text" value={d.text}
+          onChange={(v) => cad.updateDimension(d.id, { text: v })} />
+        <div className="cad-prop-list">
+          <div><span>Type</span><strong>{d.kind}</strong></div>
+          <div><span>Def points</span><strong>{d.defPoints.length}</strong></div>
+        </div>
+        <ColorRow value={d.color ?? null} onChange={(color) => cad.updateDimension(d.id, { color })} />
+        <button className="cad-chip-btn" type="button" onClick={() => cad.deleteDimension(d.id)}>Delete dimension</button>
+      </div>
+    );
+  }
+
+  if (selection.type === "hatch" && selection.id) {
+    const h = model.hatches.find((x) => x.id === selection.id);
+    if (!h) return <EmptyProps />;
+    const area = polygonArea(h.vertices);
+    return (
+      <div className="cad-panel-block">
+        <div className="cad-panel-title" style={{ padding: 0 }}>Hatch</div>
+        <div className="cad-prop-list">
+          <div><span>Vertices</span><strong>{h.vertices.length}</strong></div>
+          <div><span>Holes</span><strong>{h.holes?.length ?? 0}</strong></div>
+          <div><span>Pattern</span><strong>{h.pattern ?? "SOLID"}</strong></div>
+          {area > 0 && <div><span>Area</span><strong>{fmtArea(area)}</strong></div>}
+        </div>
+        <ColorRow value={h.color ?? null} onChange={(color) => cad.updateHatch(h.id, { color })} />
+        <button className="cad-chip-btn" type="button" onClick={() => cad.deleteHatch(h.id)}>Delete hatch</button>
+      </div>
+    );
+  }
+
   return <EmptyProps />;
 }
 
@@ -532,7 +602,7 @@ function PointsTab({ cad, model }: { cad: UseCadModel; model: CadModelState }) {
               </tr>
             ))}
             {model.points.length === 0 && (
-              <tr><td colSpan={5} className="cad-point-table-empty">No points yet. Use the Point tool or Import CSV.</td></tr>
+              <tr><td colSpan={5} className="cad-point-table-empty">No points yet. Use the Point tool or import from Project Points.</td></tr>
             )}
           </tbody>
         </table>

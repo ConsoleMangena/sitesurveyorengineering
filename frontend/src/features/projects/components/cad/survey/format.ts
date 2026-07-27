@@ -2,8 +2,8 @@
  * Survey value formatting: coordinates and directions.
  *
  * Surveyors read directions in different conventions; we support:
- * - Azimuth (decimal degrees, clockwise from North)
- * - Quadrant bearing (e.g. N45°30'20"E)
+ * - WCB / forward bearing (decimal degrees, clockwise from North)
+ * - Reduced bearing (e.g. N45°30'20"E)
  * - Gons / Grads (400 in a circle)
  */
 import { normalizeAzimuth } from "./cogo.ts";
@@ -76,7 +76,7 @@ export function fmtBearing(azimuthDeg: number, format: BearingFormat = "azimuth"
     const gon = (az / 360) * 400;
     return `${gon.toFixed(4)} gon`;
   }
-  // Quadrant bearing.
+  // Reduced (quadrant) bearing.
   let prefix: string;
   let suffix: string;
   let angle: number;

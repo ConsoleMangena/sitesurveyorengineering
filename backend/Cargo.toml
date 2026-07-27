@@ -39,7 +39,7 @@ proj = { version = "0.27", optional = true }
 # GDAL C library and CANNOT compile to WASM — desktop crate only, feature-gated.
 # Reads/writes GeoTIFF, DEM, and most GIS/CAD vector & raster formats. Pin the
 # crate version to the GDAL installed on the build host.
-gdal = { version = "0.17", optional = true }
+gdal = { version = "0.19", optional = true }
 
 # Native ESRI Shapefile read/write. Pure Rust, but kept in the desktop crate by
 # convention since it's a file-format importer used by the native shell only.
@@ -47,20 +47,6 @@ shapefile = { version = "0.6", optional = true }
 
 # Native LiDAR point-cloud reader for .las/.laz survey data.
 las = { version = "0.8", features = ["laz"], optional = true }
-
-# ─── Licensing ───────────────────────────────────────────────────
-# Ed25519 signature verification of license tokens (offline, asymmetric).
-ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
-# Base64 (URL-safe) decoding of the token segments.
-base64 = "0.22"
-# SHA-256 for the machine fingerprint + tamper-evident local cache.
-sha2 = "0.10"
-
-# Stable per-machine identifier used for seat binding. Only available on
-# desktop targets; `machine-uid` 0.5 does not compile for Android/iOS, so we
-# scope it to the desktop platforms and use a fallback fingerprint on mobile.
-[target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
-machine-uid = "0.5"
 
 [features]
 default = []
@@ -70,6 +56,11 @@ proj = ["dep:proj"]
 # Enable GDAL-backed raster/vector I/O. Requires GDAL >= 3 on the build host
 # (e.g. `apt install libgdal-dev` / `brew install gdal`).
 gdal = ["dep:gdal"]
+# Same as `gdal`, but generate bindings at build time via bindgen instead of
+# using gdal-sys's bundled prebuilt bindings. Required when the system GDAL is
+# newer than the bundled bindings (e.g. Ubuntu/WSL ships GDAL 3.12). Needs
+# libclang-dev / LLVM installed on the build host.
+gdal-bindgen = ["gdal", "gdal?/bindgen"]
 # Enable ESRI Shapefile import/export.
 shapefile = ["dep:shapefile"]
 # Enable LiDAR .las/.laz point-cloud import.

@@ -1,49 +1,48 @@
 /* ════════════════════════════════════════════
    Admin-template theme tokens scoped to the CAD workspace.
    These override the app’s default shadcn colour variables so that
-   dialogs, sidebars, cards and form controls inside the CAD use the
-   polished admin-dashboard palette while the drawing canvas keeps its
-   own dark CAD styles.
+   dialogs, sidebars, cards and form controls inside the CAD use a
+   coherent light palette while the drawing canvas keeps its own CAD styles.
    ════════════════════════════════════════════ */
 
 .cad-admin-scope {
-  /* oklch dark-mode equivalents rendered as hex for broader support */
-  --background: #181a20;
-  --foreground: #f3f2f7;
-  --card: #20242e;
-  --card-foreground: #f3f2f7;
-  --popover: #20242e;
-  --popover-foreground: #f3f2f7;
-  --primary: #6366f1;
+  /* Light theme for CAD readability */
+  --background: #f4f4f5;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  --primary: #1473e6;
   --primary-foreground: #ffffff;
-  --secondary: #2a2e3b;
-  --secondary-foreground: #f3f2f7;
-  --muted: #2a2e3b;
-  --muted-foreground: #8b91a7;
-  --accent: #2a2e3b;
-  --accent-foreground: #f3f2f7;
-  --destructive: #f87171;
+  --secondary: #e4e4e7;
+  --secondary-foreground: #18181b;
+  --muted: #e4e4e7;
+  --muted-foreground: #52525b;
+  --accent: #e4e4e7;
+  --accent-foreground: #18181b;
+  --destructive: #d32f2f;
   --destructive-foreground: #ffffff;
-  --border: rgba(255, 255, 255, 0.09);
-  --input: rgba(255, 255, 255, 0.13);
-  --ring: #6366f1;
+  --border: rgba(0, 0, 0, 0.09);
+  --input: rgba(0, 0, 0, 0.06);
+  --ring: #1473e6;
   --radius-lg: 0.625rem;
   --radius-md: 0.5rem;
   --radius-sm: 0.375rem;
 
   /* CAD chrome surfaces (also used by CAD dialogs portaled outside the shell) */
-  --cad-bg: #181a20;
-  --cad-bg-2: #20242e;
-  --cad-panel: #252a38;
-  --cad-panel-2: #2f3548;
-  --cad-border: rgba(255, 255, 255, 0.1);
-  --cad-border-2: rgba(255, 255, 255, 0.16);
-  --cad-text: #b5b2c0;
-  --cad-text-dim: #7c8298;
-  --cad-text-hi: #f3f2f7;
-  --cad-accent: #6366f1;
-  --cad-accent-bg: rgba(99, 102, 241, 0.18);
-  --cad-canvas: #0c0e12;
+  --cad-bg: #f4f4f5;
+  --cad-bg-2: #ffffff;
+  --cad-panel: #e4e4e7;
+  --cad-panel-2: #d4d4d8;
+  --cad-border: rgba(0, 0, 0, 0.1);
+  --cad-border-2: rgba(0, 0, 0, 0.16);
+  --cad-text: #27272a;
+  --cad-text-dim: #52525b;
+  --cad-text-hi: #000000;
+  --cad-accent: #1473e6;
+  --cad-accent-bg: rgba(20, 115, 230, 0.14);
+  --cad-canvas: #ffffff;
 
   /* Reference existing app fonts */
   --font-sans: Manrope, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
@@ -53,40 +52,40 @@
 /**
  * CAD declares many of its own surface tokens on .cad-workspace-shell.
  * Rebind them here so the whole workspace (top bar, right panel, canvas grid)
- * follows the admin-dashboard dark palette.
+ * follows the scoped light palette.
  */
 .cad-admin-scope .cad-workspace-shell {
-  --cad-bg: #181a20;
-  --cad-bg-2: #20242e;
-  --cad-panel: #252a38;
-  --cad-panel-2: #2f3548;
-  --cad-border: rgba(255, 255, 255, 0.1);
-  --cad-border-2: rgba(255, 255, 255, 0.16);
-  --cad-text: #b5b2c0;
-  --cad-text-dim: #7c8298;
-  --cad-text-hi: #f3f2f7;
-  --cad-accent: #6366f1;
-  --cad-accent-bg: rgba(99, 102, 241, 0.18);
-  --cad-canvas: #0c0e12;
-  --cad-grid: #1f212a;
-  --cad-grid-major: #2a2d3a;
-  --cad-error: #f87171;
-  --cad-ok: #34d399;
+  --cad-bg: #f4f4f5;
+  --cad-bg-2: #ffffff;
+  --cad-panel: #e4e4e7;
+  --cad-panel-2: #d4d4d8;
+  --cad-border: rgba(0, 0, 0, 0.1);
+  --cad-border-2: rgba(0, 0, 0, 0.16);
+  --cad-text: #27272a;
+  --cad-text-dim: #52525b;
+  --cad-text-hi: #000000;
+  --cad-accent: #1473e6;
+  --cad-accent-bg: rgba(20, 115, 230, 0.14);
+  --cad-canvas: #ffffff;
+  --cad-grid: #d4d4d8;
+  --cad-grid-major: #c0c0c4;
+  --cad-error: #d32f2f;
+  --cad-ok: #2e7d32;
 }
 
 /* ── Shadcn-overrides for CAD chrome ──────────────────────────────────────── */
 
 .cad-admin-scope [data-slot="dialog-content"] {
   border-radius: 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   box-shadow:
-    0 20px 25px -5px rgba(0, 0, 0, 0.5),
-    0 8px 10px -6px rgba(0, 0, 0, 0.4);
+    0 20px 25px -5px rgba(0, 0, 0, 0.15),
+    0 8px 10px -6px rgba(0, 0, 0, 0.1);
 }
 
 .cad-admin-scope [data-slot="dialog-header"] {
   padding-bottom: 0.75rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .cad-admin-scope [data-slot="dialog-title"] {
@@ -95,8 +94,8 @@
 }
 
 .cad-admin-scope [data-slot="dialog-footer"] {
-  background: rgba(255, 255, 255, 0.03);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--cad-bg);
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
   margin: 0 -1.5rem -1.5rem;
   padding: 1rem 1.5rem;
   border-bottom-left-radius: 0.75rem;
@@ -104,32 +103,33 @@
 }
 
 .cad-admin-scope [data-slot="tabs-list"] {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(0, 0, 0, 0.04);
   border-radius: 0.5rem;
   padding: 0.25rem;
 }
 
 .cad-admin-scope [data-slot="tabs-trigger"][data-state="active"] {
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  background: var(--cad-bg-2);
+  color: var(--cad-text-hi);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
 .cad-admin-scope [data-slot="card"] {
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  background: #20242e;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(0, 0, 0, 0.09);
+  background: var(--card);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
 .cad-admin-scope [data-slot="scroll-area-thumb"] {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.25);
   border-radius: 999px;
 }
 
 /* ── CAD-specific controls that aren’t shadcn components ───────────────────── */
 
 .cad-admin-scope .cad-panel-tabs {
-  background: rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(0, 0, 0, 0.03);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.09);
   padding: 4px;
   gap: 2px;
 }
@@ -141,23 +141,23 @@
 }
 
 .cad-admin-scope .cad-panel-tab:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.06);
   color: var(--cad-text);
 }
 
 .cad-admin-scope .cad-panel-tab.active {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--cad-bg-2);
+  border-color: rgba(0, 0, 0, 0.12);
   color: var(--cad-text-hi);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
 .cad-admin-scope .cad-settings-popover {
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   box-shadow:
-    0 20px 25px -5px rgba(0, 0, 0, 0.5),
-    0 8px 10px -6px rgba(0, 0, 0, 0.4);
+    0 20px 25px -5px rgba(0, 0, 0, 0.15),
+    0 8px 10px -6px rgba(0, 0, 0, 0.1);
 }
 
 .cad-admin-scope .cad-settings-popover-header {

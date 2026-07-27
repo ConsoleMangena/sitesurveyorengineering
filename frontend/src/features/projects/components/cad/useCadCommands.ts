@@ -141,6 +141,31 @@ export function runCommand(raw: string, ctx: CommandContext): void {
       if (t) {
         log(`Text: "${t.text}" at ${axis.first} ${fmtCoord(t.e)} ${axis.second} ${fmtCoord(t.n)}  layer: ${cad.model.layers.find((l) => l.id === t.layerId)?.name ?? t.layerId}`);
       }
+    } else if (sel.type === "circle" && sel.id) {
+      const c = cad.model.circles.find((x) => x.id === sel.id);
+      if (c) {
+        log(`Circle: r ${fmtCoord(c.radius)} at ${axis.first} ${fmtCoord(c.center.e)} ${axis.second} ${fmtCoord(c.center.n)}  layer: ${cad.model.layers.find((l) => l.id === c.layerId)?.name ?? c.layerId}`);
+      }
+    } else if (sel.type === "ellipse" && sel.id) {
+      const el = cad.model.ellipses.find((x) => x.id === sel.id);
+      if (el) {
+        log(`Ellipse: a ${fmtCoord(el.semiMajor)} b ${fmtCoord(el.semiMinor)} rot ${fmtCoord(el.rotation)}° at ${axis.first} ${fmtCoord(el.center.e)} ${axis.second} ${fmtCoord(el.center.n)}  layer: ${cad.model.layers.find((l) => l.id === el.layerId)?.name ?? el.layerId}`);
+      }
+    } else if (sel.type === "arc" && sel.id) {
+      const a = cad.model.arcs.find((x) => x.id === sel.id);
+      if (a) {
+        log(`Arc: r ${fmtCoord(a.radius)} at ${axis.first} ${fmtCoord(a.center.e)} ${axis.second} ${fmtCoord(a.center.n)} angles ${fmtCoord(a.startAngle)}°..${fmtCoord(a.endAngle)}°  layer: ${cad.model.layers.find((l) => l.id === a.layerId)?.name ?? a.layerId}`);
+      }
+    } else if (sel.type === "dimension" && sel.id) {
+      const d = cad.model.dimensions.find((x) => x.id === sel.id);
+      if (d) {
+        log(`Dimension: ${d.kind} "${d.text}" points ${d.defPoints.length}  layer: ${cad.model.layers.find((l) => l.id === d.layerId)?.name ?? d.layerId}`);
+      }
+    } else if (sel.type === "hatch" && sel.id) {
+      const h = cad.model.hatches.find((x) => x.id === sel.id);
+      if (h) {
+        log(`Hatch: ${h.vertices.length} vertices${h.holes?.length ? `, ${h.holes.length} hole(s)` : ""}  pattern: ${h.pattern ?? "SOLID"}  layer: ${cad.model.layers.find((l) => l.id === h.layerId)?.name ?? h.layerId}`);
+      }
     } else {
       log("LIST: nothing selected.", "error");
     }
@@ -187,7 +212,7 @@ export function runCommand(raw: string, ctx: CommandContext): void {
     return;
   }
 
-  // AREA / AA — area + perimeter of selected closed linework.
+  // AREA / AA — area + perimeter of selected closed linework, hatch, or circle.
   if (upper === "AREA" || upper === "AA") {
     const sel = cad.selection;
     if (sel.type === "linework" && sel.id) {
@@ -195,11 +220,56 @@ export function runCommand(raw: string, ctx: CommandContext): void {
       if (lw) {
         const area = lw.closed ? polygonArea(lw.vertices) : 0;
         const len = polylineLength(lw.vertices);
-        log(`Area: ${area.toFixed(2)} m² · perimeter ${fmtDistance(len)} m`);
+        log(`Area: ${Math.abs(area).toFixed(2)} m² · perimeter ${fmtDistance(len)} m`);
         return;
       }
     }
-    log("AREA: select a closed boundary first.", "error");
+    if (sel.type === "hatch" && sel.id) {
+      const h = cad.model.hatches.find((x) => x.id === sel.id);
+      if (h) {
+        log(`Area: ${Math.abs(polygonArea(h.vertices)).toFixed(2)} m²`);
+        return;
+      }
+    }
+    if (sel.type === "circle" && sel.id) {
+      const c = cad.model.circles.find((x) => x.id === sel.id);
+      if (c) {
+        const area = Math.PI * c.radius * c.radius;
+        const circum = 2 * Math.PI * c.radius;
+        log(`Area: ${area.toFixed(2)} m² · circumference ${fmtDistance(circum)} m`);
+        return;
+      }
+    }
+    if (sel.type === "ellipse" && sel.id) {
+      const el = cad.model.ellipses.find((x) => x.id === sel.id);
+      if (el) {
+        const area = Math.PI * el.semiMajor * el.semiMinor;
+        log(`Area: ${area.toFixed(2)} m²`);
+        return;
+      }
+    }
+    log("AREA: select a closed boundary, hatch, circle, or ellipse first.", "error");
+    return;
+  }
+
+  // HATCH — convert a selected closed boundary into a filled hatch.
+  if (upper === "HATCH" || upper === "H") {
+    const sel = cad.selection;
+    if (sel.type === "linework" && sel.id) {
+      const lw = cad.model.linework.find((x) => x.id === sel.id);
+      if (lw && lw.closed && lw.vertices.length >= 3) {
+        cad.ensureLayerById("HATCHES");
+        const created = cad.addHatch({
+          vertices: lw.vertices,
+          holes: [],
+          layerId: "HATCHES",
+          color: lw.color ?? null,
+        });
+        log(`Hatch created on HATCHES layer: ${created.vertices.length} vertices · ${Math.abs(polygonArea(created.vertices)).toFixed(2)} m²`);
+        return;
+      }
+    }
+    log("HATCH: select a single closed boundary first.", "error");
     return;
   }
 

@@ -1,5 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "../supabase/client.ts";
+import type { MarketplaceListingWithAsset } from "./marketplace.ts";
+import type { JobRow, JobWithProject } from "./jobs.ts";
+import type { ProjectRow, ProjectWithOrg } from "./projects.ts";
 
 // Cast to generic SupabaseClient so we can query tables not in the generated schema
 const adminDb = supabase as unknown as SupabaseClient;
@@ -245,14 +248,14 @@ export interface MarketplaceListing {
   updated_at: string;
 }
 
-export async function listAllMarketplaceListings(): Promise<MarketplaceListing[]> {
+export async function listAllMarketplaceListings(): Promise<MarketplaceListingWithAsset[]> {
   const { data, error } = await adminDb
     .from("marketplace_listings")
-    .select("*")
+    .select("*, assets:asset_id(status)")
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return (data as MarketplaceListing[] | null) ?? [];
+  return (data as MarketplaceListingWithAsset[] | null) ?? [];
 }
 
 export async function createMarketplaceListing(
@@ -342,6 +345,46 @@ export async function updateProfessional(
 export async function deleteProfessional(id: string): Promise<void> {
   const { error } = await adminDb.from("professionals").delete().eq("id", id);
   if (error) throw error;
+}
+
+/* ── Cross-tenant jobs & projects (platform admin) ─────────────────── */
+
+export async function listAllJobs(): Promise<JobWithProject[]> {
+  const { data: jobRows, error: jobError } = await adminDb
+    .from("jobs")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (jobError) throw jobError;
+
+  const { data: projectRows, error: projectError } = await adminDb
+    .from("projects")
+    .select("id, name");
+
+  if (projectError) throw projectError;
+
+  const projectMap = new Map(
+    (projectRows ?? []).map((p) => [p.id, p.name as string | null]),
+  );
+
+  return ((jobRows ?? []) as JobRow[]).map((job) => ({
+    ...job,
+    project_name: job.project_id ? (projectMap.get(job.project_id) ?? null) : null,
+  })) as JobWithProject[];
+}
+
+export async function listAllProjects(): Promise<ProjectWithOrg[]> {
+  const { data, error } = await adminDb
+    .from("projects")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+
+  return ((data ?? []) as ProjectRow[]).map((project) => ({
+    ...project,
+    organization_name: null,
+  })) as ProjectWithOrg[];
 }
 
 /* ── System Features (subscribable add-ons) ─────────────────────────── */

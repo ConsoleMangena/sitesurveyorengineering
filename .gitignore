@@ -28,12 +28,13 @@ backend/supabase/.temp/
 # Generated SQL bundle for Dashboard paste (see build-dashboard-bundle.sh)
 backend/supabase/bundle_apply_in_dashboard.sql
 
-# Licensing — the .env.licensing file contains the build-time public key.
-# Safe to keep locally but NOT committed so each dev/CI runs setup-licensing.mjs.
-backend/.env.licensing
-# Tauri app data license cache (machine-local, tamper-tagged)
-license.cache
-license.anchor
+# GDAL runtime bundle (auto-populated by scripts/bundle-gdal.mjs)
+/backend/bundled-gdal/*
+!/backend/bundled-gdal/.gitkeep
+
+# Downloaded GDAL SDK (auto-populated by scripts/download-gdal.mjs)
+/backend/gdal-sdk/
+
 
 # Editor directories and files
 .vscode/*

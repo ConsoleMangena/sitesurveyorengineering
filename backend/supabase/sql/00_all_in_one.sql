@@ -1,22 +1,7 @@
--- 01_setup.sql — SiteSurveyor Engineering cloud schema (single all-in-one file).
---
--- The complete cloud schema in one manageable file: extensions, enums, tables,
--- indexes, functions, triggers, RLS, storage buckets/policies, plus idempotent
--- seeds and backfills at the end. Paste into the Supabase SQL editor and run.
---
--- Fully idempotent and safe to re-run on ANY project (fresh or existing):
---   * tables/indexes use CREATE ... IF NOT EXISTS
---   * enums are guarded with DO $$ ... EXCEPTION WHEN duplicate_object
---   * functions use CREATE OR REPLACE
---   * triggers and policies DROP ... IF EXISTS before CREATE
---   * seeds/backfills use ON CONFLICT DO NOTHING or NOT EXISTS guards
--- Re-running will not error on "already exists" and will not duplicate data.
---
--- Includes everything previously split across 99_post_deploy.sql and the
--- migrations/ folder (is_global flags, on-chain payments, crypto payment method,
--- Surveyor CAD drawings, and the System Features catalog).
+-- 01_schema.sql — extensions, schemas, enums, tables, indexes. Run FIRST. Idempotent.
 
 begin;
+
 
 -- ===========================================================================
 -- extensions_and_schemas
@@ -179,6 +164,26 @@ EXCEPTION
   WHEN duplicate_object THEN null;
 END $$;
 
+DO $$ BEGIN
+  create type public.attachment_storage_tier as enum (
+  'off_chain',
+  'on_chain'
+);
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+  create type public.attachment_chain_status as enum (
+  'none',
+  'pending',
+  'anchored',
+  'failed'
+);
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
 DO $$ BEGIN 
   create type public.notification_status as enum (
   'unread',
@@ -188,24 +193,6 @@ DO $$ BEGIN
 EXCEPTION
   WHEN duplicate_object THEN null;
 END $$;
-DO $$ BEGIN
-  create type public.license_tier as enum ('free', 'pro', 'enterprise');
-EXCEPTION
-  WHEN duplicate_object THEN null;
-END $$;
-DO $$ BEGIN
-  create type public.license_status as enum (
-    'trialing',
-    'active',
-    'past_due',
-    'suspended',
-    'cancelled'
-  );
-EXCEPTION
-  WHEN duplicate_object THEN null;
-END $$;
-
-
 -- ===========================================================================
 -- tables_indexes
 -- ===========================================================================
@@ -280,29 +267,6 @@ create table if not exists public.workspace_settings (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
-create table if not exists public.workspace_licenses (
-  workspace_id uuid primary key references public.workspaces (id) on delete cascade,
-  tier public.license_tier not null default 'free',
-  status public.license_status not null default 'active',
-  starts_at timestamptz not null default now(),
-  ends_at timestamptz,
-  trial_ends_at timestamptz,
-  is_manual boolean not null default true,
-  seat_limit integer default 1,
-  project_cap integer default 12,
-  asset_cap integer default 60,
-  storage_cap_bytes bigint default 536870912,
-  notes text,
-  updated_by uuid references auth.users (id) on delete set null,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-comment on column public.workspace_licenses.seat_limit is 'Max active members + pending invites; NULL = unlimited.';
-comment on column public.workspace_licenses.project_cap is 'Max projects; NULL = unlimited.';
-comment on column public.workspace_licenses.asset_cap is 'Max assets; NULL = unlimited.';
-comment on column public.workspace_licenses.storage_cap_bytes is 'Max attachment bytes; NULL = unlimited.';
 
 create table if not exists public.workspace_members (
   id uuid primary key default gen_random_uuid(),
@@ -638,6 +602,12 @@ create table if not exists public.attachments (
   visibility public.attachment_visibility not null default 'private',
   mime_type text,
   size_bytes bigint,
+  storage_tier public.attachment_storage_tier not null default 'off_chain',
+  chain_status public.attachment_chain_status not null default 'none',
+  content_hash text,
+  chain_tx_signature text,
+  chain_network text,
+  anchored_at timestamptz,
   uploaded_by uuid references auth.users (id) on delete set null,
   created_at timestamptz not null default now(),
   unique (bucket_name, storage_path)
@@ -675,18 +645,6 @@ create table if not exists audit.activity_log (
   created_at timestamptz not null default now()
 );
 
-create table if not exists public.license_events (
-  id bigint generated always as identity primary key,
-  workspace_id uuid not null references public.workspaces (id) on delete cascade,
-  changed_by uuid references auth.users (id) on delete set null,
-  previous_tier public.license_tier,
-  new_tier public.license_tier,
-  previous_status public.license_status,
-  new_status public.license_status,
-  notes text,
-  created_at timestamptz not null default now()
-);
-
 create index if not exists idx_workspace_members_user_id on public.workspace_members (user_id);
 create index if not exists idx_workspace_members_workspace_id on public.workspace_members (workspace_id);
 create index if not exists idx_workspace_invitations_workspace_id on public.workspace_invitations (workspace_id);
@@ -707,17 +665,15 @@ create index if not exists idx_invoices_due_date on public.invoices (due_date);
 create index if not exists idx_payments_invoice_id on public.payments (invoice_id);
 create index if not exists idx_notifications_user_status on public.notifications (user_id, status);
 create index if not exists idx_attachments_entity on public.attachments (workspace_id, entity_table, entity_id);
+create index if not exists idx_attachments_workspace_chain_status on public.attachments (workspace_id, chain_status);
+create unique index if not exists attachments_chain_tx_signature_key on public.attachments (chain_tx_signature) where chain_tx_signature is not null;
 create index if not exists idx_audit_activity_workspace_created_at on audit.activity_log (workspace_id, created_at desc);
-create index if not exists idx_workspace_licenses_tier_status on public.workspace_licenses (tier, status);
-create index if not exists idx_license_events_workspace_created_at on public.license_events (workspace_id, created_at desc);
 
 -- ── Marketplace listings ──
 
 create table if not exists public.marketplace_listings (
   id uuid default gen_random_uuid() primary key,
   workspace_id uuid not null references public.workspaces on delete cascade on update cascade,
-  asset_id uuid references public.assets(id) on delete cascade,
-  listing_type text not null default 'sale',
   name text not null,
   type text not null,
   condition text not null,
@@ -732,13 +688,11 @@ create table if not exists public.marketplace_listings (
   updated_at timestamptz default now() not null
 );
 
--- Ensure columns exist on a pre-existing marketplace_listings table.
+-- Ensure the column exists on a pre-existing marketplace_listings table.
 alter table public.marketplace_listings add column if not exists is_global boolean not null default false;
-alter table public.marketplace_listings add column if not exists asset_id uuid references public.assets(id) on delete cascade;
-alter table public.marketplace_listings add column if not exists listing_type text not null default 'sale';
+alter table public.marketplace_listings add column if not exists asset_id uuid references public.assets(id) on delete set null;
 
 create index if not exists idx_marketplace_listings_workspace_id on public.marketplace_listings (workspace_id);
-create index if not exists idx_marketplace_listings_asset_id on public.marketplace_listings (asset_id);
 
 -- ── Marketplace orders ──
 
@@ -864,21 +818,6 @@ create table if not exists public.expense_entries (
 create index if not exists idx_expense_entries_workspace_user_date
   on public.expense_entries (workspace_id, user_id, entry_date desc);
 
--- ── Promo code rules ──
-
-create table if not exists public.promo_code_rules (
-  code text primary key,
-  trial_days integer,
-  signup_tier public.license_tier,
-  signup_license_status public.license_status default 'trialing',
-  seat_bonus integer not null default 0,
-  project_cap_boost integer not null default 0,
-  asset_cap_boost integer not null default 0,
-  active boolean not null default true
-);
-
-comment on table public.promo_code_rules is 'Maps signup promo codes to license trials and cap boosts.';
-
 -- ── Payment methods ──
 
 create table if not exists public.payment_methods (
@@ -989,33 +928,33 @@ create table if not exists public.workspace_feature_entitlements (
   primary key (workspace_id, feature_key)
 );
 
--- ── Seed workspace_licenses for existing workspaces ──
-
-insert into public.workspace_licenses (workspace_id)
-select w.id
-from public.workspaces w
-on conflict (workspace_id) do nothing;
-
 -- ── Embedded Solana wallets (open-source app wallet) ──
 -- The secret key and optional seed phrase are encrypted client-side with a
 -- user PIN. The server only stores the ciphertext, IVs, and salt.
 
 create table if not exists public.embedded_solana_wallets (
-  user_id            uuid primary key references auth.users (id) on delete cascade,
-  wallet_address     text        not null,
-  encrypted_key      text        not null,
-  iv                 text        not null,
-  salt               text        not null,
-  encrypted_mnemonic text        null,
-  mnemonic_iv        text        null,
-  created_at         timestamptz not null default now(),
-  updated_at         timestamptz not null default now(),
+  user_id           uuid primary key references auth.users (id) on delete cascade,
+  wallet_address    text        not null,
+  encrypted_key     text        not null,
+  iv                text        not null,
+  salt              text        not null,
+  encrypted_mnemonic text      null,
+  mnemonic_iv        text      null,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
   constraint embedded_solana_wallets_user_id_check
     check (user_id = auth.uid())
 );
 
 create index if not exists idx_embedded_solana_wallets_address
   on public.embedded_solana_wallets (wallet_address);
+
+
+commit;
+
+-- 02_functions_triggers.sql — functions/RPCs and triggers. Run AFTER 01_schema.sql.
+
+begin;
 
 
 -- ===========================================================================
@@ -1031,63 +970,6 @@ as $$
 begin
   new.updated_at = now();
   return new;
-end;
-$$;
-
-create or replace function public.log_workspace_license_event()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  if tg_op = 'UPDATE' then
-    if old.tier is distinct from new.tier or old.status is distinct from new.status or old.notes is distinct from new.notes then
-      insert into public.license_events (
-        workspace_id,
-        changed_by,
-        previous_tier,
-        new_tier,
-        previous_status,
-        new_status,
-        notes
-      )
-      values (
-        new.workspace_id,
-        auth.uid(),
-        old.tier,
-        new.tier,
-        old.status,
-        new.status,
-        new.notes
-      );
-    end if;
-    return new;
-  end if;
-
-  if tg_op = 'INSERT' then
-    insert into public.license_events (
-      workspace_id,
-      changed_by,
-      previous_tier,
-      new_tier,
-      previous_status,
-      new_status,
-      notes
-    )
-    values (
-      new.workspace_id,
-      auth.uid(),
-      null,
-      new.tier,
-      null,
-      new.status,
-      new.notes
-    );
-    return new;
-  end if;
-
-  return coalesce(new, old);
 end;
 $$;
 
@@ -1167,66 +1049,6 @@ as $$
     target_workspace_id,
     array['owner'::public.workspace_member_role, 'admin'::public.workspace_member_role]
   );
-$$;
-
-create or replace function public.get_workspace_license_tier(target_workspace_id uuid)
-returns public.license_tier
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select coalesce(
-    (
-      select wl.tier
-      from public.workspace_licenses wl
-      where wl.workspace_id = target_workspace_id
-      limit 1
-    ),
-    'free'::public.license_tier
-  );
-$$;
-
-create or replace function public.is_workspace_license_active(target_workspace_id uuid)
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1
-    from public.workspace_licenses wl
-    where wl.workspace_id = target_workspace_id
-      and wl.status in ('trialing', 'active')
-      and (wl.ends_at is null or wl.ends_at > now())
-  );
-$$;
-
-create or replace function public.workspace_has_tier(
-  target_workspace_id uuid,
-  minimum_tier public.license_tier
-)
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  with ranked as (
-    select
-      case public.get_workspace_license_tier(target_workspace_id)
-        when 'free' then 1
-        when 'pro' then 2
-        when 'enterprise' then 3
-      end as actual_rank,
-      case minimum_tier
-        when 'free' then 1
-        when 'pro' then 2
-        when 'enterprise' then 3
-      end as required_rank
-  )
-  select actual_rank >= required_rank from ranked;
 $$;
 
 create or replace function public.can_manage_operations(target_workspace_id uuid)
@@ -1397,10 +1219,6 @@ begin
   insert into public.workspace_settings (workspace_id)
   values (created_workspace_id);
 
-  insert into public.workspace_licenses (workspace_id)
-  values (created_workspace_id)
-  on conflict (workspace_id) do nothing;
-
   insert into public.workspace_members (
     workspace_id,
     user_id,
@@ -1489,10 +1307,6 @@ begin
 
   insert into public.workspace_settings (workspace_id)
   values (v_workspace_id);
-
-  insert into public.workspace_licenses (workspace_id)
-  values (v_workspace_id)
-  on conflict (workspace_id) do nothing;
 
   insert into public.workspace_members (
     workspace_id,
@@ -1702,377 +1516,6 @@ begin
 end;
 $$;
 
--- ── License status guard (platform admin only, with billing sync bypass) ──
-
-create or replace function public.enforce_workspace_license_status_platform_admin()
-returns trigger
-language plpgsql
-security invoker
-set search_path = public
-as $$
-begin
-  if new.status is distinct from old.status then
-    if coalesce(current_setting('app.billing_license_sync', true), '') = '1' then
-      return new;
-    end if;
-    if not public.is_platform_admin() then
-      raise exception 'License status may only be changed by platform administrators';
-    end if;
-  end if;
-  return new;
-end;
-$$;
-
-comment on function public.enforce_workspace_license_status_platform_admin() is
-  'Rejects workspace_licenses.status updates unless profiles.is_platform_admin is true for auth.uid().';
-
--- ── Tier → cap alignment ──
-
-create or replace function public.workspace_license_align_caps_with_tier()
-returns trigger
-language plpgsql
-security invoker
-set search_path = public
-as $$
-begin
-  if new.tier is distinct from old.tier
-     and coalesce(current_setting('app.billing_license_sync', true), '') <> '1'
-  then
-    case new.tier
-      when 'free' then
-        new.seat_limit := 1;
-        new.project_cap := 12;
-        new.asset_cap := 60;
-        new.storage_cap_bytes := 536870912;
-      when 'pro' then
-        new.seat_limit := 25;
-        new.project_cap := null;
-        new.asset_cap := null;
-        new.storage_cap_bytes := 5368709120;
-      when 'enterprise' then
-        new.seat_limit := null;
-        new.project_cap := null;
-        new.asset_cap := null;
-        new.storage_cap_bytes := null;
-    end case;
-  end if;
-  return new;
-end;
-$$;
-
--- ── Usage helpers ──
-
-create or replace function public.workspace_occupied_seats(p_workspace_id uuid)
-returns integer
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select
-    coalesce((select count(*)::integer from public.workspace_members m where m.workspace_id = p_workspace_id and m.status = 'active'), 0)
-    + coalesce((select count(*)::integer from public.workspace_invitations i where i.workspace_id = p_workspace_id and i.expires_at > now()), 0);
-$$;
-
-create or replace function public.workspace_active_project_count(p_workspace_id uuid)
-returns integer
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select count(*)::integer
-  from public.projects p
-  where p.workspace_id = p_workspace_id
-    and p.archived_at is null
-    and p.status <> 'archived'::public.project_status;
-$$;
-
--- ── Promo code application ──
-
-create or replace function public.apply_promo_code_to_workspace(p_workspace_id uuid, p_code text)
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  r public.promo_code_rules%rowtype;
-  v_code text := lower(trim(coalesce(p_code, '')));
-begin
-  if v_code = '' then
-    return;
-  end if;
-
-  select * into r
-  from public.promo_code_rules
-  where lower(code) = v_code and active;
-
-  if not found then
-    return;
-  end if;
-
-  perform set_config('app.billing_license_sync', '1', true);
-
-  if r.signup_tier = 'pro' then
-    update public.workspace_licenses wl
-    set
-      tier = 'pro',
-      status = coalesce(r.signup_license_status, wl.status),
-      trial_ends_at = case
-        when r.trial_days is not null then now() + (r.trial_days::text || ' days')::interval
-        else wl.trial_ends_at
-      end,
-      seat_limit = 25 + coalesce(r.seat_bonus, 0),
-      project_cap = null,
-      asset_cap = null,
-      storage_cap_bytes = 5368709120,
-      notes = trim(both ' ' from concat(coalesce(wl.notes, ''), ' promo:', r.code)),
-      is_manual = false,
-      updated_at = now()
-    where wl.workspace_id = p_workspace_id;
-    return;
-  end if;
-
-  if r.signup_tier = 'enterprise' then
-    update public.workspace_licenses wl
-    set
-      tier = 'enterprise',
-      status = coalesce(r.signup_license_status, wl.status),
-      trial_ends_at = case
-        when r.trial_days is not null then now() + (r.trial_days::text || ' days')::interval
-        else wl.trial_ends_at
-      end,
-      seat_limit = null,
-      project_cap = null,
-      asset_cap = null,
-      storage_cap_bytes = null,
-      notes = trim(both ' ' from concat(coalesce(wl.notes, ''), ' promo:', r.code)),
-      is_manual = false,
-      updated_at = now()
-    where wl.workspace_id = p_workspace_id;
-    return;
-  end if;
-
-  update public.workspace_licenses wl
-  set
-    trial_ends_at = case
-      when r.trial_days is not null then now() + (r.trial_days::text || ' days')::interval
-      else wl.trial_ends_at
-    end,
-    seat_limit = case
-      when wl.seat_limit is null then null
-      else wl.seat_limit + r.seat_bonus
-    end,
-    project_cap = case
-      when wl.project_cap is null then null
-      else wl.project_cap + r.project_cap_boost
-    end,
-    asset_cap = case
-      when wl.asset_cap is null then null
-      else wl.asset_cap + r.asset_cap_boost
-    end,
-    notes = trim(both ' ' from concat(coalesce(wl.notes, ''), ' promo:', r.code)),
-    is_manual = false,
-    updated_at = now()
-  where wl.workspace_id = p_workspace_id;
-end;
-$$;
-
-revoke all on function public.apply_promo_code_to_workspace(uuid, text) from public;
-grant execute on function public.apply_promo_code_to_workspace(uuid, text) to service_role;
-
-create or replace function public.trigger_profiles_apply_promo_entitlements()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  if new.promo_code is not null
-     and trim(new.promo_code) <> ''
-     and new.default_workspace_id is not null
-  then
-    perform public.apply_promo_code_to_workspace(new.default_workspace_id, new.promo_code);
-  end if;
-  return new;
-end;
-$$;
-
--- ── Seat / cap enforcement ──
-
-create or replace function public.enforce_workspace_seat_limit_on_member()
-returns trigger
-language plpgsql
-security invoker
-set search_path = public
-as $$
-declare
-  lim integer;
-  occ integer;
-begin
-  select wl.seat_limit into lim
-  from public.workspace_licenses wl
-  where wl.workspace_id = new.workspace_id;
-
-  if lim is null then
-    return new;
-  end if;
-
-  occ := public.workspace_occupied_seats(new.workspace_id);
-  if occ >= lim then
-    raise exception 'Workspace seat limit reached (%). Upgrade your plan or revoke pending invites.', lim;
-  end if;
-  return new;
-end;
-$$;
-
-create or replace function public.enforce_workspace_seat_limit_on_invitation()
-returns trigger
-language plpgsql
-security invoker
-set search_path = public
-as $$
-declare
-  lim integer;
-  occ integer;
-begin
-  select wl.seat_limit into lim
-  from public.workspace_licenses wl
-  where wl.workspace_id = new.workspace_id;
-
-  if lim is null then
-    return new;
-  end if;
-
-  occ := public.workspace_occupied_seats(new.workspace_id);
-  if occ >= lim then
-    raise exception 'Workspace seat limit reached (%). Upgrade your plan or remove pending invites.', lim;
-  end if;
-  return new;
-end;
-$$;
-
-create or replace function public.enforce_workspace_project_cap()
-returns trigger
-language plpgsql
-security invoker
-set search_path = public
-as $$
-declare
-  cap integer;
-  cnt integer;
-begin
-  select wl.project_cap into cap
-  from public.workspace_licenses wl
-  where wl.workspace_id = new.workspace_id;
-
-  if cap is null then
-    return new;
-  end if;
-
-  cnt := public.workspace_active_project_count(new.workspace_id);
-  if cnt >= cap then
-    raise exception 'Project limit reached (%). Upgrade your plan.', cap;
-  end if;
-  return new;
-end;
-$$;
-
-create or replace function public.enforce_workspace_asset_cap()
-returns trigger
-language plpgsql
-security invoker
-set search_path = public
-as $$
-declare
-  cap integer;
-  cnt integer;
-begin
-  select wl.asset_cap into cap
-  from public.workspace_licenses wl
-  where wl.workspace_id = new.workspace_id;
-
-  if cap is null then
-    return new;
-  end if;
-
-  select count(*)::integer into cnt
-  from public.assets a
-  where a.workspace_id = new.workspace_id;
-
-  if cnt >= cap then
-    raise exception 'Asset (instrument) limit reached (%). Upgrade your plan.', cap;
-  end if;
-  return new;
-end;
-$$;
-
-create or replace function public.enforce_workspace_storage_cap()
-returns trigger
-language plpgsql
-security invoker
-set search_path = public
-as $$
-declare
-  cap bigint;
-  used bigint;
-  add_bytes bigint;
-begin
-  select wl.storage_cap_bytes into cap
-  from public.workspace_licenses wl
-  where wl.workspace_id = new.workspace_id;
-
-  if cap is null then
-    return new;
-  end if;
-
-  select coalesce(sum(a.size_bytes), 0)::bigint into used
-  from public.attachments a
-  where a.workspace_id = new.workspace_id;
-
-  add_bytes := coalesce(new.size_bytes, 0)::bigint;
-  if used + add_bytes > cap then
-    raise exception 'Storage limit reached. Free space or upgrade your plan.';
-  end if;
-  return new;
-end;
-$$;
-
--- ── Usage snapshot RPC ──
-
-create or replace function public.get_workspace_usage(p_workspace_id uuid)
-returns jsonb
-language plpgsql
-stable
-security definer
-set search_path = public
-as $$
-declare
-  wl public.workspace_licenses%rowtype;
-begin
-  if not public.is_workspace_member(p_workspace_id) then
-    raise exception 'Not allowed';
-  end if;
-
-  select * into wl from public.workspace_licenses where workspace_id = p_workspace_id;
-
-  return jsonb_build_object(
-    'tier', wl.tier,
-    'status', wl.status,
-    'seat_limit', wl.seat_limit,
-    'seats_used', public.workspace_occupied_seats(p_workspace_id),
-    'project_cap', wl.project_cap,
-    'projects_used', public.workspace_active_project_count(p_workspace_id),
-    'asset_cap', wl.asset_cap,
-    'assets_used', (select count(*)::integer from public.assets a where a.workspace_id = p_workspace_id),
-    'storage_cap_bytes', wl.storage_cap_bytes,
-    'storage_used_bytes', (select coalesce(sum(a.size_bytes), 0)::bigint from public.attachments a where a.workspace_id = p_workspace_id)
-  );
-end;
-$$;
-
-grant execute on function public.get_workspace_usage(uuid) to authenticated;
 
 -- ── Payment method default setter ──
 
@@ -2324,10 +1767,6 @@ create trigger on_auth_user_created
 after insert on auth.users
 for each row execute function public.handle_new_auth_user();
 
-drop trigger if exists log_workspace_license_event_trigger on public.workspace_licenses;
-create trigger log_workspace_license_event_trigger
-after insert or update on public.workspace_licenses
-for each row execute function public.log_workspace_license_event();
 
 -- ── set_updated_at triggers for all tables ──
 
@@ -2339,7 +1778,6 @@ begin
     'profiles',
     'workspaces',
     'workspace_settings',
-    'workspace_licenses',
     'workspace_members',
     'organizations',
     'contacts',
@@ -2400,61 +1838,8 @@ create trigger enforce_business_workspace_on_job_assignment_assets
 before insert or update on public.job_assignment_assets
 for each row execute function public.enforce_business_workspace_for_team_and_dispatch();
 
--- ── License status guard ──
 
-drop trigger if exists workspace_license_status_guard on public.workspace_licenses;
-create trigger workspace_license_status_guard
-before update on public.workspace_licenses
-for each row
-execute function public.enforce_workspace_license_status_platform_admin();
 
--- ── Tier → cap alignment ──
-
-drop trigger if exists workspace_license_tier_caps on public.workspace_licenses;
-create trigger workspace_license_tier_caps
-before update on public.workspace_licenses
-for each row
-execute function public.workspace_license_align_caps_with_tier();
-
--- ── Promo code application on profile insert ──
-
-drop trigger if exists profiles_apply_promo_entitlements on public.profiles;
-create trigger profiles_apply_promo_entitlements
-after insert on public.profiles
-for each row
-execute function public.trigger_profiles_apply_promo_entitlements();
-
--- ── Seat / usage cap enforcement ──
-
-drop trigger if exists workspace_members_seat_limit on public.workspace_members;
-create trigger workspace_members_seat_limit
-before insert on public.workspace_members
-for each row
-execute function public.enforce_workspace_seat_limit_on_member();
-
-drop trigger if exists workspace_invitations_seat_limit on public.workspace_invitations;
-create trigger workspace_invitations_seat_limit
-before insert on public.workspace_invitations
-for each row
-execute function public.enforce_workspace_seat_limit_on_invitation();
-
-drop trigger if exists projects_workspace_cap on public.projects;
-create trigger projects_workspace_cap
-before insert on public.projects
-for each row
-execute function public.enforce_workspace_project_cap();
-
-drop trigger if exists assets_workspace_cap on public.assets;
-create trigger assets_workspace_cap
-before insert on public.assets
-for each row
-execute function public.enforce_workspace_asset_cap();
-
-drop trigger if exists attachments_storage_cap on public.attachments;
-create trigger attachments_storage_cap
-before insert on public.attachments
-for each row
-execute function public.enforce_workspace_storage_cap();
 
 -- ── CAD drawings updated_at ──
 
@@ -2481,6 +1866,9 @@ before update on public.workspace_feature_entitlements
 for each row execute function public.touch_workspace_feature_entitlements();
 
 -- ── Project creator membership ──
+-- Defence in depth: if a project is created without a project_members row for
+-- its creator, add one automatically. Many policies also fall back to
+-- projects.created_by, but normalizing the membership row keeps joins reliable.
 
 create or replace function public.ensure_project_creator_member()
 returns trigger
@@ -2503,6 +1891,25 @@ create trigger trg_ensure_project_creator_member
 after insert on public.projects
 for each row execute function public.ensure_project_creator_member();
 
+-- Backfill: ensure existing projects without a membership row for their creator
+-- get one, so the creator-fallback policies are not the only safety net.
+insert into public.project_members (workspace_id, project_id, user_id, role)
+select p.workspace_id, p.id, p.created_by, 'manager'
+from public.projects p
+where p.created_by is not null
+  and not exists (
+    select 1 from public.project_members pm
+    where pm.project_id = p.id and pm.user_id = p.created_by
+  )
+on conflict (project_id, user_id) do nothing;
+
+
+commit;
+
+-- 03_rls_storage.sql — RLS policies and storage buckets/policies. Run AFTER 02.
+
+begin;
+
 
 -- ===========================================================================
 -- rls_policies
@@ -2516,8 +1923,6 @@ for each row execute function public.ensure_project_creator_member();
 alter table public.profiles enable row level security;
 alter table public.workspaces enable row level security;
 alter table public.workspace_settings enable row level security;
-alter table public.workspace_licenses enable row level security;
-alter table public.license_events enable row level security;
 alter table public.workspace_members enable row level security;
 alter table public.workspace_invitations enable row level security;
 alter table public.organizations enable row level security;
@@ -2542,12 +1947,10 @@ alter table public.attachments enable row level security;
 alter table public.notifications enable row level security;
 alter table public.marketplace_listings enable row level security;
 alter table public.marketplace_orders enable row level security;
-alter table public.marketplace_requests enable row level security;
 alter table public.professionals enable row level security;
 alter table public.project_activities enable row level security;
 alter table public.time_entries enable row level security;
 alter table public.expense_entries enable row level security;
-alter table public.promo_code_rules enable row level security;
 alter table public.payment_methods enable row level security;
 alter table public.project_cad_drawings enable row level security;
 alter table public.feature_catalog enable row level security;
@@ -2646,74 +2049,6 @@ to authenticated
 using (public.can_manage_workspace(workspace_id))
 with check (public.can_manage_workspace(workspace_id));
 
--- ── Workspace licenses ──
-
-drop policy if exists "workspace_licenses_select_member" on public.workspace_licenses;
-create policy "workspace_licenses_select_member"
-on public.workspace_licenses
-for select
-to authenticated
-using (public.is_workspace_member(workspace_id));
-
-drop policy if exists "workspace_licenses_update_manager" on public.workspace_licenses;
-create policy "workspace_licenses_update_manager"
-on public.workspace_licenses
-for update
-to authenticated
-using (public.can_manage_workspace(workspace_id))
-with check (public.can_manage_workspace(workspace_id));
-
-drop policy if exists "workspace_licenses_insert_manager" on public.workspace_licenses;
-create policy "workspace_licenses_insert_manager"
-on public.workspace_licenses
-for insert
-to authenticated
-with check (public.can_manage_workspace(workspace_id));
-
-drop policy if exists "workspace_licenses_select_platform_admin" on public.workspace_licenses;
-create policy "workspace_licenses_select_platform_admin"
-on public.workspace_licenses
-for select
-to authenticated
-using (public.is_platform_admin());
-
-drop policy if exists "workspace_licenses_insert_platform_admin" on public.workspace_licenses;
-create policy "workspace_licenses_insert_platform_admin"
-on public.workspace_licenses
-for insert
-to authenticated
-with check (public.is_platform_admin());
-
-drop policy if exists "workspace_licenses_update_platform_admin" on public.workspace_licenses;
-create policy "workspace_licenses_update_platform_admin"
-on public.workspace_licenses
-for update
-to authenticated
-using (public.is_platform_admin())
-with check (public.is_platform_admin());
-
-drop policy if exists "workspace_licenses_delete_platform_admin" on public.workspace_licenses;
-create policy "workspace_licenses_delete_platform_admin"
-on public.workspace_licenses
-for delete
-to authenticated
-using (public.is_platform_admin());
-
--- ── License events ──
-
-drop policy if exists "license_events_select_member" on public.license_events;
-create policy "license_events_select_member"
-on public.license_events
-for select
-to authenticated
-using (public.is_workspace_member(workspace_id));
-
-drop policy if exists "license_events_select_platform_admin" on public.license_events;
-create policy "license_events_select_platform_admin"
-on public.license_events
-for select
-to authenticated
-using (public.is_platform_admin());
 
 -- ── Workspace members (business workspace only for management) ──
 
@@ -2825,7 +2160,7 @@ create policy "projects_select_member"
 on public.projects
 for select
 to authenticated
-using (public.is_workspace_member(workspace_id));
+using (public.is_workspace_member(workspace_id) or public.is_platform_admin());
 
 drop policy if exists "projects_manage_ops" on public.projects;
 create policy "projects_manage_ops"
@@ -2894,8 +2229,11 @@ on public.jobs
 for select
 to authenticated
 using (
-  public.is_business_workspace(workspace_id)
-  and public.is_workspace_member(workspace_id)
+  public.is_platform_admin()
+  or (
+    public.is_business_workspace(workspace_id)
+    and public.is_workspace_member(workspace_id)
+  )
 );
 
 drop policy if exists "jobs_insert_platform_admin" on public.jobs;
@@ -3257,7 +2595,7 @@ create policy "marketplace_listings_select_member"
 on public.marketplace_listings
 for select
 to authenticated
-using (public.is_workspace_member(workspace_id) or is_global);
+using (public.is_workspace_member(workspace_id) or is_global or public.is_platform_admin());
 
 -- Legacy platform-admin-only policies are superseded by the permission-aware
 -- policies below; drop them so re-runs converge to a single policy per action.
@@ -3321,48 +2659,6 @@ using (
   or public.is_workspace_member(listing_workspace_id)
 );
 
--- ── Marketplace requests (inquiries) ──
-
--- Requester can see their own; listing workspace members can see requests on their listings.
-drop policy if exists "marketplace_requests_select" on public.marketplace_requests;
-create policy "marketplace_requests_select"
-on public.marketplace_requests
-for select
-to authenticated
-using (
-  requester_user_id = auth.uid()
-  or exists (
-    select 1 from public.marketplace_listings ml
-    where ml.id = listing_id
-      and public.is_workspace_member(ml.workspace_id)
-  )
-);
-
--- Any authenticated user can create a request.
-drop policy if exists "marketplace_requests_insert" on public.marketplace_requests;
-create policy "marketplace_requests_insert"
-on public.marketplace_requests
-for insert
-to authenticated
-with check (
-  requester_user_id = auth.uid()
-);
-
--- Requester can cancel; listing owner can accept/decline.
-drop policy if exists "marketplace_requests_update" on public.marketplace_requests;
-create policy "marketplace_requests_update"
-on public.marketplace_requests
-for update
-to authenticated
-using (
-  requester_user_id = auth.uid()
-  or exists (
-    select 1 from public.marketplace_listings ml
-    where ml.id = listing_id
-      and public.can_manage_workspace(ml.workspace_id)
-  )
-);
-
 -- ── Professionals directory (writes platform admin only) ──
 
 drop policy if exists "professionals_select_member" on public.professionals;
@@ -3370,7 +2666,7 @@ create policy "professionals_select_member"
 on public.professionals
 for select
 to authenticated
-using (public.is_workspace_member(workspace_id));
+using (public.is_workspace_member(workspace_id) or is_global or public.is_platform_admin());
 
 drop policy if exists "professionals_insert_platform_admin" on public.professionals;
 create policy "professionals_insert_platform_admin"
@@ -3566,14 +2862,6 @@ using (
   and user_id = auth.uid()
 );
 
--- ── Promo code rules ──
-
-drop policy if exists "promo_code_rules_select_authenticated" on public.promo_code_rules;
-create policy "promo_code_rules_select_authenticated"
-on public.promo_code_rules
-for select
-to authenticated
-using (active);
 
 -- ── Payment methods ──
 
@@ -4019,6 +3307,13 @@ using (
 );
 
 
+commit;
+
+-- 04_seed.sql — seeds and idempotent backfills. Run LAST.
+
+begin;
+
+
 -- ===========================================================================
 -- seed_and_backfill
 -- ===========================================================================
@@ -4030,28 +3325,39 @@ using (
 -- ── Seed: feature catalog (CAD Engine is the first feature) ──
 
 insert into public.feature_catalog (key, name, description, category, price, currency, billing_period)
-values (
-  'cad_engine',
-  'SurveyorAI CAD',
-  'AI-powered CAD engine for engineering surveying: a full-screen drafting workspace with points, linework, surfaces (TIN), layers, COGO and DXF export, plus AI-assisted drafting. Unlocks all CAD-backed project tools.',
-  'Drafting & Computation',
-  20,
-  'USD',
-  'monthly'
-)
+values
+  (
+    'cad_engine',
+    'SurveyorAI CAD',
+    'AI-powered CAD engine for engineering surveying: a full-screen drafting workspace with points, linework, surfaces (TIN), layers, COGO and DXF export, plus AI-assisted drafting. Unlocks all CAD-backed project tools.',
+    'Drafting & Computation',
+    20,
+    'USD',
+    'monthly'
+  ),
+  (
+    'cogo_professional',
+    'COGO Professional Pack',
+    'Professional survey computations: traverse adjustment, intersection, resection, area & volume, and stake-out / set-out.',
+    'COGO & Computation',
+    10,
+    'USD',
+    'monthly'
+  ),
+  (
+    'cogo_advanced',
+    'COGO Advanced Pack',
+    'Advanced road design computations: horizontal curve and vertical curve set-out.',
+    'COGO & Computation',
+    10,
+    'USD',
+    'monthly'
+  )
 on conflict (key) do nothing;
 
 -- Listing assets/instruments for hire in the Marketplace is free for every
 -- workspace, so no 'marketplace_hire' feature/permission is seeded. Any
 -- workspace admin can publish, edit and remove their own hire listings.
-
--- ── Seed: promo code rules ──
-
-insert into public.promo_code_rules (code, trial_days, signup_tier, signup_license_status, seat_bonus, project_cap_boost, asset_cap_boost, active)
-values
-  ('EARLYBIRD', 21, 'pro', 'trialing', 5, 10, 25, true),
-  ('FIELDCREW', 14, 'pro', 'trialing', 2, 5, 15, true)
-on conflict (code) do nothing;
 
 -- ── Backfill: create profiles for auth users missing one ──
 
@@ -4152,13 +3458,6 @@ ins_workspace_settings as (
   from inserted_workspaces iw
   on conflict (workspace_id) do nothing
   returning workspace_id
-),
-ins_workspace_licenses as (
-  insert into public.workspace_licenses (workspace_id)
-  select iw.id
-  from inserted_workspaces iw
-  on conflict (workspace_id) do nothing
-  returning workspace_id
 )
 select 1;
 
@@ -4219,27 +3518,86 @@ from first_workspace_per_user fw
 where p.id = fw.user_id
   and p.default_workspace_id is null;
 
--- ── Backfill: snap entitlement caps to tier defaults ──
+commit;
 
-update public.workspace_licenses wl
-set
-  seat_limit = coalesce(wl.seat_limit, case when wl.tier = 'free' then 1 when wl.tier = 'pro' then 25 else null end),
-  project_cap = coalesce(wl.project_cap, case when wl.tier = 'free' then 12 when wl.tier = 'pro' then 80 else null end),
-  asset_cap = coalesce(wl.asset_cap, case when wl.tier = 'free' then 60 when wl.tier = 'pro' then 400 else null end),
-  storage_cap_bytes = coalesce(wl.storage_cap_bytes, case when wl.tier = 'free' then 536870912 when wl.tier = 'pro' then 5368709120 else null end);
+-- ============================================================================
+-- Blockchain file anchoring (hybrid on-chain / off-chain storage)
+-- ============================================================================
+--
+-- Engineering survey files (CAD models, control coordinates, title-deed data,
+-- field captures) are sensitive and legally significant. SiteSurveyor lets a
+-- surveyor choose, PER FILE, whether to:
+--
+--   * keep the file purely OFF-CHAIN in Supabase Storage (fast, affordable), or
+--   * ANCHOR it to the Solana blockchain for tamper-evident, verifiable
+--     integrity. We never push raw file bytes on-chain (cost/privacy); instead
+--     we anchor the file's SHA-256 content hash in a transaction memo. The hash
+--     proves the off-chain object has not been altered since it was anchored.
+--
+-- This migration is idempotent and safe to re-run.
+-- ----------------------------------------------------------------------------
+
+-- Storage tier chosen for an attachment.
+DO $$ BEGIN
+  create type public.attachment_storage_tier as enum (
+    'off_chain', -- Supabase Storage only.
+    'on_chain'   -- Off-chain object + Solana hash anchor.
+  );
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+-- Lifecycle of the on-chain anchor for an attachment.
+DO $$ BEGIN
+  create type public.attachment_chain_status as enum (
+    'none',     -- Not anchored (off-chain only).
+    'pending',  -- Anchor requested; awaiting on-chain confirmation.
+    'anchored', -- Hash confirmed on-chain.
+    'failed'    -- Anchor attempt failed; user may retry.
+  );
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+-- New columns on the existing attachments table.
+alter table public.attachments
+  add column if not exists storage_tier public.attachment_storage_tier not null default 'off_chain',
+  add column if not exists chain_status public.attachment_chain_status not null default 'none',
+  -- Lowercase hex SHA-256 of the file bytes (64 chars). Used to verify the
+  -- off-chain object against the on-chain anchor.
+  add column if not exists content_hash text,
+  -- Solana transaction signature carrying the hash memo, once anchored.
+  add column if not exists chain_tx_signature text,
+  -- Solana cluster the anchor lives on (e.g. 'devnet', 'mainnet-beta').
+  add column if not exists chain_network text,
+  add column if not exists anchored_at timestamptz;
+
+-- A given on-chain anchor transaction maps to exactly one attachment.
+create unique index if not exists attachments_chain_tx_signature_key
+  on public.attachments (chain_tx_signature)
+  where chain_tx_signature is not null;
+
+-- Fast lookups of a workspace's on-chain files for the Files page KPIs.
+create index if not exists idx_attachments_workspace_chain_status
+  on public.attachments (workspace_id, chain_status);
+
+-- 07_file_manager_features.sql — Trash bin, folders, tags, and member activity log.
+-- Run AFTER 03_rls_storage.sql. Idempotent.
+
+begin;
 
 -- ===========================================================================
--- file_manager_features
--- ===========================================================================
-
 -- attachments extensions
+-- ===========================================================================
 
 alter table public.attachments
   add column if not exists deleted_at timestamptz,
   add column if not exists deleted_by uuid references auth.users (id) on delete set null,
   add column if not exists updated_at timestamptz not null default now();
 
+-- ===========================================================================
 -- folders
+-- ===========================================================================
 
 create table if not exists public.folders (
   id uuid primary key default gen_random_uuid(),
@@ -4264,7 +3622,9 @@ alter table public.attachments
 alter table public.attachments
   add column if not exists chain_program_address text;
 
+-- ===========================================================================
 -- tags
+-- ===========================================================================
 
 create table if not exists public.tags (
   id uuid primary key default gen_random_uuid(),
@@ -4279,7 +3639,9 @@ create table if not exists public.tags (
 comment on table public.tags is
   'Workspace-scoped labels that can be attached to files.';
 
+-- ===========================================================================
 -- attachment_tags
+-- ===========================================================================
 
 create table if not exists public.attachment_tags (
   attachment_id uuid not null references public.attachments (id) on delete cascade,
@@ -4291,7 +3653,9 @@ create table if not exists public.attachment_tags (
 comment on table public.attachment_tags is
   'Many-to-many join between attachments and tags.';
 
+-- ===========================================================================
 -- indexes
+-- ===========================================================================
 
 create index if not exists idx_attachments_deleted_at on public.attachments (workspace_id, deleted_at);
 create index if not exists idx_attachments_folder_id on public.attachments (folder_id);
@@ -4301,7 +3665,9 @@ create index if not exists idx_folders_parent_id on public.folders (parent_id);
 create index if not exists idx_tags_workspace_id on public.tags (workspace_id);
 create index if not exists idx_attachment_tags_tag_id on public.attachment_tags (tag_id);
 
+-- ===========================================================================
 -- updated_at helper
+-- ===========================================================================
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -4327,7 +3693,9 @@ create trigger folders_updated_at
   for each row
   execute function public.set_updated_at();
 
+-- ===========================================================================
 -- audit activity log helpers for workspace members
+-- ===========================================================================
 
 create or replace function public.log_activity(
   p_workspace_id uuid,
@@ -4399,7 +3767,9 @@ $$;
 comment on function public.list_workspace_activity_log(uuid, int, int) is
   'SECURITY DEFINER RPC so authenticated workspace members can read their own audit.activity_log rows.';
 
+-- ===========================================================================
 -- RLS (run after 03_rls_storage.sql so attachments RLS is already enabled)
+-- ===========================================================================
 
 alter table public.folders enable row level security;
 alter table public.tags enable row level security;
@@ -4478,6 +3848,7 @@ create policy "attachment_tags_manage_member"
   );
 
 -- Attachments: allow updates for soft-delete/restore and folder moves by document managers.
+-- The application is responsible for filtering deleted rows with deleted_at IS NULL.
 
 drop policy if exists "attachments_update_member" on public.attachments;
 create policy "attachments_update_member"
@@ -4487,5 +3858,1056 @@ create policy "attachments_update_member"
   using (public.can_manage_documents(workspace_id))
   with check (public.can_manage_documents(workspace_id));
 
+commit;
+
+-- 08_remove_solana_auth.sql — Remove Solana Sign-In With Wallet artifacts.
+-- Run AFTER 03_rls_storage.sql. Idempotent.
+
+begin;
+
+-- Drop the auto-cleanup trigger first so we can safely drop the function/table.
+drop trigger if exists trg_cleanup_solana_nonces on public.solana_auth_nonces;
+
+-- Drop the cleanup helper function.
+drop function if exists public.cleanup_expired_solana_nonces();
+
+-- Drop the nonce table used by the deprecated SIWS edge function.
+drop table if exists public.solana_auth_nonces;
 
 commit;
+
+-- 09_embedded_solana_wallet.sql — Storage for open-source app-embedded Solana wallets.
+-- Run after 03_rls_storage.sql. Idempotent.
+
+begin;
+
+-- Stores PIN-encrypted Solana key material and optional seed phrase for the
+-- embedded wallet feature. One wallet per user. The actual encryption/
+-- decryption happens client-side; the server only persists the encrypted blob.
+create table if not exists public.embedded_solana_wallets (
+  user_id            uuid primary key references auth.users (id) on delete cascade,
+  wallet_address     text        not null,
+  encrypted_key      text        not null,
+  iv                 text        not null,
+  salt               text        not null,
+  encrypted_mnemonic text        null,
+  mnemonic_iv        text        null,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now(),
+  -- Sanity check: the row can only be written by the owner.
+  constraint embedded_solana_wallets_user_id_check
+    check (user_id = auth.uid())
+);
+
+comment on table public.embedded_solana_wallets is
+  'Encrypted embedded Solana wallet keys and optional seed phrases. Secret keys are encrypted client-side with a user PIN; this table only stores ciphertext.';
+
+alter table public.embedded_solana_wallets enable row level security;
+
+create policy if not exists "embedded_wallets_select_own"
+  on public.embedded_solana_wallets
+  for select
+  to authenticated
+  using (user_id = auth.uid());
+
+create policy if not exists "embedded_wallets_insert_own"
+  on public.embedded_solana_wallets
+  for insert
+  to authenticated
+  with check (user_id = auth.uid());
+
+create policy if not exists "embedded_wallets_update_own"
+  on public.embedded_solana_wallets
+  for update
+  to authenticated
+  using (user_id = auth.uid())
+  with check (user_id = auth.uid());
+
+create policy if not exists "embedded_wallets_delete_own"
+  on public.embedded_solana_wallets
+  for delete
+  to authenticated
+  using (user_id = auth.uid());
+
+-- Optional: store a payment_method reference so the wallet can be selected as a payment method.
+-- This column is populated by the client after wallet creation.
+comment on column public.payment_methods.detail is
+  'For Crypto Wallet payment methods this stores the wallet address.';
+
+commit;
+
+-- 10_embedded_wallet_mnemonic.sql — Add encrypted seed-phrase columns to embedded Solana wallets.
+-- Run after 09_embedded_solana_wallet.sql. Idempotent.
+
+begin;
+
+alter table public.embedded_solana_wallets
+  add column if not exists encrypted_mnemonic text null,
+  add column if not exists mnemonic_iv        text null;
+
+comment on column public.embedded_solana_wallets.encrypted_mnemonic is
+  'BIP-39 seed phrase encrypted client-side with the same PIN used for encrypted_key.';
+
+comment on column public.embedded_solana_wallets.mnemonic_iv is
+  'Initialization vector for the encrypted_mnemonic AES-GCM ciphertext.';
+
+commit;
+
+-- Account soft-deletion support
+-- Adds a deletion-request timestamp and a scheduled purge timestamp to profiles.
+-- Existing tables are not recreated; columns are added only if missing.
+
+alter table public.profiles
+  add column if not exists deletion_requested_at timestamptz,
+  add column if not exists deleted_at timestamptz;
+
+comment on column public.profiles.deletion_requested_at is 'When the user requested account deletion. Starts a grace period before permanent removal.';
+comment on column public.profiles.deleted_at is 'Soft-delete timestamp. Account becomes inaccessible after this time.';
+
+-- 12_attachment_versions.sql — File version history.
+-- Run AFTER 07_file_manager_features.sql. Idempotent.
+
+begin;
+
+-- ===========================================================================
+-- attachment_versions
+-- ===========================================================================
+
+create table if not exists public.attachment_versions (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspaces (id) on delete cascade,
+  attachment_id uuid not null references public.attachments (id) on delete cascade,
+  storage_path text not null,
+  content_hash text,
+  size_bytes bigint,
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+comment on table public.attachment_versions is
+  'Archived copies of previous file contents for an attachment.';
+
+-- ===========================================================================
+-- indexes
+-- ===========================================================================
+
+create index if not exists idx_attachment_versions_attachment_id
+  on public.attachment_versions (attachment_id, created_at desc);
+
+create index if not exists idx_attachment_versions_workspace_id
+  on public.attachment_versions (workspace_id);
+
+-- ===========================================================================
+-- RLS
+-- ===========================================================================
+
+alter table public.attachment_versions enable row level security;
+
+drop policy if exists "attachment_versions_select_member" on public.attachment_versions;
+create policy "attachment_versions_select_member"
+  on public.attachment_versions
+  for select
+  to authenticated
+  using (public.is_workspace_member(workspace_id));
+
+drop policy if exists "attachment_versions_manage_member" on public.attachment_versions;
+create policy "attachment_versions_manage_member"
+  on public.attachment_versions
+  for all
+  to authenticated
+  using (
+    exists (
+      select 1
+      from public.attachments a
+      where a.id = attachment_versions.attachment_id
+        and public.can_manage_documents(a.workspace_id)
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.attachments a
+      where a.id = attachment_versions.attachment_id
+        and public.can_manage_documents(a.workspace_id)
+    )
+  );
+
+commit;
+
+-- Add project-level axis convention so CAD and COGO tools share the same Y/X or X/Y readout.
+-- 'yx' = Zimbabwe / RSA Gauss Conform convention (SiteSurveyor default, Y=Easting first).
+-- 'xy' = mathematical / UTM / international convention (X=Easting first).
+alter table public.projects
+  add column if not exists axis_convention text not null default 'yx';
+
+comment on column public.projects.axis_convention is
+  'Display convention for coordinate readouts: yx (Gauss, Y=Easting first) or xy (UTM, X=Easting first).';
+
+-- Project-level coordinate reference system metadata.
+-- Most survey CAD work uses a local site grid with an arbitrary origin;
+-- this lets the app distinguish local vs projected coordinates.
+
+alter table public.projects
+  add column if not exists crs_type text not null default 'local',
+  add column if not exists crs_epsg text,
+  add column if not exists local_origin_e numeric(12,3) not null default 0,
+  add column if not exists local_origin_n numeric(12,3) not null default 0;
+
+comment on column public.projects.crs_type is 'Coordinate system type: local, projected, or other.';
+comment on column public.projects.crs_epsg is 'Optional EPSG code when crs_type is projected.';
+comment on column public.projects.local_origin_e is 'Easting value treated as 0 in the local site grid.';
+comment on column public.projects.local_origin_n is 'Northing value treated as 0 in the local site grid.';
+
+-- Project-level drafting unit/precision defaults so CAD and COGO tools stay consistent.
+-- These replace the per-workstation CAD-only settings for direction format,
+-- angle entry mode, and coordinate decimal places.
+
+alter table public.projects
+  add column if not exists bearing_format text not null default 'azimuth',
+  add column if not exists angle_entry text not null default 'packed',
+  add column if not exists coord_decimals integer not null default 3;
+
+comment on column public.projects.bearing_format is 'Direction display format: azimuth, quadrant, or gon.';
+comment on column public.projects.angle_entry is 'Angle entry mode: packed, dms, decimal, or gon.';
+comment on column public.projects.coord_decimals is 'Decimal places for coordinate and distance readouts (0..6).';
+
+-- 17_billing_payment_guards.sql — Payment integrity guards.
+-- Run AFTER 03_rls_storage.sql. Idempotent.
+--
+-- Adds a BEFORE INSERT/UPDATE trigger on public.payments that:
+--   1. ensures the parent invoice belongs to the same workspace as the payment,
+--   2. prevents payments that would exceed the invoice total.
+
+begin;
+
+create or replace function public.validate_payment()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  inv_workspace_id uuid;
+  invoice_total numeric(12,2);
+  paid_total numeric(12,2);
+begin
+  -- Load the invoice referenced by the payment.
+  select workspace_id, total
+  into inv_workspace_id, invoice_total
+  from public.invoices
+  where id = new.invoice_id;
+
+  if not found then
+    raise exception 'Invoice % not found.', new.invoice_id;
+  end if;
+
+  -- 1. Workspace isolation: the invoice must belong to the payment workspace.
+  if inv_workspace_id is distinct from new.workspace_id then
+    raise exception 'Payment invoice does not belong to the payment workspace.';
+  end if;
+
+  -- 2. Over-payment guard: cumulative payments cannot exceed the invoice total.
+  select coalesce(sum(amount), 0)
+  into paid_total
+  from public.payments
+  where invoice_id = new.invoice_id
+    and id is distinct from new.id;
+
+  if paid_total + new.amount > invoice_total then
+    raise exception
+      'Payment amount % exceeds the remaining invoice balance (%).',
+      new.amount,
+      invoice_total - paid_total;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_validate_payment on public.payments;
+create trigger trg_validate_payment
+  before insert or update on public.payments
+  for each row
+  execute function public.validate_payment();
+
+commit;
+
+-- 20_offline_sync_support.sql
+-- Adds soft-delete / tombstone columns and realtime publication support for
+-- tables that take part in the local-first WatermelonDB <-> Supabase sync.
+
+begin;
+
+-- ===========================================================================
+-- projects
+-- ===========================================================================
+
+alter table public.projects
+  add column if not exists _deleted boolean not null default false;
+
+-- Existing rows are considered alive.
+update public.projects
+set _deleted = false
+where _deleted is null;
+
+create index if not exists idx_projects_workspace_updated
+  on public.projects (workspace_id, updated_at, id);
+
+-- Idempotently add to realtime publication for live sync.
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'projects'
+  ) then
+    alter publication supabase_realtime add table public.projects;
+  end if;
+end $$;
+
+-- ===========================================================================
+-- organizations
+-- ===========================================================================
+
+alter table public.organizations
+  add column if not exists _deleted boolean not null default false;
+
+update public.organizations
+set _deleted = false
+where _deleted is null;
+
+create index if not exists idx_organizations_workspace_updated
+  on public.organizations (workspace_id, updated_at, id);
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'organizations'
+  ) then
+    alter publication supabase_realtime add table public.organizations;
+  end if;
+end $$;
+
+-- ===========================================================================
+-- Helper to add a table to the realtime publication only once.
+-- ===========================================================================
+
+create or replace function private.add_table_to_realtime(p_table text)
+returns void
+language plpgsql
+as $$
+begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = p_table
+  ) then
+    execute format('alter publication supabase_realtime add table public.%I', p_table);
+  end if;
+end;
+$$;
+
+-- ===========================================================================
+-- contacts
+-- ===========================================================================
+
+alter table public.contacts
+  add column if not exists _deleted boolean not null default false;
+
+update public.contacts set _deleted = false where _deleted is null;
+
+create index if not exists idx_contacts_workspace_updated
+  on public.contacts (workspace_id, updated_at, id);
+
+select private.add_table_to_realtime('contacts');
+
+-- ===========================================================================
+-- assets
+-- ===========================================================================
+
+alter table public.assets
+  add column if not exists _deleted boolean not null default false;
+
+update public.assets set _deleted = false where _deleted is null;
+
+create index if not exists idx_assets_workspace_updated
+  on public.assets (workspace_id, updated_at, id);
+
+select private.add_table_to_realtime('assets');
+
+-- ===========================================================================
+-- asset_calibrations
+-- ===========================================================================
+
+alter table public.asset_calibrations
+  add column if not exists _deleted boolean not null default false;
+
+update public.asset_calibrations set _deleted = false where _deleted is null;
+
+create index if not exists idx_asset_calibrations_workspace_updated
+  on public.asset_calibrations (workspace_id, updated_at, id);
+
+select private.add_table_to_realtime('asset_calibrations');
+
+-- ===========================================================================
+-- asset_maintenance_events
+-- ===========================================================================
+
+alter table public.asset_maintenance_events
+  add column if not exists _deleted boolean not null default false;
+
+update public.asset_maintenance_events set _deleted = false where _deleted is null;
+
+create index if not exists idx_asset_maintenance_events_workspace_updated
+  on public.asset_maintenance_events (workspace_id, updated_at, id);
+
+select private.add_table_to_realtime('asset_maintenance_events');
+
+-- ===========================================================================
+-- time_entries
+-- ===========================================================================
+
+alter table public.time_entries
+  add column if not exists _deleted boolean not null default false;
+
+update public.time_entries set _deleted = false where _deleted is null;
+
+create index if not exists idx_time_entries_workspace_updated
+  on public.time_entries (workspace_id, updated_at, id);
+
+select private.add_table_to_realtime('time_entries');
+
+-- ===========================================================================
+-- expense_entries
+-- ===========================================================================
+
+alter table public.expense_entries
+  add column if not exists _deleted boolean not null default false;
+
+update public.expense_entries set _deleted = false where _deleted is null;
+
+create index if not exists idx_expense_entries_workspace_updated
+  on public.expense_entries (workspace_id, updated_at, id);
+
+select private.add_table_to_realtime('expense_entries');
+
+-- ===========================================================================
+-- jobs
+-- ===========================================================================
+
+alter table public.jobs
+  add column if not exists _deleted boolean not null default false;
+
+update public.jobs set _deleted = false where _deleted is null;
+
+create index if not exists idx_jobs_workspace_updated
+  on public.jobs (workspace_id, updated_at, id);
+
+select private.add_table_to_realtime('jobs');
+
+-- ===========================================================================
+-- job_events
+-- ===========================================================================
+
+alter table public.job_events
+  add column if not exists _deleted boolean not null default false;
+
+update public.job_events set _deleted = false where _deleted is null;
+
+create index if not exists idx_job_events_workspace_updated
+  on public.job_events (workspace_id, updated_at, id);
+
+select private.add_table_to_realtime('job_events');
+
+-- ===========================================================================
+-- job_assignments
+-- ===========================================================================
+
+alter table public.job_assignments
+  add column if not exists _deleted boolean not null default false;
+
+update public.job_assignments set _deleted = false where _deleted is null;
+
+create index if not exists idx_job_assignments_workspace_updated
+  on public.job_assignments (workspace_id, updated_at, id);
+
+select private.add_table_to_realtime('job_assignments');
+
+-- ===========================================================================
+-- job_assignment_members
+-- ===========================================================================
+
+alter table public.job_assignment_members
+  add column if not exists _deleted boolean not null default false,
+  add column if not exists updated_at timestamptz not null default now();
+
+update public.job_assignment_members
+set _deleted = false, updated_at = coalesce(created_at, now())
+where _deleted is null;
+
+drop trigger if exists set_updated_at_job_assignment_members on public.job_assignment_members;
+create trigger set_updated_at_job_assignment_members
+  before update on public.job_assignment_members
+  for each row execute function public.set_updated_at();
+
+create index if not exists idx_job_assignment_members_workspace_updated
+  on public.job_assignment_members (workspace_id, updated_at, id);
+
+select private.add_table_to_realtime('job_assignment_members');
+
+-- ===========================================================================
+-- job_assignment_assets
+-- ===========================================================================
+
+alter table public.job_assignment_assets
+  add column if not exists _deleted boolean not null default false,
+  add column if not exists updated_at timestamptz not null default now();
+
+update public.job_assignment_assets
+set _deleted = false, updated_at = coalesce(created_at, now())
+where _deleted is null;
+
+drop trigger if exists set_updated_at_job_assignment_assets on public.job_assignment_assets;
+create trigger set_updated_at_job_assignment_assets
+  before update on public.job_assignment_assets
+  for each row execute function public.set_updated_at();
+
+create index if not exists idx_job_assignment_assets_workspace_updated
+  on public.job_assignment_assets (workspace_id, updated_at, id);
+
+select private.add_table_to_realtime('job_assignment_assets');
+
+commit;
+
+-- 90_zimbabwe_dummy_data.sql
+-- Global demo / seed dataset for SiteSurveyor. This script seeds data into
+-- an existing workspace (the oldest one) so it appears in the app straight
+-- away: Zimbabwean clients, projects, jobs, assets, marketplace listings,
+-- professionals, quotes, invoices, etc.
+--
+-- IMPORTANT: create an account / sign in first so a workspace exists, then
+-- run this in the Supabase SQL Editor after the schema, functions/triggers,
+-- RLS and seed scripts have been applied.
+-- It is safe to re-run: it aborts early if the workspace already has data.
+
+begin;
+
+do $$
+declare
+  -- Existing workspace and its owner (populated below).
+  v_owner_id     uuid;
+  v_workspace_id uuid;
+
+  v_org_motid    uuid;
+  v_org_harare   uuid;
+  v_org_zimplats uuid;
+  v_org_econet   uuid;
+  v_org_nestle   uuid;
+  v_org_chitungwiza uuid;
+  v_org_zinara   uuid;
+  v_org_hwange   uuid;
+  v_org_murrob   uuid;
+  v_org_uz       uuid;
+  v_org_borrowdale uuid;
+
+  v_contact_motid    uuid;
+  v_contact_harare   uuid;
+  v_contact_zimplats uuid;
+  v_contact_econet  uuid;
+  v_contact_nestle  uuid;
+  v_contact_chitungwiza uuid;
+  v_contact_zinara  uuid;
+  v_contact_hwange  uuid;
+  v_contact_murrob  uuid;
+  v_contact_uz      uuid;
+  v_contact_borrowdale uuid;
+
+  v_proj_hmr uuid;
+  v_proj_kkw uuid;
+  v_proj_kdm uuid;
+  v_proj_hwt uuid;
+  v_proj_bor uuid;
+  v_proj_eco uuid;
+  v_proj_uz  uuid;
+  v_proj_chi uuid;
+  v_proj_zim uuid;
+  v_proj_bpl uuid;
+  v_proj_nor uuid;
+
+  v_asset_ts1   uuid;
+  v_asset_gnss1 uuid;
+  v_asset_drn1  uuid;
+  v_asset_lvl1  uuid;
+  v_asset_vh1   uuid;
+  v_asset_lt1   uuid;
+  v_asset_ts2   uuid;
+  v_asset_ts3   uuid;
+
+  v_job1  uuid;
+  v_job2  uuid;
+  v_job3  uuid;
+  v_job4  uuid;
+  v_job5  uuid;
+  v_job6  uuid;
+  v_job7  uuid;
+  v_job8  uuid;
+  v_job9  uuid;
+  v_job10 uuid;
+
+  v_quote1 uuid;
+  v_quote2 uuid;
+  v_quote3 uuid;
+  v_quote4 uuid;
+
+  v_inv1 uuid;
+  v_inv2 uuid;
+  v_inv3 uuid;
+
+  v_listing1 uuid;
+  v_listing2 uuid;
+  v_listing3 uuid;
+  v_listing4 uuid;
+  v_listing5 uuid;
+begin
+  -- ── 1) Loop over real workspaces and seed each one ─────────────────────
+  --
+  -- Run this AFTER signing up / creating an account so workspaces exist.
+  -- The seed skips the old demo workspace (owner = the fixed seed user below)
+  -- and fills every remaining workspace that does not already have data.
+  --
+  -- To limit it to one workspace, run first:
+  --   SET seed.workspace_id = 'your-workspace-uuid';
+
+  declare
+    v_seed_old_user_id uuid := '11111111-1111-1111-1111-111111111111';
+    v_target_id text := current_setting('seed.workspace_id', true);
+    rec record;
+  begin
+    for rec in
+      select w.id as ws_id, w.owner_user_id as owner_id, w.slug
+      from public.workspaces w
+      where w.owner_user_id <> v_seed_old_user_id
+        and (v_target_id is null or v_target_id = '' or w.id = v_target_id::uuid)
+      order by w.created_at desc
+    loop
+      v_workspace_id := rec.ws_id;
+      v_owner_id := rec.owner_id;
+
+      if exists (select 1 from public.organizations where workspace_id = v_workspace_id) then
+        continue;
+      end if;
+
+      update public.workspaces
+      set currency_code = 'USD', timezone = 'Africa/Harare', country_code = 'ZW'
+      where id = v_workspace_id;
+
+      update public.workspace_settings
+      set
+        default_currency = 'USD',
+        timezone = 'Africa/Harare',
+        country_code = 'ZW',
+        settings = jsonb_build_object('demo', true, 'country', 'Zimbabwe')
+      where workspace_id = v_workspace_id;
+
+      -- ── 2) Organisations ────────────────────────────────────────────────
+
+  insert into public.organizations (workspace_id, name, organization_type, email, phone, address, city, country_code, notes, created_by)
+  values (v_workspace_id, 'Ministry of Transport and Infrastructural Development', 'government', 'surveys@transport.gov.zw', '+263 24 279 5000', 'Kaguvi Building, 4th Floor, Central Avenue', 'Harare', 'ZW', 'National road and bridge projects', v_owner_id)
+  returning id into v_org_motid;
+
+  insert into public.organizations (workspace_id, name, organization_type, email, phone, address, city, country_code, notes, created_by)
+  values (v_workspace_id, 'Harare City Council', 'government', 'townengineer@hararecity.co.zw', '+263 24 259 3000', 'Town House, Julius Nyerere Way', 'Harare', 'ZW', 'Urban planning and surveying', v_owner_id)
+  returning id into v_org_harare;
+
+  insert into public.organizations (workspace_id, name, organization_type, email, phone, address, city, country_code, notes, created_by)
+  values (v_workspace_id, 'Zimplats Holdings', 'client', 'projects@zimplats.co.zw', '+263 862 8000', 'Ngezi Mine Complex', 'Selous', 'ZW', 'Platinum mine boundary and topo surveys', v_owner_id)
+  returning id into v_org_zimplats;
+
+  insert into public.organizations (workspace_id, name, organization_type, email, phone, address, city, country_code, notes, created_by)
+  values (v_workspace_id, 'Econet Wireless Zimbabwe', 'client', 'rollout@econet.co.zw', '+263 772 123 001', '2 Old Mutual Building, Samora Machel Avenue', 'Harare', 'ZW', 'Telecom site surveys', v_owner_id)
+  returning id into v_org_econet;
+
+  insert into public.organizations (workspace_id, name, organization_type, email, phone, address, city, country_code, notes, created_by)
+  values (v_workspace_id, 'Nestlé Zimbabwe', 'client', 'factory.manager@nestle.co.zw', '+263 242 860 000', 'Factory Road, Ardbennie', 'Harare', 'ZW', 'Industrial as-built surveys', v_owner_id)
+  returning id into v_org_nestle;
+
+  insert into public.organizations (workspace_id, name, organization_type, email, phone, address, city, country_code, notes, created_by)
+  values (v_workspace_id, 'Chitungwiza Municipality', 'government', 'townclerk@chitungwiza.gov.zw', '+263 270 2000', 'Makoni Shopping Centre, Seke Road', 'Chitungwiza', 'ZW', 'Water and roads infrastructure', v_owner_id)
+  returning id into v_org_chitungwiza;
+
+  insert into public.organizations (workspace_id, name, organization_type, email, phone, address, city, country_code, notes, created_by)
+  values (v_workspace_id, 'Zimbabwe National Roads Administration', 'government', 'projects@zinara.co.zw', '+263 242 308 801', '489 Runiville, Samora Machel Avenue East', 'Harare', 'ZW', 'Road fund road surveys', v_owner_id)
+  returning id into v_org_zinara;
+
+  insert into public.organizations (workspace_id, name, organization_type, email, phone, address, city, country_code, notes, created_by)
+  values (v_workspace_id, 'Hwange Colliery Company', 'client', 'survey@hwangecolliery.co.zw', '+263 81 283 01', 'No. 1 Industrial Road', 'Hwange', 'ZW', 'Coal expansion topographic surveys', v_owner_id)
+  returning id into v_org_hwange;
+
+  insert into public.organizations (workspace_id, name, organization_type, email, phone, address, city, country_code, notes, created_by)
+  values (v_workspace_id, 'Murray & Roberts Zimbabwe', 'subcontractor', 'ldube@murrob.co.zw', '+263 9 886 300', '15th Avenue, Belmont', 'Bulawayo', 'ZW', 'Civil works partner', v_owner_id)
+  returning id into v_org_murrob;
+
+  insert into public.organizations (workspace_id, name, organization_type, email, phone, address, city, country_code, notes, created_by)
+  values (v_workspace_id, 'University of Zimbabwe', 'client', 'estates@uz.ac.zw', '+263 242 303 211', 'University of Zimbabwe Campus', 'Harare', 'ZW', 'Campus redevelopment survey', v_owner_id)
+  returning id into v_org_uz;
+
+  insert into public.organizations (workspace_id, name, organization_type, email, phone, address, city, country_code, notes, created_by)
+  values (v_workspace_id, 'Borrowdale Estates (Pvt) Ltd', 'client', 'estates@borrowdale.co.zw', '+263 712 654 321', '123 Borrowdale Road, Borrowdale', 'Harare', 'ZW', 'Residential subdivision client', v_owner_id)
+  returning id into v_org_borrowdale;
+
+  -- ── 3) Contacts ─────────────────────────────────────────────────────────
+
+  insert into public.contacts (workspace_id, organization_id, full_name, title, contact_type, email, phone, notes, created_by)
+  values (v_workspace_id, v_org_motid, 'Shingai Mawere', 'Director of Roads', 'client', 'shingai.mawere@transport.gov.zw', '+263 24 279 5001', 'Primary liaison for road surveys', v_owner_id)
+  returning id into v_contact_motid;
+
+  insert into public.contacts (workspace_id, organization_id, full_name, title, contact_type, email, phone, notes, created_by)
+  values (v_workspace_id, v_org_harare, 'Tapiwa Manyika', 'Town Engineer', 'client', 'tapiwa.manyika@hararecity.co.zw', '+263 24 259 3001', 'Responsible for town planning approvals', v_owner_id)
+  returning id into v_contact_harare;
+
+  insert into public.contacts (workspace_id, organization_id, full_name, title, contact_type, email, phone, notes, created_by)
+  values (v_workspace_id, v_org_zimplats, 'Brian Nkomo', 'Projects Manager', 'client', 'brian.nkomo@zimplats.co.zw', '+263 862 8001', 'Mine survey coordinator', v_owner_id)
+  returning id into v_contact_zimplats;
+
+  insert into public.contacts (workspace_id, organization_id, full_name, title, contact_type, email, phone, notes, created_by)
+  values (v_workspace_id, v_org_econet, 'Rufaro Gumbo', 'Network Rollout Lead', 'client', 'rufaro.gumbo@econet.co.zw', '+263 772 123 001', 'Base station survey requests', v_owner_id)
+  returning id into v_contact_econet;
+
+  insert into public.contacts (workspace_id, organization_id, full_name, title, contact_type, email, phone, notes, created_by)
+  values (v_workspace_id, v_org_nestle, 'Peter Ndlovu', 'Factory Manager', 'client', 'peter.ndlovu@nestle.co.zw', '+263 242 860 001', 'Factory expansion surveys', v_owner_id)
+  returning id into v_contact_nestle;
+
+  insert into public.contacts (workspace_id, organization_id, full_name, title, contact_type, email, phone, notes, created_by)
+  values (v_workspace_id, v_org_chitungwiza, 'Prisca Mlilo', 'Town Planner', 'client', 'prisca.mlilo@chitungwiza.gov.zw', '+263 270 2001', 'Water reticulation authority contact', v_owner_id)
+  returning id into v_contact_chitungwiza;
+
+  insert into public.contacts (workspace_id, organization_id, full_name, title, contact_type, email, phone, notes, created_by)
+  values (v_workspace_id, v_org_zinara, 'Munyaradzi Chiwara', 'Programmes Manager', 'client', 'mchiwara@zinara.co.zw', '+263 242 308 802', 'Road fund projects', v_owner_id)
+  returning id into v_contact_zinara;
+
+  insert into public.contacts (workspace_id, organization_id, full_name, title, contact_type, email, phone, notes, created_by)
+  values (v_workspace_id, v_org_hwange, 'Vusumuzi Ncube', 'Survey Coordinator', 'client', 'vusumuzi.ncube@hwangecolliery.co.zw', '+263 81 283 02', 'Topographic survey lead', v_owner_id)
+  returning id into v_contact_hwange;
+
+  insert into public.contacts (workspace_id, organization_id, full_name, title, contact_type, email, phone, notes, created_by)
+  values (v_workspace_id, v_org_murrob, 'Lincon Dube', 'Managing Director', 'partner', 'lincon.dube@murrob.co.zw', '+263 9 886 301', 'Civil subcontractor', v_owner_id)
+  returning id into v_contact_murrob;
+
+  insert into public.contacts (workspace_id, organization_id, full_name, title, contact_type, email, phone, notes, created_by)
+  values (v_workspace_id, v_org_uz, 'Emilda Mutasa', 'Estates Director', 'client', 'emutasa@uz.ac.zw', '+263 242 303 212', 'Campus redevelopment', v_owner_id)
+  returning id into v_contact_uz;
+
+  insert into public.contacts (workspace_id, organization_id, full_name, title, contact_type, email, phone, notes, created_by)
+  values (v_workspace_id, v_org_borrowdale, 'Tatenda Manjengwa', 'Development Director', 'client', 'tmanjengwa@borrowdale.co.zw', '+263 712 654 322', 'Subdivision project owner', v_owner_id)
+  returning id into v_contact_borrowdale;
+
+  -- ── 4) Projects ─────────────────────────────────────────────────────────
+
+  insert into public.projects (workspace_id, organization_id, code, name, description, phase, datum, status, progress, starts_on, ends_on, created_by)
+  values (v_workspace_id, v_org_motid, 'HMR-2025', 'Harare–Masvingo Highway Rehabilitation Survey', 'Centre-line, topographic and drainage surveys for the Harare–Masvingo highway rehabilitation.', 'Detailed Design', 'WGS84 / UTM 36S', 'active', 45.00, '2025-01-15', '2025-12-15', v_owner_id)
+  returning id into v_proj_hmr;
+
+  insert into public.projects (workspace_id, organization_id, code, name, description, phase, datum, status, progress, starts_on, ends_on, created_by)
+  values (v_workspace_id, v_org_zinara, 'KKW-2025', 'Kwekwe–Kadoma Road Alignment', 'Preliminary alignment and cadastral impact survey for new Kwekwe–Kadoma link road.', 'Preliminary', 'WGS84 / UTM 36S', 'active', 20.00, '2025-03-01', '2026-02-28', v_owner_id)
+  returning id into v_proj_kkw;
+
+  insert into public.projects (workspace_id, organization_id, code, name, description, phase, datum, status, progress, starts_on, ends_on, created_by)
+  values (v_workspace_id, v_org_motid, 'KDM-2024', 'Kariba Dam Deformation Monitoring', 'Repetitive monitoring of dam wall deformation using precise levelling and GNSS.', 'Monitoring', 'WGS84 / UTM 36S', 'active', 80.00, '2024-02-01', '2025-08-31', v_owner_id)
+  returning id into v_proj_kdm;
+
+  insert into public.projects (workspace_id, organization_id, code, name, description, phase, datum, status, progress, starts_on, ends_on, created_by)
+  values (v_workspace_id, v_org_hwange, 'HWT-2025', 'Hwange Colliery Topographic Update', 'Large-scale topographic survey for colliery expansion planning.', 'Topographic', 'WGS84 / UTM 36S', 'active', 60.00, '2025-04-10', '2025-09-30', v_owner_id)
+  returning id into v_proj_hwt;
+
+  insert into public.projects (workspace_id, organization_id, code, name, description, phase, datum, status, progress, starts_on, ends_on, created_by)
+  values (v_workspace_id, v_org_borrowdale, 'BOR-2025', 'Borrowdale Residential Subdivision', 'Cadastral boundary survey and subdivision layout for 120 residential stands.', 'Survey', 'Arc 1950 / UTM 36S', 'active', 35.00, '2025-02-01', '2025-07-31', v_owner_id)
+  returning id into v_proj_bor;
+
+  insert into public.projects (workspace_id, organization_id, code, name, description, phase, datum, status, progress, starts_on, ends_on, created_by)
+  values (v_workspace_id, v_org_econet, 'ECO-2025', 'Econet Base Station Survey – Harare North', 'Topographic and access surveys for 12 new macro cell towers.', 'Site Survey', 'WGS84 / UTM 36S', 'active', 55.00, '2025-01-20', '2025-06-30', v_owner_id)
+  returning id into v_proj_eco;
+
+  insert into public.projects (workspace_id, organization_id, code, name, description, phase, datum, status, progress, starts_on, ends_on, created_by)
+  values (v_workspace_id, v_org_uz, 'UZ-2025', 'University of Zimbabwe Campus Redevelopment Survey', 'Control network, mapping and setting-out for new faculty buildings.', 'Mapping', 'WGS84 / UTM 36S', 'active', 40.00, '2025-01-06', '2025-12-20', v_owner_id)
+  returning id into v_proj_uz;
+
+  insert into public.projects (workspace_id, organization_id, code, name, description, phase, datum, status, progress, starts_on, ends_on, created_by)
+  values (v_workspace_id, v_org_chitungwiza, 'CHI-2025', 'Chitungwiza Water Reticulation As-Built Survey', 'As-built survey of 18 km water mains and valve chambers.', 'As-Built', 'WGS84 / UTM 36S', 'active', 70.00, '2025-03-15', '2025-08-15', v_owner_id)
+  returning id into v_proj_chi;
+
+  insert into public.projects (workspace_id, organization_id, code, name, description, phase, datum, status, progress, starts_on, ends_on, created_by)
+  values (v_workspace_id, v_org_zimplats, 'ZIM-2025', 'Zimplats Ngezi Mine Boundary Survey', 'Re-establishment of mine lease boundary beacons and title plan update.', 'Boundary', 'WGS84 / UTM 36S', 'active', 25.00, '2025-05-01', '2025-10-31', v_owner_id)
+  returning id into v_proj_zim;
+
+  insert into public.projects (workspace_id, organization_id, code, name, description, phase, datum, status, progress, starts_on, ends_on, created_by)
+  values (v_workspace_id, v_org_zinara, 'BPL-2024', 'Bulawayo–Plumtree Road As-Built', 'As-built survey and pavement layer checks for completed road.', 'Final As-Built', 'WGS84 / UTM 35S', 'completed', 100.00, '2024-01-10', '2024-12-20', v_owner_id)
+  returning id into v_proj_bpl;
+
+  insert into public.projects (workspace_id, organization_id, code, name, description, phase, datum, status, progress, starts_on, ends_on, created_by)
+  values (v_workspace_id, v_org_nestle, 'NES-2025', 'Nestlé Ardbennie Factory Layout Survey', 'Setting-out and as-built survey for new production line foundation.', 'Construction', 'WGS84 / UTM 36S', 'active', 15.00, '2025-06-01', '2025-09-30', v_owner_id)
+  returning id into v_proj_nor;
+
+  insert into public.project_contacts (workspace_id, project_id, contact_id, relation)
+  values
+    (v_workspace_id, v_proj_hmr, v_contact_motid,   'client representative'),
+    (v_workspace_id, v_proj_kkw, v_contact_zinara,  'client representative'),
+    (v_workspace_id, v_proj_bor, v_contact_borrowdale, 'client representative'),
+    (v_workspace_id, v_proj_eco, v_contact_econet,    'client representative'),
+    (v_workspace_id, v_proj_uz,  v_contact_uz,        'client representative'),
+    (v_workspace_id, v_proj_chi, v_contact_chitungwiza, 'client representative'),
+    (v_workspace_id, v_proj_zim, v_contact_zimplats,  'client representative'),
+    (v_workspace_id, v_proj_hwt, v_contact_hwange,    'client representative')
+  on conflict do nothing;
+
+  -- ── 5) Assets & calibration/maintenance ───────────────────────────────
+
+  insert into public.assets (workspace_id, asset_code, name, kind, category, make, model, serial_number, status, purchase_date, purchase_cost, current_value, metadata, created_by)
+  values (v_workspace_id, 'TS-001', 'Leica TS16 R500 Total Station', 'instrument', 'Total Station', 'Leica', 'TS16 R500', 'SN-TS16-2022-A001', 'available', '2022-03-15', 48500.00, 42000.00, '{"accuracy":"2\" + 2ppm"}'::jsonb, v_owner_id)
+  returning id into v_asset_ts1;
+
+  insert into public.assets (workspace_id, asset_code, name, kind, category, make, model, serial_number, status, purchase_date, purchase_cost, current_value, metadata, created_by)
+  values (v_workspace_id, 'GNSS-001', 'Trimble R8s GNSS Receiver', 'instrument', 'GNSS', 'Trimble', 'R8s', 'SN-R8S-2021-0045', 'available', '2021-06-10', 32000.00, 28000.00, '{"channels":440,"rtk":true}'::jsonb, v_owner_id)
+  returning id into v_asset_gnss1;
+
+  insert into public.assets (workspace_id, asset_code, name, kind, category, make, model, serial_number, status, purchase_date, purchase_cost, current_value, metadata, created_by)
+  values (v_workspace_id, 'DRN-001', 'DJI Phantom 4 RTK Drone', 'equipment', 'UAV', 'DJI', 'Phantom 4 RTK', 'SN-P4RTK-2023-0110', 'available', '2023-02-20', 8500.00, 7200.00, '{"camera":"1\" CMOS","rtk":true}'::jsonb, v_owner_id)
+  returning id into v_asset_drn1;
+
+  insert into public.assets (workspace_id, asset_code, name, kind, category, make, model, serial_number, status, purchase_date, purchase_cost, current_value, metadata, created_by)
+  values (v_workspace_id, 'LV-001', 'Sokkia B40A Auto Level', 'instrument', 'Level', 'Sokkia', 'B40A', 'SN-B40A-2020-0092', 'maintenance', '2020-08-12', 2200.00, 1400.00, '{"accuracy":"1.5mm/km"}'::jsonb, v_owner_id)
+  returning id into v_asset_lvl1;
+
+  insert into public.assets (workspace_id, asset_code, name, kind, category, make, model, serial_number, status, purchase_date, purchase_cost, current_value, metadata, created_by)
+  values (v_workspace_id, 'VH-001', 'Toyota Hilux Survey Vehicle', 'vehicle', '4x4 Vehicle', 'Toyota', 'Hilux 2.8 GD-6', 'REG-GEOSURVEY-HW', 'deployed', '2022-11-01', 62000.00, 52000.00, '{"odo_km":48700}'::jsonb, v_owner_id)
+  returning id into v_asset_vh1;
+
+  insert into public.assets (workspace_id, asset_code, name, kind, category, make, model, serial_number, status, purchase_date, purchase_cost, current_value, metadata, created_by)
+  values (v_workspace_id, 'LT-001', 'Lenovo ThinkPad P1 Field Laptop', 'equipment', 'Laptop', 'Lenovo', 'ThinkPad P1 Gen 6', 'SN-TPP1-2024-0333', 'available', '2024-01-15', 3200.00, 3000.00, '{"os":"Windows 11 Pro","ssd":"1TB"}'::jsonb, v_owner_id)
+  returning id into v_asset_lt1;
+
+  insert into public.assets (workspace_id, asset_code, name, kind, category, make, model, serial_number, status, purchase_date, purchase_cost, current_value, metadata, created_by)
+  values (v_workspace_id, 'TS-002', 'Topcon GM-50 Total Station', 'instrument', 'Total Station', 'Topcon', 'GM-50', 'SN-GM50-2018-0077', 'retired', '2018-04-10', 18000.00, 0.00, '{"retired_reason":"damaged in field accident"}'::jsonb, v_owner_id)
+  returning id into v_asset_ts2;
+
+  insert into public.assets (workspace_id, asset_code, name, kind, category, make, model, serial_number, status, purchase_date, purchase_cost, current_value, metadata, created_by)
+  values (v_workspace_id, 'TS-003', 'Trimble SX10 Scanning Total Station', 'instrument', 'Scanning Total Station', 'Trimble', 'SX10', 'SN-SX10-2023-0008', 'available', '2023-09-01', 95000.00, 89000.00, '{"scanning":true,"accuracy":"1\" + 2ppm"}'::jsonb, v_owner_id)
+  returning id into v_asset_ts3;
+
+  insert into public.asset_calibrations (workspace_id, asset_id, calibration_date, next_calibration_date, calibration_status, certificate_number, certificate_path, provider_name, notes, created_by)
+  values
+    (v_workspace_id, v_asset_ts1, '2025-01-10', '2026-01-10', 'passed', 'CERT-TS16-2025-001', 'calibrations/cert-ts16-2025-001.pdf', 'Survey Instruments Africa', 'Annual EDM calibration.', v_owner_id),
+    (v_workspace_id, v_asset_gnss1, '2025-01-12', '2025-07-12', 'passed', 'CERT-R8S-2025-001', 'calibrations/cert-r8s-2025-001.pdf', 'Trimble Zimbabwe', 'Semi-annual GNSS calibration.', v_owner_id),
+    (v_workspace_id, v_asset_lvl1, '2024-06-01', '2025-06-01', 'expired', 'CERT-B40A-2024-001', 'calibrations/cert-b40a-2024-001.pdf', 'Survey Instruments Africa', 'Due for service.', v_owner_id);
+
+  insert into public.asset_maintenance_events (workspace_id, asset_id, serviced_on, description, cost, provider_name, created_by)
+  values
+    (v_workspace_id, v_asset_vh1, '2025-02-15', 'Scheduled 50,000 km service incl. diff oil.', 480.00, 'Toyota Zimbabwe', v_owner_id),
+    (v_workspace_id, v_asset_lvl1, '2025-04-02', 'Replaced compensator; pending re-calibration.', 320.00, 'Survey Instruments Africa', v_owner_id);
+
+  -- ── 6) Jobs & job events ────────────────────────────────────────────────
+
+  insert into public.jobs (workspace_id, project_id, title, description, job_type, location, status, scheduled_start, scheduled_end, created_by)
+  values (v_workspace_id, v_proj_hmr, 'Route Centreline Survey – HMR Section A', 'Establish centreline from Harare to Beatrice.', 'Route Survey', 'Harare–Beatrice Road', 'in_progress', '2025-01-20 07:00:00+02', '2025-03-10 17:00:00+02', v_owner_id)
+  returning id into v_job1;
+
+  insert into public.jobs (workspace_id, project_id, title, description, job_type, location, status, scheduled_start, scheduled_end, created_by)
+  values (v_workspace_id, v_proj_hmr, 'Drainage Catchment Topographic Survey', 'Topographic survey of drainage crossings and catchment areas.', 'Topographic Survey', 'Harare–Masvingo Highway', 'completed', '2025-02-05 07:00:00+02', '2025-03-05 17:00:00+02', v_owner_id)
+  returning id into v_job2;
+
+  insert into public.jobs (workspace_id, project_id, title, description, job_type, location, status, scheduled_start, scheduled_end, created_by)
+  values (v_workspace_id, v_proj_bor, 'Subdivision Boundary Survey', 'Cadastral survey and beacon replacement.', 'Boundary Survey', 'Borrowdale Estate, Harare', 'in_progress', '2025-02-10 07:00:00+02', '2025-04-30 17:00:00+02', v_owner_id)
+  returning id into v_job3;
+
+  insert into public.jobs (workspace_id, project_id, title, description, job_type, location, status, scheduled_start, scheduled_end, created_by)
+  values (v_workspace_id, v_proj_uz, 'Campus Control Network Establishment', 'Establish primary and secondary control for setting-out.', 'Control Survey', 'University of Zimbabwe, Harare', 'in_progress', '2025-01-13 07:00:00+02', '2025-02-28 17:00:00+02', v_owner_id)
+  returning id into v_job4;
+
+  insert into public.jobs (workspace_id, project_id, title, description, job_type, location, status, scheduled_start, scheduled_end, created_by)
+  values (v_workspace_id, v_proj_hwt, 'Open Cast Pit Detail Survey', 'Detailed pit rim and stockpile volume survey.', 'Topographic Survey', 'Hwange Colliery, Hwange', 'in_progress', '2025-04-15 07:00:00+02', '2025-07-15 17:00:00+02', v_owner_id)
+  returning id into v_job5;
+
+  insert into public.jobs (workspace_id, project_id, title, description, job_type, location, status, scheduled_start, scheduled_end, created_by)
+  values (v_workspace_id, v_proj_eco, 'Macro Site Topographic Surveys', 'Topographic survey for 12 macro tower sites.', 'Site Survey', 'Harare North', 'in_progress', '2025-01-25 07:00:00+02', '2025-05-30 17:00:00+02', v_owner_id)
+  returning id into v_job6;
+
+  insert into public.jobs (workspace_id, project_id, title, description, job_type, location, status, scheduled_start, scheduled_end, created_by)
+  values (v_workspace_id, v_proj_zim, 'Mine Lease Beaconing', 'Re-establish boundary beacons and prepare diagram.', 'Boundary Survey', 'Ngezi Mine, Selous', 'scheduled', '2025-05-12 07:00:00+02', '2025-08-30 17:00:00+02', v_owner_id)
+  returning id into v_job7;
+
+  insert into public.jobs (workspace_id, project_id, title, description, job_type, location, status, scheduled_start, scheduled_end, created_by)
+  values (v_workspace_id, v_proj_chi, 'As-Built Water Main Survey', 'Survey water mains, valves and chambers from as-built drawings.', 'As-Built Survey', 'Chitungwiza', 'in_progress', '2025-03-20 07:00:00+02', '2025-06-20 17:00:00+02', v_owner_id)
+  returning id into v_job8;
+
+  insert into public.jobs (workspace_id, project_id, title, description, job_type, location, status, scheduled_start, scheduled_end, created_by)
+  values (v_workspace_id, v_proj_bpl, 'Pavement Layer As-Built Checks', 'Core verification and road surface level checks.', 'As-Built Survey', 'Bulawayo–Plumtree Road', 'completed', '2024-10-01 07:00:00+02', '2024-11-30 17:00:00+02', v_owner_id)
+  returning id into v_job9;
+
+  insert into public.jobs (workspace_id, project_id, title, description, job_type, location, status, scheduled_start, scheduled_end, created_by)
+  values (v_workspace_id, v_proj_nor, 'Production Line Foundation Setting-Out', 'Setting out bolt groups and gridlines for new line.', 'Construction Survey', 'Nestlé Ardbennie, Harare', 'planned', '2025-06-10 07:00:00+02', '2025-07-15 17:00:00+02', v_owner_id)
+  returning id into v_job10;
+
+  insert into public.job_events (workspace_id, project_id, job_id, title, event_type, event_date, start_time, end_time, location, notes, created_by)
+  values
+    (v_workspace_id, v_proj_hmr, v_job1, 'Mobilisation meeting with MOTID', 'meeting', '2025-01-20', '08:00', '09:30', 'Harare', 'Agreed access protocol and survey schedule.', v_owner_id),
+    (v_workspace_id, v_proj_bor, v_job3, 'Boundary beacon replacement completed', 'milestone', '2025-03-15', '07:00', '17:00', 'Borrowdale', 'Replaced 14 beacons; awaiting diagram approval.', v_owner_id),
+    (v_workspace_id, v_proj_uz,  v_job4, 'Primary control points handed over', 'milestone', '2025-02-10', '10:00', '11:00', 'UZ Campus', '14 primary control points accepted.', v_owner_id);
+
+  -- ── 7) Quotes & quote items ─────────────────────────────────────────────
+
+  insert into public.quotes (workspace_id, project_id, organization_id, contact_id, quote_number, issue_date, expires_on, status, currency_code, subtotal, tax_total, total, notes, created_by)
+  values (v_workspace_id, v_proj_hmr, v_org_motid, v_contact_motid, 'Q-2025-001', '2025-01-10', current_date + interval '30 days', 'sent', 'USD', 45000.00, 0.00, 45000.00, 'MOTID highway survey quote', v_owner_id)
+  returning id into v_quote1;
+
+  insert into public.quotes (workspace_id, project_id, organization_id, contact_id, quote_number, issue_date, expires_on, status, currency_code, subtotal, tax_total, total, notes, accepted_at, created_by)
+  values (v_workspace_id, v_proj_bor, v_org_borrowdale, v_contact_borrowdale, 'Q-2025-002', '2025-02-05', current_date + interval '14 days', 'accepted', 'USD', 12500.00, 0.00, 12500.00, 'Borrowdale residential subdivision', now(), v_owner_id)
+  returning id into v_quote2;
+
+  insert into public.quotes (workspace_id, project_id, organization_id, contact_id, quote_number, issue_date, expires_on, status, currency_code, subtotal, tax_total, total, notes, created_by)
+  values (v_workspace_id, v_proj_eco, v_org_econet, v_contact_econet, 'Q-2025-003', '2025-01-22', current_date + interval '21 days', 'draft', 'USD', 8200.00, 0.00, 8200.00, 'Econet macro site surveys', v_owner_id)
+  returning id into v_quote3;
+
+  insert into public.quotes (workspace_id, project_id, organization_id, contact_id, quote_number, issue_date, expires_on, status, currency_code, subtotal, tax_total, total, notes, created_by)
+  values (v_workspace_id, v_proj_uz, v_org_uz, v_contact_uz, 'Q-2025-004', '2025-01-08', current_date + interval '21 days', 'sent', 'USD', 18000.00, 0.00, 18000.00, 'UZ campus redevelopment survey', v_owner_id)
+  returning id into v_quote4;
+
+  insert into public.quote_items (workspace_id, quote_id, line_number, description, qty, unit, rate)
+  values
+    (v_workspace_id, v_quote1, 1, 'Route centreline survey (80 km)', 80, 'km', 350.00),
+    (v_workspace_id, v_quote1, 2, 'Topographic survey (cross-sections)', 120, 'km', 100.00),
+    (v_workspace_id, v_quote1, 3, 'MOGS and data processing', 1, 'lump sum', 5000.00),
+    (v_workspace_id, v_quote2, 1, 'Cadastral boundary survey', 120, 'stands', 75.00),
+    (v_workspace_id, v_quote2, 2, 'Diagrams and title plan preparation', 1, 'lump sum', 3500.00),
+    (v_workspace_id, v_quote3, 1, 'Macro site topographic survey', 12, 'site', 500.00),
+    (v_workspace_id, v_quote3, 2, 'Access road profile', 12, 'site', 150.00),
+    (v_workspace_id, v_quote3, 3, 'Site coordination and tower coordinates', 1, 'lump sum', 400.00),
+    (v_workspace_id, v_quote4, 1, 'Control network establishment', 1, 'lump sum', 6500.00),
+    (v_workspace_id, v_quote4, 2, 'Campus detail topographic survey', 1, 'lump sum', 7500.00),
+    (v_workspace_id, v_quote4, 3, 'Setting-out and as-built', 1, 'lump sum', 4000.00);
+
+  -- ── 8) Invoices, items and payments ────────────────────────────────────
+
+  insert into public.invoices (workspace_id, project_id, organization_id, contact_id, invoice_number, issue_date, due_date, status, currency_code, subtotal, tax_total, total, paid_at, notes, created_by)
+  values (v_workspace_id, v_proj_hmr, v_org_motid, v_contact_motid, 'INV-2025-001', '2025-02-28', current_date + interval '14 days', 'paid', 'USD', 22500.00, 0.00, 22500.00, '2025-03-10 12:00:00+02', '50% mobilisation invoice – MOTID', v_owner_id)
+  returning id into v_inv1;
+
+  insert into public.invoices (workspace_id, project_id, organization_id, contact_id, invoice_number, issue_date, due_date, status, currency_code, subtotal, tax_total, total, notes, created_by)
+  values (v_workspace_id, v_proj_bor, v_org_borrowdale, v_contact_borrowdale, 'INV-2025-002', '2025-03-01', current_date + interval '14 days', 'sent', 'USD', 6250.00, 0.00, 6250.00, 'Deposit invoice – Borrowdale Estates', v_owner_id)
+  returning id into v_inv2;
+
+  insert into public.invoices (workspace_id, project_id, organization_id, contact_id, invoice_number, issue_date, due_date, status, currency_code, subtotal, tax_total, total, notes, created_by)
+  values (v_workspace_id, v_proj_hwt, v_org_hwange, v_contact_hwange, 'INV-2025-003', '2025-04-15', current_date - interval '5 days', 'overdue', 'USD', 9500.00, 0.00, 9500.00, 'Progress invoice – Hwange Colliery', v_owner_id)
+  returning id into v_inv3;
+
+  insert into public.invoice_items (workspace_id, invoice_id, line_number, description, qty, unit, rate)
+  values
+    (v_workspace_id, v_inv1, 1, 'Mobilisation fee – Harare–Masvingo survey', 1, 'lump sum', 7500.00),
+    (v_workspace_id, v_inv1, 2, 'Centreline survey progress (40 km)', 40, 'km', 375.00),
+    (v_workspace_id, v_inv2, 1, 'Boundary survey deposit (50%)', 1, 'lump sum', 6250.00),
+    (v_workspace_id, v_inv3, 1, 'Open-cast pit detail survey', 1, 'lump sum', 9500.00);
+
+  insert into public.payments (workspace_id, invoice_id, paid_on, amount, payment_method, reference, notes, created_by)
+  values (v_workspace_id, v_inv1, '2025-03-12', 22500.00, 'Bank Transfer', 'REF-001-CBZ-MOTID', 'Paid in full via CBZ transfer', v_owner_id);
+
+  -- ── 9) Marketplace listings, orders & requests ──────────────────────────
+
+  insert into public.marketplace_listings (workspace_id, name, type, condition, price, currency, seller, location, description, specs, is_global)
+  values (v_workspace_id, 'Trimble R8s GNSS Receiver – Hire', 'hire', 'good', 120.00, 'USD', 'GeoSurvey Zimbabwe', 'Harare', 'Daily hire of Trimble R8s with GSM modem. Delivery available in Harare.', ARRAY['GNSS receiver','GSM modem','carry case']::text[], true)
+  returning id into v_listing1;
+
+  insert into public.marketplace_listings (workspace_id, name, type, condition, price, currency, seller, location, description, specs, is_global)
+  values (v_workspace_id, 'DJI Phantom 4 RTK Drone – Hire', 'hire', 'excellent', 800.00, 'USD', 'GeoSurvey Zimbabwe', 'Harare', 'Weekly hire of P4 RTK with base station and batteries.', ARRAY['RTK drone','3 batteries','D-RTK 2 base station']::text[], true)
+  returning id into v_listing2;
+
+  insert into public.marketplace_listings (workspace_id, name, type, condition, price, currency, seller, location, description, specs, is_global)
+  values (v_workspace_id, 'Leica TS06 Plus 5" Total Station', 'sale', 'used', 8500.00, 'USD', 'GeoSurvey Zimbabwe', 'Harare', 'Used but calibrated and field-ready Leica TS06. Serial 5 years old.', ARRAY['Total station','5" accuracy','charger and tripod included']::text[], true)
+  returning id into v_listing3;
+
+  insert into public.marketplace_listings (workspace_id, name, type, condition, price, currency, seller, location, description, specs, is_global)
+  values (v_workspace_id, 'Toyota Hilux 2.4 GD-6 Survey Vehicle', 'sale', 'good', 42000.00, 'USD', 'GeoSurvey Zimbabwe', 'Harare', '2019 Hilux with survey body and roof-mounted GNSS mast.', ARRAY['4x4','toolboxes','GNSS mast','ODO 92,000 km']::text[], false)
+  returning id into v_listing4;
+
+  insert into public.marketplace_listings (workspace_id, name, type, condition, price, currency, seller, location, description, specs, is_global)
+  values (v_workspace_id, 'Sokkia Heavy-Duty Aluminium Tripod', 'sale', 'new', 90.00, 'USD', 'GeoSurvey Zimbabwe', 'Harare', 'Brand-new heavy-duty tripod for total station and level work.', ARRAY['Aluminium tripod','quick clamp','carry bag']::text[], true)
+  returning id into v_listing5;
+
+  insert into public.marketplace_orders (buyer_workspace_id, listing_workspace_id, listing_id, amount, currency, platform_fee_amount, provider, external_payment_ref, payment_status, metadata)
+  values (v_workspace_id, v_workspace_id, v_listing1, 120.00, 'USD', 5.00, 'manual', 'ORD-2025-001', 'paid', '{"rental_days":1}'::jsonb);
+
+  insert into public.marketplace_requests (listing_id, requester_workspace_id, requester_user_id, status, message, desired_start_date, desired_end_date)
+  values (v_listing2, v_workspace_id, v_owner_id, 'pending', 'Can we hire the P4 RTK for two weeks in August for a Hwange survey?', '2025-08-04', '2025-08-15');
+
+  -- ── 10) Professionals directory ─────────────────────────────────────────
+
+  insert into public.professionals (workspace_id, name, title, discipline, experience, location, rate, rate_per, currency, availability, rating, reviews, skills, bio, certifications, is_global)
+  values
+    (v_workspace_id, 'Tendai Moyo', 'Principal Land Surveyor', 'Land Surveying', '18 years', 'Harare', 150.00, 'hour', 'USD', 'available', 4.9, 12, ARRAY['Boundary surveys','Cadastral','GPS']::text[], 'Registered Zimbabwean land surveyor; PSC registration.', ARRAY['Land Surveyor - PRAZ']::text[], true),
+    (v_workspace_id, 'Privilege Ndlovu', 'Senior Engineering Surveyor', 'Engineering Surveying', '12 years', 'Harare', 120.00, 'hour', 'USD', 'available', 4.7, 8, ARRAY['Roads','Setting out','Earthworks']::text[], 'Engineering surveyor specialised in road and infrastructure projects.', ARRAY['BSc Surveying','PRAZ']::text[], true),
+    (v_workspace_id, 'Rudo Chikwava', 'Operations Manager', 'Survey Operations', '10 years', 'Harare', 95.00, 'hour', 'USD', 'available', 4.8, 5, ARRAY['Project management','Logistics','Safety']::text[], 'Manages field operations and resource scheduling.', ARRAY['PRAZ Technician']::text[], false),
+    (v_workspace_id, 'Nyasha Tsoka', 'Survey Technician', 'Field Surveying', '4 years', 'Harare', 50.00, 'hour', 'USD', 'available', 4.5, 3, ARRAY['Total station','Level','Drone data capture']::text[], 'Field technician with UAV experience.', ARRAY['Civil Aviation drone license']::text[], false);
+
+  -- ── 11) Time & expense entries ──────────────────────────────────────────
+
+  insert into public.time_entries (workspace_id, user_id, project_id, entry_date, task, hours, billable, notes)
+  values
+    (v_workspace_id, v_owner_id, v_proj_hmr, '2025-03-03', 'Route centreline survey', 8.00, true, 'Section A fieldwork'),
+    (v_workspace_id, v_owner_id, v_proj_hmr, '2025-03-03', 'Instrument operation', 8.00, true, 'Assisted with centreline'),
+    (v_workspace_id, v_owner_id, v_proj_bor, '2025-03-04', 'Cadastral boundary survey', 7.50, true, 'Borrowdale beacon search'),
+    (v_workspace_id, v_owner_id, v_proj_hwt, '2025-04-16', 'Drone topographic capture', 6.00, true, 'Pit rim survey with P4 RTK'),
+    (v_workspace_id, v_owner_id, v_proj_uz, '2025-02-12', 'Primary control network', 4.00, true, 'Control point coordination');
+
+  insert into public.expense_entries (workspace_id, user_id, project_id, entry_date, category, amount, vendor, reimbursable, notes)
+  values
+    (v_workspace_id, v_owner_id, v_proj_hmr, '2025-03-03', 'Fuel', 75.00, 'Total Service Station Harare', true, 'Field vehicle fuel for HMR run'),
+    (v_workspace_id, v_owner_id, v_proj_hmr, '2025-03-04', 'Accommodation', 120.00, 'Cresta Lodge Beatrice', true, 'Overnight near site'),
+    (v_workspace_id, v_owner_id, v_proj_hwt, '2025-04-16', 'Air travel', 340.00, 'Fastjet Zimbabwe', true, 'Harare–Hwange return for pit survey'),
+    (v_workspace_id, v_owner_id, v_proj_bor, '2025-03-04', 'Subcontractor fees', 200.00, 'Murray & Roberts Zimbabwe', false, 'Hired labour for beacon relocation');
+
+  -- ── 12) Project activities ─────────────────────────────────────────────
+
+  insert into public.project_activities (project_id, user_id, content, activity_type)
+  values
+    (v_proj_hmr, v_owner_id, 'Mobilised to site and confirmed access with MOTID.', 'note'),
+    (v_proj_bor, v_owner_id, '14 boundary beacons replaced. Diagram drafted.', 'milestone'),
+    (v_proj_uz,  v_owner_id, 'Primary control network accepted by UZ Estates.', 'milestone'),
+    (v_proj_hwt, v_owner_id, 'P4 RTK pit rim survey completed ahead of schedule.', 'note'),
+    (v_proj_eco, v_owner_id, 'Site 3 topographic data uploaded for review.', 'note');
+
+  -- ── 13) Notifications ─────────────────────────────────────────────
+
+  insert into public.notifications (workspace_id, user_id, title, body, status)
+  values
+    (v_workspace_id, v_owner_id, 'New project assigned', 'You have been assigned as lead on Harare–Masvingo Highway Rehabilitation Survey.', 'unread'),
+    (v_workspace_id, v_owner_id, 'Quote accepted', 'Borrowdale Estates accepted Q-2025-002. Prepare invoice.', 'unread'),
+    (v_workspace_id, v_owner_id, 'Payment received', 'CBZ deposit of USD 22,500 received for INV-2025-001.', 'unread'),
+    (v_workspace_id, v_owner_id, 'Calibration due', 'Sokkia B40A auto level calibration has expired.', 'unread'),
+    (v_workspace_id, v_owner_id, 'Job assignment', 'You are assigned to Harare–Masvingo Section A as instrument operator.', 'unread');
+
+  -- ── 14) Audit trail ─────────────────────────────────────────────────────
+
+  insert into audit.activity_log (workspace_id, actor_user_id, entity_table, entity_id, action, details)
+  values
+    (v_workspace_id, v_owner_id, 'workspaces', v_workspace_id, 'created', '{"note":"Zimbabwe demo workspace created"}'::jsonb),
+    (v_workspace_id, v_owner_id, 'projects', v_proj_hmr, 'created', '{"description":"Harare–Masvingo Highway project seeded"}'::jsonb),
+    (v_workspace_id, v_owner_id, 'invoices', v_inv1, 'marked_paid', '{"amount":22500,"currency":"USD"}'::jsonb),
+    (v_workspace_id, v_owner_id, 'marketplace_orders', v_listing1, 'created', '{"amount":120,"currency":"USD"}'::jsonb);
+
+    raise notice 'Zimbabwe seed data loaded into workspace % (%)', v_workspace_id, rec.slug;
+  end loop;
+
+  if v_workspace_id is null then
+    raise notice 'No real workspace found. Sign up first to create an account/workspace, then run this seed.';
+    return;
+  end if;
+end;
+end $$;
+
+commit;
+

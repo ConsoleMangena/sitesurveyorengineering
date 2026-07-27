@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { runCommand, type CommandContext } from "./useCadCommands.ts";
-import { emptyModel } from "./cadModel.ts";
+import { emptyModel, type CadModelState } from "./cadModel.ts";
 import type { UseCadModel } from "./useCadModel.ts";
 
 /**
@@ -75,5 +75,51 @@ describe("runCommand — layout / plot", () => {
     const noLayout: CommandContext = { ...ctx, layout: undefined };
     runCommand("PLOT", noLayout);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("unavailable"), "error");
+  });
+});
+
+describe("runCommand — hatch", () => {
+  it("HATCH converts a selected closed boundary into a hatch", () => {
+    const model: CadModelState = emptyModel();
+    model.linework.push({
+      id: "lw1",
+      kind: "boundary",
+      vertices: [{ n: 0, e: 0 }, { n: 10, e: 0 }, { n: 10, e: 10 }],
+      closed: true,
+      layerId: "0",
+    });
+    const log = vi.fn();
+    const addHatch = vi.fn((h) => {
+      const created = { ...h, id: "h1" };
+      model.hatches.push(created);
+      return created;
+    });
+    const ensureLayerById = vi.fn();
+    const ctx: CommandContext = {
+      cad: {
+        model,
+        selection: { type: "linework", id: "lw1" },
+        addHatch,
+        ensureLayerById,
+      } as unknown as UseCadModel,
+      bearingFormat: "azimuth",
+      axisConvention: "yx",
+      setTool: vi.fn(),
+      log,
+      fitExtents: vi.fn(),
+    };
+    runCommand("HATCH", ctx);
+    expect(ensureLayerById).toHaveBeenCalledWith("HATCHES");
+    expect(addHatch).toHaveBeenCalledOnce();
+    expect(model.hatches).toHaveLength(1);
+    expect(model.hatches[0].vertices).toHaveLength(3);
+    expect(log).toHaveBeenLastCalledWith(expect.stringContaining("Hatch created"));
+  });
+
+  it("HATCH errors without a closed boundary selection", () => {
+    const { ctx } = makeCtx();
+    ctx.log = vi.fn();
+    runCommand("HATCH", ctx);
+    expect(ctx.log).toHaveBeenLastCalledWith("HATCH: select a single closed boundary first.", "error");
   });
 });

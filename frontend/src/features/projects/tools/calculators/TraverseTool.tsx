@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   computeTraverse,
   forward,
@@ -7,6 +7,11 @@ import {
 } from "../../components/cad/survey/cogo.ts";
 import { parseBearing } from "../../components/cad/survey/format.ts";
 import { ToolGuidePanel, type ToolGuide } from "./ToolGuide.tsx";
+import { useAxisLabels } from "./useAxisConvention.ts";
+import { ProjectPointPicker } from "./ProjectPointPicker.tsx";
+import { useProjectPoints } from "./projectPoints.ts";
+import { addProjectOutput } from "./projectOutputs.ts";
+import { downloadCsv, useToast } from "./calcUtils.ts";
 
 interface Leg { id: number; bearing: string; distance: string }
 
@@ -14,7 +19,7 @@ const TRAVERSE_GUIDE: ToolGuide = {
   summary: "Compute and balance a traverse: from a known start point, walk leg by leg to get coordinates, check the misclosure, then distribute it with the Bowditch (compass) rule.",
   steps: [
     { title: "Pick the traverse type", body: "Closed loop returns to the start, closed link ends on a second known point, open has no closure (no adjustment)." },
-    { title: "Enter the start point", body: "Type the Start X and Start Y. For a link traverse also enter the known closing X, Y." },
+    { title: "Enter the start point", body: "Type the start coordinates (first axis = Easting, second axis = Northing). For a link traverse also enter the known closing coordinates." },
     { title: "Add the legs", body: "For each leg enter the bearing and distance in order around the traverse." },
     { title: "Read the results", body: "Misclosure, accuracy (1:X) and the balanced coordinates update live as you type." },
   ],
@@ -30,7 +35,7 @@ const TRAVERSE_TYPES: { id: TraverseType; label: string; blurb: string }[] = [
   {
     id: "closed-link",
     label: "Closed link (connecting)",
-    blurb: "Begins on one known point and ends on a different known point. Enter the known closing X, Y.",
+    blurb: "Begins on one known point and ends on a different known point. Enter the known closing coordinates.",
   },
   {
     id: "open",
@@ -51,12 +56,21 @@ const SAMPLE: Leg[] = [
 
 const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) ? n : NaN; };
 
-export function TraverseTool() {
+interface TraverseToolProps {
+  projectId?: string;
+}
+
+export function TraverseTool({ projectId }: TraverseToolProps) {
+  const ax = useAxisLabels();
+  const { add } = useProjectPoints(projectId);
+  const { message: toastMessage, show: showToast } = useToast();
   const [type, setType] = useState<TraverseType>("closed-loop");
   const [x0, setX0] = useState("1000.000");
   const [y0, setY0] = useState("1000.000");
   const [cx, setCx] = useState("1000.000");
   const [cy, setCy] = useState("1000.000");
+  const [startPointNo, setStartPointNo] = useState("");
+  const [closePointNo, setClosePointNo] = useState("");
   const [legsState, setLegsState] = useState<Leg[]>(SAMPLE);
 
   const activeType = TRAVERSE_TYPES.find((t) => t.id === type)!;
@@ -66,12 +80,34 @@ export function TraverseTool() {
   const addLeg = () => setLegsState((ls) => [...ls, newLeg()]);
   const delLeg = (id: number) => setLegsState((ls) => ls.filter((l) => l.id !== id));
 
+  const applyStartPoint = useCallback(
+    (pointNo: string, point?: { e: number; n: number; z?: number | null }) => {
+      setStartPointNo(pointNo);
+      if (point) {
+        setX0(point.e.toFixed(3));
+        setY0(point.n.toFixed(3));
+      }
+    },
+    [],
+  );
+
+  const applyClosePoint = useCallback(
+    (pointNo: string, point?: { e: number; n: number; z?: number | null }) => {
+      setClosePointNo(pointNo);
+      if (point) {
+        setCx(point.e.toFixed(3));
+        setCy(point.n.toFixed(3));
+      }
+    },
+    [],
+  );
+
   const { result, error } = useMemo(() => {
     const sx = num(x0), sy = num(y0);
     let err: string | null = null;
     let res: ReturnType<typeof computeTraverse> | null = null;
     if (!Number.isFinite(sx) || !Number.isFinite(sy)) {
-      err = "Enter a valid start X, Y.";
+      err = `Enter a valid start ${ax.first}, ${ax.second}.`;
     } else {
       const legs: TraverseLeg[] = [];
       for (const l of legsState) {
@@ -92,7 +128,7 @@ export function TraverseTool() {
       if (!err && type === "closed-link") {
         const ex = num(cx), ey = num(cy);
         if (!Number.isFinite(ex) || !Number.isFinite(ey)) {
-          err = "Enter a valid known closing X, Y for a link traverse.";
+          err = `Enter a valid known closing ${ax.first}, ${ax.second} for a link traverse.`;
         } else {
           closingPoint = { n: ey, e: ex };
         }
@@ -100,14 +136,52 @@ export function TraverseTool() {
       if (!err) res = computeTraverse({ n: sy, e: sx }, legs, { type, closingPoint });
     }
     return { result: res, error: err };
-  }, [type, x0, y0, cx, cy, legsState]);
+  }, [type, x0, y0, cx, cy, legsState, ax.first, ax.second]);
+
+  const handleExportCsv = useCallback(() => {
+    if (!result) return;
+    const rows = result.computed.map((raw, i) => {
+      const adj = result.adjusted[i];
+      return {
+        Station: i,
+        Easting_raw: raw.e.toFixed(4),
+        Northing_raw: raw.n.toFixed(4),
+        Easting_adj: adj?.e.toFixed(4) ?? "",
+        Northing_adj: adj?.n.toFixed(4) ?? "",
+      };
+    });
+    const header = Object.keys(rows[0]).join(",");
+    const csv = [header, ...rows.map((r) => Object.values(r).join(","))].join("\n");
+    downloadCsv("traverse_points.csv", csv);
+    if (projectId) {
+      addProjectOutput(projectId, {
+        label: "Traverse Adjustment",
+        description: `${result.computed.length} station${result.computed.length === 1 ? "" : "s"}`,
+        fileName: `traverse-${projectId}.csv`,
+        mimeType: "text/csv",
+        content: csv,
+      });
+    }
+  }, [result, projectId]);
+
+  const handleSavePoints = useCallback(() => {
+    if (!projectId || !result || !add) return;
+    const saved: string[] = [];
+    result.adjusted.forEach((pt) => {
+      const p = add({ e: pt.e, n: pt.n, code: "TRV" });
+      if (p) saved.push(p.pointNo);
+    });
+    if (saved.length > 0) {
+      showToast(`Saved ${saved.length} adjusted point(s): ${saved.join(", ")}`);
+    }
+  }, [projectId, result, add, showToast]);
 
   return (
     <div className="svt-shell">
       <div className="svt-header">
         <div>
           <h2>Traverse Computation &amp; Balancing (Bowditch)</h2>
-          <p>{activeType.blurb} Latitudes/departures (ΔY/ΔX), misclosure, accuracy and the compass-rule (Bowditch) balanced coordinates update live.</p>
+          <p>{activeType.blurb} Coordinate differences, misclosure, accuracy and the compass-rule (Bowditch) balanced coordinates update live. ({ax.first} = Easting, {ax.second} = Northing)</p>
           <ToolGuidePanel guide={TRAVERSE_GUIDE} />
         </div>
         <div className="svt-toolbar" style={{ flexWrap: "wrap" }}>
@@ -122,15 +196,31 @@ export function TraverseTool() {
               <option key={t.id} value={t.id}>{t.label}</option>
             ))}
           </select>
-          <label className="form-label">Start X</label>
+          {projectId && (
+            <ProjectPointPicker
+              projectId={projectId}
+              label={`Start point`}
+              value={startPointNo}
+              onChange={applyStartPoint}
+            />
+          )}
+          <label className="form-label">Start {ax.first}</label>
           <input className="input-field" style={{ width: 120 }} value={x0} onChange={(e) => setX0(e.target.value)} />
-          <label className="form-label">Start Y</label>
+          <label className="form-label">Start {ax.second}</label>
           <input className="input-field" style={{ width: 120 }} value={y0} onChange={(e) => setY0(e.target.value)} />
           {type === "closed-link" && (
             <>
-              <label className="form-label">Close X</label>
+              {projectId && (
+                <ProjectPointPicker
+                  projectId={projectId}
+                  label={`Closing point`}
+                  value={closePointNo}
+                  onChange={applyClosePoint}
+                />
+              )}
+              <label className="form-label">Close {ax.first}</label>
               <input className="input-field" style={{ width: 120 }} value={cx} onChange={(e) => setCx(e.target.value)} />
-              <label className="form-label">Close Y</label>
+              <label className="form-label">Close {ax.second}</label>
               <input className="input-field" style={{ width: 120 }} value={cy} onChange={(e) => setCy(e.target.value)} />
             </>
           )}
@@ -147,8 +237,8 @@ export function TraverseTool() {
               <thead>
                 <tr>
                   <th>Stn</th><th>Bearing</th><th>Dist</th>
-                  <th>ΔX</th><th>ΔY</th><th>X (raw)</th><th>Y (raw)</th>
-                  <th>X (adj)</th><th>Y (adj)</th><th></th>
+                  <th>Δ{ax.first}</th><th>Δ{ax.second}</th><th>{ax.first} (raw)</th><th>{ax.second} (raw)</th>
+                  <th>{ax.first} (adj)</th><th>{ax.second} (adj)</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -215,8 +305,8 @@ export function TraverseTool() {
               result.hasClosure ? (
                 <div className="svt-summary">
                   <Row2 label="Total length (m)" v={result.perimeter} />
-                  <Row2 label="Misclosure ΔX (m)" v={result.misclosureE} />
-                  <Row2 label="Misclosure ΔY (m)" v={result.misclosureN} />
+                  <Row2 label={`Misclosure Δ${ax.first} (m)`} v={result.misclosureE} />
+                  <Row2 label={`Misclosure Δ${ax.second} (m)`} v={result.misclosureN} />
                   <Row2 label="Linear misclosure (m)" v={result.linearMisclosure} />
                   <div className="svt-summary-row">
                     <span className="svt-summary-label">Accuracy</span>
@@ -241,6 +331,34 @@ export function TraverseTool() {
             <div className="svt-card-title">{result?.hasClosure ? "Traverse plan (balanced)" : "Traverse plan (computed)"}</div>
             {result ? <PlanPlot pts={result.adjusted} closed={result.type === "closed-loop"} /> : <p style={{ padding: 14, fontSize: 13, color: "var(--text-muted)" }}>No data.</p>}
           </div>
+          {projectId && (
+            <div className="svt-card">
+              <div className="svt-card-title">Project output</div>
+              <div style={{ padding: 12, display: "grid", gap: 10 }}>
+                <div className="svt-grid-actions">
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handleSavePoints}
+                    disabled={!result}
+                  >
+                    Save adjusted points
+                  </button>
+                  <button
+                    className="btn btn-outline btn-sm"
+                    onClick={handleExportCsv}
+                    disabled={!result}
+                  >
+                    Export CSV
+                  </button>
+                </div>
+                {toastMessage && (
+                  <div style={{ fontSize: 13, color: "var(--success, #16a34a)" }}>
+                    {toastMessage}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

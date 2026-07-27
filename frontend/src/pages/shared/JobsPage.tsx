@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import {
   Mountain,
   MapPinned,
@@ -12,9 +12,12 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  X,
+  CheckCircle2,
+  PlayCircle,
+  Clock,
   type LucideIcon,
 } from "lucide-react";
+import { KpiCard } from "../../components/dashboard/KpiCard.tsx";
 import {
   archiveJob,
   createJob,
@@ -22,23 +25,19 @@ import {
   updateJob,
   type JobWithProject,
 } from "../../lib/repositories/jobs.ts";
-import { listProjects, type ProjectWithOrg } from "../../lib/repositories/projects.ts";
+import { type ProjectWithOrg } from "../../lib/repositories/projects.ts";
+import { listAllJobs, listAllProjects } from "../../lib/repositories/adminPlatform.ts";
 import { mapStatus } from "../../lib/mappers.ts";
 import type { Database } from "../../lib/supabase/types.ts";
 import SelectDropdown from "../../components/SelectDropdown.tsx";
 import PageLoader from "../../components/PageLoader.tsx";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import { Button } from "../../components/ui/button.tsx";
 import { Input } from "../../components/ui/input.tsx";
 import { Label } from "../../components/ui/label.tsx";
 import { Badge } from "../../components/ui/badge.tsx";
 import { Card, CardContent } from "../../components/ui/card.tsx";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "../../components/ui/dialog.tsx";
+import { DialogTemplate } from "../../components/templates/DialogTemplate.tsx";
 import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx";
 import { Separator } from "../../components/ui/separator.tsx";
@@ -138,32 +137,30 @@ export default function JobsPage({
   const fetchJobs = useCallback(async () => {
     try {
       setError(null);
-      const data = await listJobs(workspaceId);
+      const data = isPlatformAdmin
+        ? await listAllJobs()
+        : await listJobs(workspaceId);
       setJobs(data);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load jobs");
     } finally {
       setLoading(false);
     }
-  }, [workspaceId]);
+  }, [isPlatformAdmin, workspaceId]);
 
-  useEffect(() => {
-    fetchJobs();
-  }, [fetchJobs]);
+  useAsyncAction(fetchJobs, [fetchJobs]);
 
   const fetchProjects = useCallback(async () => {
     if (!isPlatformAdmin) return;
     try {
-      const data = await listProjects(workspaceId);
+      const data = await listAllProjects();
       setProjects(data);
     } catch {
       setProjects([]);
     }
-  }, [workspaceId, isPlatformAdmin]);
+  }, [isPlatformAdmin]);
 
-  useEffect(() => {
-    void fetchProjects();
-  }, [fetchProjects]);
+  useAsyncAction(fetchProjects, [fetchProjects]);
 
   const openCreateEditor = () => {
     setEditingJobId(null);
@@ -251,17 +248,18 @@ export default function JobsPage({
     }
     return true;
   });
+
+  const jobStats = {
+    total: jobs.length,
+    planned: jobs.filter((j) => j.status === "planned").length,
+    inProgress: jobs.filter((j) => j.status === "in_progress").length,
+    completed: jobs.filter((j) => j.status === "completed").length,
+  };
+
   const pageSize = 10;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
-
-  useEffect(() => {
-    setPage(1);
-  }, [search, typeFilter]);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+  const effectivePage = Math.min(page, totalPages);
+  const paginated = filtered.slice((effectivePage - 1) * pageSize, effectivePage * pageSize);
 
   const formatDate = (iso: string | null) => {
     if (!iso) return "—";
@@ -316,6 +314,33 @@ export default function JobsPage({
         )}
       </div>
 
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard
+          title="Total Jobs"
+          value={String(jobStats.total)}
+          subtext="All survey jobs"
+          icon={<Briefcase className="size-4" />}
+        />
+        <KpiCard
+          title="Planned"
+          value={String(jobStats.planned)}
+          subtext="Yet to start"
+          icon={<Clock className="size-4" />}
+        />
+        <KpiCard
+          title="In Progress"
+          value={String(jobStats.inProgress)}
+          subtext="Active field work"
+          icon={<PlayCircle className="size-4" />}
+        />
+        <KpiCard
+          title="Completed"
+          value={String(jobStats.completed)}
+          subtext="Finished jobs"
+          icon={<CheckCircle2 className="size-4" />}
+        />
+      </div>
+
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <Tabs value={typeFilter} onValueChange={(value) => setTypeFilter(value as JobFilter)}>
           <TabsList className="h-auto flex-wrap">
@@ -337,206 +362,190 @@ export default function JobsPage({
         </div>
       </div>
 
-      <Dialog open={!!selectedJob} onOpenChange={() => setSelectedJob(null)}>
-        <DialogContent className="sm:max-w-[480px]">
-          {selectedJob && (
-            <>
-              <DialogHeader>
-                <div className="flex items-start gap-4">
-                  <div
-                    className={cn(
-                      "flex h-12 w-12 shrink-0 items-center justify-center rounded-lg",
-                      jobTypeColors[selectedJob.job_type ?? ""] ?? "bg-muted text-primary",
-                    )}
-                  >
-                    <JobTypeIcon type={selectedJob.job_type} />
-                  </div>
-                  <div>
-                    <DialogTitle>{selectedJob.title}</DialogTitle>
-                    <p className="text-sm text-muted-foreground">
-                      {selectedJob.project_name ?? "No project"} ·{" "}
-                      {selectedJob.location ?? "No location"}
-                    </p>
-                  </div>
-                </div>
-              </DialogHeader>
+      <DialogTemplate
+        open={!!selectedJob}
+        onOpenChange={() => setSelectedJob(null)}
+        title={selectedJob?.title ?? "Job Details"}
+        description={selectedJob ? `${selectedJob.project_name ?? "No project"} · ${selectedJob.location ?? "No location"}` : undefined}
+        size="md"
+        footer={selectedJob ? (
+          <>
+            <Button variant="outline" onClick={() => setSelectedJob(null)}>
+              Close
+            </Button>
+            {isPlatformAdmin && (
+              <>
+                <Button variant="outline" onClick={() => openEditEditor(selectedJob)}>
+                  Edit
+                </Button>
+                <Button variant="destructive" onClick={() => void handleArchiveJob(selectedJob.id)}>
+                  Archive
+                </Button>
+              </>
+            )}
+          </>
+        ) : undefined}
+      >
+        {selectedJob && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-4">
+              <div
+                className={cn(
+                  "flex h-12 w-12 shrink-0 items-center justify-center rounded-lg",
+                  jobTypeColors[selectedJob.job_type ?? ""] ?? "bg-muted text-primary",
+                )}
+              >
+                <JobTypeIcon type={selectedJob.job_type} />
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Badge variant={statusVariant(selectedJob.status)}>
                   {mapStatus(selectedJob.status)}
                 </Badge>
                 {selectedJob.job_type && <Badge variant="outline">{selectedJob.job_type}</Badge>}
               </div>
-              <p className="text-sm text-muted-foreground">
-                {selectedJob.description ?? "No description provided."}
-              </p>
-              <Card>
-                <CardContent className="space-y-2 py-4 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Scheduled Start</span>
-                    <span className="font-medium text-foreground">
-                      {formatDate(selectedJob.scheduled_start)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Scheduled End</span>
-                    <span className="font-medium text-foreground">
-                      {formatDate(selectedJob.scheduled_end)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Project</span>
-                    <span className="font-medium text-foreground">
-                      {selectedJob.project_name ?? "—"}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-              <DialogFooter className="flex-col gap-2 sm:flex-row">
-                <Button
-                  variant="outline"
-                  onClick={() => setSelectedJob(null)}
-                  className="w-full sm:w-auto"
-                >
-                  Close
-                </Button>
-                {isPlatformAdmin && (
-                  <>
-                    <Button
-                      variant="outline"
-                      onClick={() => openEditEditor(selectedJob)}
-                      className="w-full sm:w-auto"
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      onClick={() => void handleArchiveJob(selectedJob.id)}
-                      className="w-full sm:w-auto"
-                    >
-                      Archive
-                    </Button>
-                  </>
-                )}
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={jobEditorOpen} onOpenChange={setJobEditorOpen}>
-        <DialogContent className="sm:max-w-[520px]">
-          <DialogHeader>
-            <DialogTitle>{editingJobId ? "Edit job" : "Add job"}</DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2 space-y-2">
-              <Label htmlFor="job-editor-title">Title</Label>
-              <Input
-                id="job-editor-title"
-                value={jobTitle}
-                onChange={(e) => setJobTitle(e.target.value)}
-                placeholder="Job title"
-              />
             </div>
-            <div className="sm:col-span-2 space-y-2">
-              <Label htmlFor="job-editor-desc">Description</Label>
-              <textarea
-                id="job-editor-desc"
-                className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1"
-                value={jobDescription}
-                onChange={(e) => setJobDescription(e.target.value)}
-                placeholder="Optional description"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Job type</Label>
-              <SelectDropdown
-                className="input-field w-full"
-                value={jobType}
-                onChange={setJobType}
-                placeholder="Type"
-                options={[
-                  { value: "", label: "—" },
-                  { value: "Topographical", label: "Topographical" },
-                  { value: "Cadastral", label: "Cadastral" },
-                  { value: "Engineering", label: "Engineering" },
-                  { value: "Mining", label: "Mining" },
-                  { value: "Monitoring", label: "Monitoring" },
-                ]}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="job-editor-location">Location</Label>
-              <Input
-                id="job-editor-location"
-                value={jobLocation}
-                onChange={(e) => setJobLocation(e.target.value)}
-                placeholder="Optional"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Status</Label>
-              <SelectDropdown
-                className="input-field w-full"
-                value={jobStatus}
-                onChange={(v) => setJobStatus(v as JobStatus)}
-                options={[
-                  { value: "planned", label: "Planned" },
-                  { value: "scheduled", label: "Scheduled" },
-                  { value: "in_progress", label: "In progress" },
-                  { value: "completed", label: "Completed" },
-                  { value: "cancelled", label: "Cancelled" },
-                ]}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Project (optional)</Label>
-              <SelectDropdown
-                className="input-field w-full"
-                value={jobProjectId}
-                onChange={setJobProjectId}
-                options={[
-                  { value: "", label: "No project" },
-                  ...projects.map((p) => ({
-                    value: p.id,
-                    label: p.name || "Untitled project",
-                  })),
-                ]}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="job-editor-start">Scheduled start</Label>
-              <Input
-                id="job-editor-start"
-                type="datetime-local"
-                value={jobScheduledStart}
-                onChange={(e) => setJobScheduledStart(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="job-editor-end">Scheduled end</Label>
-              <Input
-                id="job-editor-end"
-                type="datetime-local"
-                value={jobScheduledEnd}
-                onChange={(e) => setJobScheduledEnd(e.target.value)}
-              />
-            </div>
+            <p className="text-sm text-muted-foreground">
+              {selectedJob.description ?? "No description provided."}
+            </p>
+            <Card>
+              <CardContent className="space-y-2 py-4 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Scheduled Start</span>
+                  <span className="font-medium text-foreground">
+                    {formatDate(selectedJob.scheduled_start)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Scheduled End</span>
+                  <span className="font-medium text-foreground">
+                    {formatDate(selectedJob.scheduled_end)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Project</span>
+                  <span className="font-medium text-foreground">
+                    {selectedJob.project_name ?? "—"}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
           </div>
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setJobEditorOpen(false)}
-              disabled={savingJob}
-            >
+        )}
+      </DialogTemplate>
+
+      <DialogTemplate
+        open={jobEditorOpen}
+        onOpenChange={setJobEditorOpen}
+        title={editingJobId ? "Edit job" : "Add job"}
+        description="Fill in the job details below."
+        size="lg"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setJobEditorOpen(false)} disabled={savingJob}>
               Cancel
             </Button>
             <Button onClick={() => void saveJobEditor()} disabled={savingJob}>
               {savingJob ? "Saving…" : "Save"}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2 space-y-2">
+            <Label htmlFor="job-editor-title">Title</Label>
+            <Input
+              id="job-editor-title"
+              value={jobTitle}
+              onChange={(e) => setJobTitle(e.target.value)}
+              placeholder="Job title"
+            />
+          </div>
+          <div className="sm:col-span-2 space-y-2">
+            <Label htmlFor="job-editor-desc">Description</Label>
+            <textarea
+              id="job-editor-desc"
+              className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1"
+              value={jobDescription}
+              onChange={(e) => setJobDescription(e.target.value)}
+              placeholder="Optional description"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Job type</Label>
+            <SelectDropdown
+              className="input-field w-full"
+              value={jobType}
+              onChange={setJobType}
+              placeholder="Type"
+              options={[
+                { value: "", label: "—" },
+                { value: "Topographical", label: "Topographical" },
+                { value: "Cadastral", label: "Cadastral" },
+                { value: "Engineering", label: "Engineering" },
+                { value: "Mining", label: "Mining" },
+                { value: "Monitoring", label: "Monitoring" },
+              ]}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="job-editor-location">Location</Label>
+            <Input
+              id="job-editor-location"
+              value={jobLocation}
+              onChange={(e) => setJobLocation(e.target.value)}
+              placeholder="Optional"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Status</Label>
+            <SelectDropdown
+              className="input-field w-full"
+              value={jobStatus}
+              onChange={(v) => setJobStatus(v as JobStatus)}
+              options={[
+                { value: "planned", label: "Planned" },
+                { value: "scheduled", label: "Scheduled" },
+                { value: "in_progress", label: "In progress" },
+                { value: "completed", label: "Completed" },
+                { value: "cancelled", label: "Cancelled" },
+              ]}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Project (optional)</Label>
+            <SelectDropdown
+              className="input-field w-full"
+              value={jobProjectId}
+              onChange={setJobProjectId}
+              options={[
+                { value: "", label: "No project" },
+                ...projects.map((p) => ({
+                  value: p.id,
+                  label: p.name || "Untitled project",
+                })),
+              ]}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="job-editor-start">Scheduled start</Label>
+            <Input
+              id="job-editor-start"
+              type="datetime-local"
+              value={jobScheduledStart}
+              onChange={(e) => setJobScheduledStart(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="job-editor-end">Scheduled end</Label>
+            <Input
+              id="job-editor-end"
+              type="datetime-local"
+              value={jobScheduledEnd}
+              onChange={(e) => setJobScheduledEnd(e.target.value)}
+            />
+          </div>
+        </div>
+      </DialogTemplate>
 
       {filtered.length === 0 ? (
         <Card>
@@ -634,18 +643,18 @@ export default function JobsPage({
                 variant="outline"
                 size="sm"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1}
+                disabled={effectivePage <= 1}
               >
                 <ChevronLeft className="mr-1 h-4 w-4" /> Previous
               </Button>
               <span className="text-sm text-muted-foreground">
-                Page {page} / {totalPages}
+                Page {effectivePage} / {totalPages}
               </span>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
+                disabled={effectivePage >= totalPages}
               >
                 Next <ChevronRight className="ml-1 h-4 w-4" />
               </Button>

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { CadModelState, SurveyPoint } from "./cadModel.ts";
+import type { CadModelState, CadSelection, SurveyPoint } from "./cadModel.ts";
 import type { UseCadModel } from "./useCadModel.ts";
 import {
   forward,
@@ -43,7 +43,6 @@ import {
   fmtCoord,
   fmtDistance,
   fmtArea,
-  fmtPointRef,
   parseBearing,
   angleEntryToDeg,
   type BearingFormat,
@@ -63,7 +62,7 @@ type AxisLabels = ReturnType<typeof axisBadgeLabels>;
 interface CadCogoPanelProps {
   cad: UseCadModel;
   model: CadModelState;
-  selection: { type: "point" | "linework" | "text" | "surface" | null; id: string | null };
+  selection: CadSelection;
   bearingFormat: BearingFormat;
   /** Coordinate axis label convention for readouts and input labels. */
   axisConvention?: AxisConvention;
@@ -166,11 +165,7 @@ function nextPointBase(model: CadModelState): number {
   return nums.length ? Math.max(...nums) + 1 : 1001;
 }
 
-function pointRef(model: CadModelState, p: SurveyPoint | null, axisConvention: AxisConvention = "yx"): string {
-  return p ? fmtPointRef(p, 3, axisConvention) : "—";
-}
-
-export function CadCogoPanel({ cad, model, selection, bearingFormat, axisConvention = "yx", angleEntry = "packed", coordDecimals = 3, log }: CadCogoPanelProps) {
+export function CadCogoPanel({ cad, model, selection, bearingFormat, axisConvention = "yx", angleEntry = "packed", coordDecimals: _coordDecimals, log }: CadCogoPanelProps) {
   const [mode, setMode] = useState<CogoMode>("forward");
   const axis = axisBadgeLabels(axisConvention);
 
@@ -188,6 +183,8 @@ export function CadCogoPanel({ cad, model, selection, bearingFormat, axisConvent
           ))}
         </select>
       </div>
+
+      <CogoHelp />
 
       {mode === "forward" && <ForwardForm {...{ model, bearingFormat, angleEntry, axis, cad, log }} />}
       {mode === "inverse" && <InverseForm {...{ model, bearingFormat, axis, log }} />}
@@ -337,8 +334,8 @@ function StakeOutForm({
       <button className="cad-chip-btn" type="button" onClick={compute}>Compute set-out</button>
       {result && (
         <div className="cad-prop-list" style={{ marginTop: 8 }}>
-          <div><span>Azimuth to target</span><strong>{fmtBearing(result.azimuth, bearingFormat)}</strong></div>
-          <div><span>Backsight azimuth</span><strong>{fmtBearing(result.backsightAzimuth, bearingFormat)}</strong></div>
+          <div><span>WCB to target</span><strong>{fmtBearing(result.azimuth, bearingFormat)}</strong></div>
+          <div><span>Backsight bearing</span><strong>{fmtBearing(result.backsightAzimuth, bearingFormat)}</strong></div>
           <div><span>Angle right</span><strong>{fmtBearing(result.angleRight, bearingFormat)}</strong></div>
           <div><span>Distance</span><strong>{fmtDistance(result.distance)} m</strong></div>
           <div><span>Along line</span><strong>{fmtCoord(result.along, 3)} m</strong></div>
@@ -645,7 +642,7 @@ function AngularTraverseForm({
     const start = findPoint(model, startPno);
     if (!start) { log("Angular traverse: start point not found.", "error"); return; }
     const az0 = parseBearing(startAz) ?? parseFloat(startAz);
-    if (!Number.isFinite(az0)) { log("Angular traverse: invalid starting azimuth.", "error"); return; }
+    if (!Number.isFinite(az0)) { log("Angular traverse: invalid starting bearing.", "error"); return; }
     const obs = rows.map((r, i) => {
       const angle = parseBearing(r.angle) ?? parseFloat(r.angle);
       const distance = parseFloat(r.distance);
@@ -681,7 +678,7 @@ function AngularTraverseForm({
     <fieldset className="cad-cogo-group">
       <legend>Angular traverse reduction</legend>
       <PointNumber label="Start point" value={startPno} onChange={setStartPno} model={model} axis={axis} />
-      <TextRow label="Start azimuth" value={startAz} onChange={setStartAz} placeholder="Orientation of first leg (e.g. 45.3020)" />
+      <TextRow label="Start bearing" value={startAz} onChange={setStartAz} placeholder="Orientation of first leg (e.g. 45.3020)" />
       <div className="cad-cogo-field">
         <span>Angle type</span>
         <select className="input-field" value={angleMode} onChange={(e) => setAngleMode(e.target.value as TraverseAngleMode)}>
@@ -725,7 +722,7 @@ function AngularTraverseForm({
               <div><span>Correction / angle</span><strong>{result.perAngleCorrection.toFixed(4)}°</strong></div>
             </>
           )}
-          <div><span>First leg azimuth</span><strong>{fmtBearing(result.azimuths[0] ?? 0, bearingFormat)}</strong></div>
+          <div><span>First leg bearing</span><strong>{fmtBearing(result.azimuths[0] ?? 0, bearingFormat)}</strong></div>
         </div>
       )}
     </fieldset>
@@ -756,7 +753,7 @@ function HorizontalCurveForm({
     const fa = parseBearing(fwdAz) ?? parseFloat(fwdAz);
     const r = parseFloat(radius);
     const iv = parseFloat(interval);
-    if (!Number.isFinite(ba) || !Number.isFinite(fa)) { log("Horizontal curve: invalid tangent azimuth.", "error"); return; }
+    if (!Number.isFinite(ba) || !Number.isFinite(fa)) { log("Horizontal curve: invalid tangent bearing.", "error"); return; }
     if (!Number.isFinite(r) || r <= 0) { log("Horizontal curve: radius must be positive.", "error"); return; }
     const res = await stakeHorizontalCurve(pi, ba, fa, r, Number.isFinite(iv) && iv > 0 ? iv : 0);
     if (!res) { log("Horizontal curve: degenerate geometry (deflection 0° or 180°).", "error"); return; }
@@ -786,8 +783,8 @@ function HorizontalCurveForm({
     <fieldset className="cad-cogo-group">
       <legend>Horizontal circular curve</legend>
       <PointNumber label="PI (intersection point)" value={piPno} onChange={setPiPno} model={model} axis={axis} />
-      <TextRow label="Back tangent azimuth" value={backAz} onChange={setBackAz} placeholder="e.g. 0 or N30°E" />
-      <TextRow label="Forward tangent azimuth" value={fwdAz} onChange={setFwdAz} placeholder="e.g. 90" />
+      <TextRow label="Back tangent bearing" value={backAz} onChange={setBackAz} placeholder="e.g. 0 or N30°E" />
+      <TextRow label="Forward tangent bearing" value={fwdAz} onChange={setFwdAz} placeholder="e.g. 90" />
       <NumberRow label="Radius (m)" value={radius} onChange={setRadius} />
       <NumberRow label="Stake interval (m)" value={interval} onChange={setInterval} />
       <button className="cad-chip-btn" type="button" onClick={() => void compute()}>Solve &amp; stake curve</button>
@@ -1166,7 +1163,7 @@ function CircleFitForm({ model, cad, log }: Pick<CadCogoPanelProps, "model" | "c
 function FreeStationForm({
   model,
   cad,
-  bearingFormat,
+  bearingFormat: _bearingFormat,
   angleEntry = "packed",
   axis,
   log,
@@ -1381,6 +1378,92 @@ function TransformForm({
         </>
       )}
     </fieldset>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Collapsible COGO help reference
+// ─────────────────────────────────────────────────────────────────────────────
+function CogoHelp() {
+  return (
+    <details className="cad-cogo-help">
+      <summary>COGO reference</summary>
+      <div className="cad-cogo-help-body">
+        <p>
+          Coordinate Geometry (COGO) computes new points from existing observations.
+          Pick a tool above, fill the known fields, then click the compute button.
+          Results are logged in the command line and placed on the current layer.
+        </p>
+
+        <section>
+          <h5>Basic</h5>
+          <ul>
+            <li><strong>Forward</strong> — compute a point from a start point, bearing and horizontal distance.</li>
+            <li><strong>Inverse</strong> — compute bearing and distance between two known points.</li>
+            <li><strong>Stake-out</strong> — turn an angle-right and distance from an occupied station to a design point.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h5>Intersections</h5>
+          <ul>
+            <li><strong>Bearing–Bearing</strong> — two rays from known points.</li>
+            <li><strong>Distance–Distance</strong> — two circles; both solutions are placed.</li>
+            <li><strong>Line–Line / Line–Arc / Arc–Arc</strong> — intersections between linework or circles.</li>
+            <li><strong>Resection (Tienstra)</strong> — occupy an unknown point and measure the three angles between known stations.</li>
+            <li><strong>Free-Station</strong> — least-squares resection from two or more bearings/distances to known stations.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h5>Traversing</h5>
+          <ul>
+            <li><strong>Traverse + Bowditch</strong> — enter start point, closing point and observed bearings/distances; misclosure is distributed by the Bowditch rule.</li>
+            <li><strong>Angular traverse</strong> — enter observed angles and leg distances; angles are balanced, bearings derived, and the loop drawn.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h5>Alignment & curves</h5>
+          <ul>
+            <li><strong>Horizontal Curve</strong> — given PI, back and forward tangent bearings, radius and chainage interval, place PC, PT and stake points along the arc.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h5>Projection & transforms</h5>
+          <ul>
+            <li><strong>Geographic ↔ Grid</strong> — convert lat/lon to Zimbabwe Lo./UTM grid, or vice versa, using the selected belt.</li>
+            <li><strong>Helmert (4-param)</strong> — 2D similarity from two or more source↔target pairs.</li>
+            <li><strong>Affine (6-param)</strong> — 2D affine from three or more source↔target pairs; useful for local grid distortions.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h5>Geometry</h5>
+          <ul>
+            <li><strong>Area / Perimeter</strong> — compute from a selected boundary or typed comma-separated point list.</li>
+            <li><strong>Best-Fit Circle</strong> — fit a circle to three or more points and draw it on the CONTROL layer.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h5>Angle & bearing input</h5>
+          <p>
+            Bearings are accepted in several formats: whole-circle decimal degrees (123.456),
+            packed D.MMSS (123.4536), D M S (123 45 36), or quadrant form (N45°30'20"E).
+            The current angle-entry convention on the Settings tab controls how plain numbers are parsed.
+          </p>
+        </section>
+
+        <section>
+          <h5>Axis names</h5>
+          <p>
+            Use the Settings tab to choose YX, NE, or EN labels; COGO readouts and prompts follow that convention automatically.
+          </p>
+        </section>
+      </div>
+    </details>
   );
 }
 

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { RefreshCw, Loader2, ChevronDown } from "lucide-react";
 
 import PageLoader from "@/components/PageLoader.tsx";
+import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -83,9 +84,7 @@ export default function AdminActivityPage({ isPlatformAdmin }: AdminActivityPage
     [isPlatformAdmin],
   );
 
-  useEffect(() => {
-    void loadPage(0, false);
-  }, [loadPage]);
+  useAsyncAction(() => loadPage(0, false), [loadPage]);
 
   if (!isPlatformAdmin) {
     return null;
@@ -126,33 +125,34 @@ export default function AdminActivityPage({ isPlatformAdmin }: AdminActivityPage
           <Card className="border-border/60 overflow-hidden">
             <CardContent className="p-0">
               <ResponsiveTable>
-                <Table>
+                <Table className="min-w-[540px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>When</TableHead>
-                      <TableHead>Actor</TableHead>
-                      <TableHead>Table</TableHead>
-                      <TableHead>Action</TableHead>
+                      <TableHead className="w-[140px]">When</TableHead>
+                      <TableHead className="min-w-[160px]">Actor</TableHead>
+                      <TableHead className="w-[120px]">Table</TableHead>
+                      <TableHead className="w-[120px]">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {entries.map((ev) => (
                       <TableRow key={ev.id}>
-                        <TableCell className="text-muted-foreground whitespace-nowrap">
+                        <TableCell className="align-middle text-muted-foreground whitespace-nowrap">
                           {formatWhen(ev.created_at)}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="align-middle">
                           {ev.actor_user_id ? (
-                            actorLabels.get(ev.actor_user_id) ??
-                            `${ev.actor_user_id.slice(0, 8)}…`
+                            <span className="block truncate max-w-[200px]" title={actorLabels.get(ev.actor_user_id) ?? ev.actor_user_id}>
+                              {actorLabels.get(ev.actor_user_id) ?? `${ev.actor_user_id.slice(0, 8)}…`}
+                            </span>
                           ) : (
                             <span className="text-sm text-muted-foreground">system</span>
                           )}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="align-middle">
                           <code className="text-xs">{ev.entity_table}</code>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="align-middle">
                           <Badge variant="outline">{ev.action}</Badge>
                         </TableCell>
                       </TableRow>
