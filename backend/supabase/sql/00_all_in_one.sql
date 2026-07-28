@@ -4911,3 +4911,11 @@ end $$;
 
 commit;
 
+-- 21_marketplace_listing_wallet.sql — Solana wallet address for direct on-chain marketplace payments.
+ALTER TABLE public.marketplace_listings
+ADD COLUMN IF NOT EXISTS seller_wallet_address text;
+
+-- 22_workspace_marketplace_wallet.sql — workspace default marketplace receiving wallet.
+ALTER TABLE public.workspaces
+ADD COLUMN IF NOT EXISTS marketplace_wallet_address text;
+

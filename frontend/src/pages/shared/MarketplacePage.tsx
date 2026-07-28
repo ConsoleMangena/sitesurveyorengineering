@@ -10,6 +10,9 @@ import {
   ShoppingCart,
   Clock,
   Activity,
+  Ban,
+  Inbox,
+  Send,
 } from "lucide-react";
 import { DashboardHeader, DashboardShell } from "../../components/dashboard/DashboardShell.tsx";
 import { DashboardCard } from "../../components/dashboard/DashboardCard.tsx";
@@ -27,10 +30,24 @@ import {
 } from "../../lib/repositories/adminPlatform.ts";
 import {
   createMarketplaceRequest,
-  hasPendingRequest,
+  hasActiveRequest,
+  listMyRequestsWithListings,
+  listSellerRequestsWithListings,
+  updateRequestStatus,
+  type RequestWithListing,
+  type RequestWithListingAndWorkspace,
 } from "../../lib/repositories/marketplaceRequests.ts";
+import {
+  createMarketplaceOrder,
+} from "../../lib/repositories/marketplaceOrders.ts";
 import { notifyMarketplaceRequest } from "../../lib/repositories/notificationEvents.ts";
-import { getWorkspaceById } from "../../lib/repositories/workspaces.ts";
+import {
+  getMarketplaceWallet,
+  getWorkspaceById,
+} from "../../lib/repositories/workspaces.ts";
+import { useEmbeddedWallet } from "../../hooks/useEmbeddedWallet.ts";
+import { SOLANA_CLUSTER } from "../../lib/solana/config.ts";
+import { PublicKey } from "@solana/web3.js";
 import SelectDropdown from "../../components/SelectDropdown.tsx";
 import PageLoader from "../../components/PageLoader.tsx";
 import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
@@ -42,7 +59,7 @@ import { Badge } from "../../components/ui/badge.tsx";
 import { Card, CardContent } from "../../components/ui/card.tsx";
 import { DialogTemplate } from "../../components/templates/DialogTemplate.tsx";
 import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
-import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx";
 import { Switch } from "../../components/ui/switch.tsx";
 import { cn } from "../../lib/utils.ts";
 import "../../styles/pages.css";
@@ -200,10 +217,16 @@ export default function MarketplacePage({
 }: MarketplacePageProps) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<FilterType>("all");
+  const [activeTab, setActiveTab] = useState<"browse" | "myRequests" | "incomingRequests">("browse");
   const [selectedListing, setSelectedListing] = useState<MarketplaceListingWithAsset | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+
+  const [myRequests, setMyRequests] = useState<RequestWithListing[]>([]);
+  const [myRequestsLoading, setMyRequestsLoading] = useState(false);
+  const [incomingRequests, setIncomingRequests] = useState<RequestWithListingAndWorkspace[]>([]);
+  const [incomingRequestsLoading, setIncomingRequestsLoading] = useState(false);
 
   const [listingState, setListingState] = useState<MarketplaceListingWithAsset[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -220,6 +243,7 @@ export default function MarketplacePage({
   const [mDescription, setMDescription] = useState("");
   const [mSpecs, setMSpecs] = useState("");
   const [mIsGlobal, setMIsGlobal] = useState(false);
+  const [workspaceMarketplaceWallet, setWorkspaceMarketplaceWallet] = useState<string | null>(null);
 
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [requestMessage, setRequestMessage] = useState("");
@@ -228,6 +252,14 @@ export default function MarketplacePage({
   const [requestSending, setRequestSending] = useState(false);
   const [requestSent, setRequestSent] = useState(false);
   const [alreadyRequested, setAlreadyRequested] = useState(false);
+
+  const [showPayment, setShowPayment] = useState(false);
+  const [paymentToken, setPaymentToken] = useState<"SOL" | "USDC">("USDC");
+  const [paymentPin, setPaymentPin] = useState("");
+  const [paymentBusy, setPaymentBusy] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState<{ signature: string; orderId: string } | null>(null);
+
+  const embeddedWallet = useEmbeddedWallet();
 
   const fetchListings = useCallback(async () => {
     try {
@@ -244,6 +276,62 @@ export default function MarketplacePage({
   }, [isPlatformAdmin, workspaceId]);
 
   useAsyncAction(fetchListings, [fetchListings]);
+
+  const fetchWorkspaceWallet = useCallback(async () => {
+    try {
+      const address = await getMarketplaceWallet(workspaceId);
+      setWorkspaceMarketplaceWallet(address);
+    } catch {
+      setWorkspaceMarketplaceWallet(null);
+    }
+  }, [workspaceId]);
+
+  useAsyncAction(fetchWorkspaceWallet, [fetchWorkspaceWallet]);
+
+  const fetchMyRequests = useCallback(async () => {
+    setMyRequestsLoading(true);
+    try {
+      const data = await listMyRequestsWithListings(workspaceId);
+      setMyRequests(data);
+    } catch (err: unknown) {
+      setNotice(err instanceof Error ? err.message : "Failed to load your requests");
+    } finally {
+      setMyRequestsLoading(false);
+    }
+  }, [workspaceId]);
+
+  const fetchIncomingRequests = useCallback(async () => {
+    setIncomingRequestsLoading(true);
+    try {
+      const data = await listSellerRequestsWithListings(workspaceId);
+      setIncomingRequests(data);
+    } catch (err: unknown) {
+      setNotice(err instanceof Error ? err.message : "Failed to load incoming requests");
+    } finally {
+      setIncomingRequestsLoading(false);
+    }
+  }, [workspaceId]);
+
+  const handleTabChange = (value: string) => {
+    const tab = value as "browse" | "myRequests" | "incomingRequests";
+    setActiveTab(tab);
+    if (tab === "myRequests") void fetchMyRequests();
+    if (tab === "incomingRequests") void fetchIncomingRequests();
+  };
+
+  const handleUpdateRequestStatus = async (
+    id: string,
+    status: "accepted" | "declined" | "cancelled",
+  ) => {
+    try {
+      await updateRequestStatus(id, status);
+      void fetchIncomingRequests();
+      void fetchMyRequests();
+      setNotice(status === "accepted" ? "Request accepted." : "Request declined.");
+    } catch (err: unknown) {
+      setNotice(err instanceof Error ? err.message : "Failed to update request");
+    }
+  };
 
   const filtered = listingState.filter((l) => {
     if (typeFilter !== "all" && l.type !== typeFilter) return false;
@@ -274,8 +362,12 @@ export default function MarketplacePage({
     setRequestMessage("");
     setRequestStartDate("");
     setRequestEndDate("");
-    const pending = await hasPendingRequest(listing.id);
-    setAlreadyRequested(pending);
+    setShowPayment(false);
+    setPaymentToken("USDC");
+    setPaymentPin("");
+    setPaymentSuccess(null);
+    const active = await hasActiveRequest(listing.id);
+    setAlreadyRequested(active);
   }, []);
 
   const handleSubmitRequest = useCallback(async () => {
@@ -305,6 +397,63 @@ export default function MarketplacePage({
       setRequestSending(false);
     }
   }, [selectedListing, workspaceId, requestMessage, requestStartDate, requestEndDate]);
+
+  const isValidSolanaAddress = useCallback((value: string) => {
+    if (!value.trim()) return false;
+    try {
+      new PublicKey(value.trim());
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const handlePayWithSolana = useCallback(async () => {
+    if (!selectedListing) return;
+    if (!selectedListing.seller_wallet_address) {
+      setNotice("This listing does not have a Solana payment address.");
+      return;
+    }
+    if (!isValidSolanaAddress(selectedListing.seller_wallet_address)) {
+      setNotice("The seller wallet address on this listing is invalid.");
+      return;
+    }
+    setPaymentBusy(true);
+    setNotice(null);
+    try {
+      if (!embeddedWallet.unlocked) {
+        await embeddedWallet.unlockWallet(paymentPin);
+      }
+      const signature = await embeddedWallet.sendTokens({
+        token: paymentToken,
+        recipient: selectedListing.seller_wallet_address,
+        amount: selectedListing.price,
+      });
+      const order = await createMarketplaceOrder({
+        listing_id: selectedListing.id,
+        listing_workspace_id: selectedListing.workspace_id,
+        buyer_workspace_id: workspaceId,
+        amount: selectedListing.price,
+        currency: paymentToken,
+        provider: "solana",
+        external_payment_ref: signature,
+        payment_status: "completed",
+        platform_fee_amount: 0,
+        metadata: {
+          listing_type: selectedListing.listing_type,
+          token: paymentToken,
+          seller_wallet_address: selectedListing.seller_wallet_address,
+        },
+      });
+      setPaymentSuccess({ signature, orderId: order.id });
+      setShowPayment(false);
+      void embeddedWallet.refreshBalances();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Payment failed. Please try again.");
+    } finally {
+      setPaymentBusy(false);
+    }
+  }, [selectedListing, workspaceId, paymentToken, paymentPin, embeddedWallet, isValidSolanaAddress]);
 
   const openCreateListing = () => {
     setEditingId(null);
@@ -338,8 +487,13 @@ export default function MarketplacePage({
   };
 
   const saveListing = async () => {
-    if (!isPlatformAdmin) {
-      setFetchError("Only platform administrators can manage global marketplace listings.");
+    const existing = editingId
+      ? listingState.find((l) => l.id === editingId)
+      : null;
+    const isOwner = existing?.workspace_id === workspaceId;
+    const canManage = isPlatformAdmin || isOwner;
+    if (!canManage) {
+      setFetchError("Only the listing owner or a platform administrator can edit this listing.");
       return;
     }
     if (!mName.trim() || !mSeller.trim() || !mLocation.trim()) {
@@ -365,6 +519,7 @@ export default function MarketplacePage({
         price: priceNum,
         currency: mCurrency.trim() || "USD",
         seller: mSeller.trim(),
+        seller_wallet_address: workspaceMarketplaceWallet ?? null,
         location: mLocation.trim(),
         description: mDescription.trim() || null,
         specs: specsArr.length ? specsArr : null,
@@ -385,6 +540,13 @@ export default function MarketplacePage({
   };
 
   const removeListing = async (id: string) => {
+    const row = listingState.find((l) => l.id === id);
+    const isOwner = row?.workspace_id === workspaceId;
+    const canManage = isPlatformAdmin || isOwner;
+    if (!canManage) {
+      setFetchError("Only the listing owner or a platform administrator can delete this listing.");
+      return;
+    }
     if (!window.confirm("Delete this listing permanently?")) return;
     setFetchError(null);
     try {
@@ -467,10 +629,28 @@ export default function MarketplacePage({
             />
           </div>
 
-          <DashboardCard
-            title="Available Listings"
-            icon={<Package size={16} />}
-            titleAction={
+          <Tabs
+            value={activeTab}
+            onValueChange={handleTabChange}
+            className="space-y-4"
+          >
+            <TabsList className="h-auto flex-wrap">
+              <TabsTrigger value="browse">
+                <Package className="mr-2 h-4 w-4" /> Browse
+              </TabsTrigger>
+              <TabsTrigger value="myRequests">
+                <Send className="mr-2 h-4 w-4" /> My Requests
+              </TabsTrigger>
+              <TabsTrigger value="incomingRequests">
+                <Inbox className="mr-2 h-4 w-4" /> Incoming Requests
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="browse" className="space-y-4">
+              <DashboardCard
+                title="Available Listings"
+                icon={<Package size={16} />}
+                titleAction={
               <div className="relative w-full sm:w-[260px]">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -515,41 +695,72 @@ export default function MarketplacePage({
                   <Button variant="outline" onClick={() => setSelectedListing(null)} className="w-full sm:w-auto">
                     Close
                   </Button>
-                  {!showRequestForm && !requestSent && (
-                    isPlatformAdmin ? (
-                      <>
-                        <Button
-                          variant="outline"
-                          onClick={() => openEditListing(selectedListing)}
-                          className="w-full sm:w-auto"
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          onClick={() => removeListing(selectedListing?.id)}
-                          className="w-full sm:w-auto"
-                        >
-                          Delete
-                        </Button>
-                      </>
-                    ) : selectedListing.workspace_id === workspaceId ? (
-                      <Button variant="outline" disabled className="w-full sm:w-auto">
-                        Your Listing
-                      </Button>
-                    ) : selectedListing.assets?.status === "deployed" ? (
-                      <Button variant="outline" disabled className="w-full sm:w-auto">
-                        Currently In Use
-                      </Button>
-                    ) : alreadyRequested ? (
-                      <Button disabled className="w-full sm:w-auto">
-                        <CheckCircle2 className="mr-2 h-4 w-4" /> Request Pending
-                      </Button>
-                    ) : (
-                      <Button onClick={() => setShowRequestForm(true)} className="w-full sm:w-auto">
-                        {selectedListing.listing_type === "hire" ? "Request Hire" : "Request Item"}
-                      </Button>
-                    )
+                  {!showRequestForm && (
+                    (() => {
+                      const isOwner = selectedListing.workspace_id === workspaceId;
+                      const isDeployed = selectedListing.assets?.status === "deployed";
+                      const canManage = isPlatformAdmin || isOwner;
+                      return (
+                        <div className="flex flex-wrap gap-2">
+                          {canManage && (
+                            <>
+                              <Button
+                                variant="outline"
+                                onClick={() => openEditListing(selectedListing)}
+                                className="w-full sm:w-auto"
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                onClick={() => removeListing(selectedListing.id)}
+                                className="w-full sm:w-auto"
+                              >
+                                Delete
+                              </Button>
+                            </>
+                          )}
+                          {!isOwner && isDeployed && (
+                            <Button variant="outline" disabled className="w-full sm:w-auto">
+                              Currently In Use
+                            </Button>
+                          )}
+                          {!isOwner && !isDeployed && alreadyRequested && (
+                            <>
+                              <Button disabled className="w-full sm:w-auto">
+                                <CheckCircle2 className="mr-2 h-4 w-4" /> Request Pending
+                              </Button>
+                              {selectedListing.seller_wallet_address ? (
+                                <Button
+                                  onClick={() => setShowPayment(true)}
+                                  className="w-full sm:w-auto"
+                                >
+                                  Make Payment
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="outline"
+                                  disabled
+                                  className="w-full sm:w-auto"
+                                >
+                                  Seller has no wallet
+                                </Button>
+                              )}
+                            </>
+                          )}
+                          {!isOwner && !isDeployed && !alreadyRequested && (
+                            <Button
+                              onClick={() => setShowRequestForm(true)}
+                              className="w-full sm:w-auto"
+                            >
+                              {selectedListing.listing_type === "hire"
+                                ? "Request Hire"
+                                : "Request Purchase"}
+                            </Button>
+                          )}
+                        </div>
+                      );
+                    })()
                   )}
                 </>
               ) : undefined
@@ -655,6 +866,113 @@ export default function MarketplacePage({
                     </AlertDescription>
                   </Alert>
                 )}
+
+                {showPayment && selectedListing && (
+                  <div className="space-y-3 rounded-lg border bg-muted/40 p-4">
+                    <h4 className="text-sm font-semibold">Pay with Solana</h4>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Recipient wallet</Label>
+                      <code className="block break-all rounded bg-background px-2 py-1 text-xs text-muted-foreground">
+                        {selectedListing.seller_wallet_address}
+                      </code>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Amount</span>
+                      <span className="font-medium">
+                        {selectedListing.price} {paymentToken}
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Token</Label>
+                      <SelectDropdown
+                        options={[
+                          { value: "USDC", label: "USDC" },
+                          { value: "SOL", label: "SOL" },
+                        ]}
+                        value={paymentToken}
+                        onChange={(v) => setPaymentToken(v as "SOL" | "USDC")}
+                      />
+                    </div>
+
+                    {!embeddedWallet.supported ? (
+                      <p className="text-sm text-destructive">
+                        Embedded Solana wallet is not supported in this environment.
+                      </p>
+                    ) : !embeddedWallet.exists ? (
+                      <p className="text-sm text-destructive">
+                        Set up your embedded Solana wallet in Settings before paying.
+                      </p>
+                    ) : (
+                      <div className="space-y-1">
+                        {embeddedWallet.shortAddress && (
+                          <p className="text-xs text-muted-foreground">
+                            Paying from <span className="font-mono">{embeddedWallet.shortAddress}</span>
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          Balance: {embeddedWallet.balances.sol.toFixed(4)} SOL /{" "}
+                          {embeddedWallet.balances.usdc.toFixed(2)} USDC
+                        </p>
+                        {!embeddedWallet.unlocked && (
+                          <div className="space-y-1 pt-1">
+                            <Label className="text-xs">Wallet PIN</Label>
+                            <Input
+                              type="password"
+                              value={paymentPin}
+                              onChange={(e) => setPaymentPin(e.target.value)}
+                              placeholder="Unlock wallet to pay"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowPayment(false)}
+                        disabled={paymentBusy}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={
+                          paymentBusy ||
+                          !embeddedWallet.exists ||
+                          (!embeddedWallet.unlocked && !paymentPin.trim())
+                        }
+                        onClick={handlePayWithSolana}
+                      >
+                        {paymentBusy ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending...
+                          </>
+                        ) : (
+                          `Pay ${selectedListing.price} ${paymentToken}`
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {paymentSuccess && (
+                  <Alert variant="success">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <AlertDescription className="space-y-1">
+                      <p>Payment sent and order recorded.</p>
+                      <a
+                        href={`https://explorer.solana.com/tx/${paymentSuccess.signature}?cluster=${SOLANA_CLUSTER}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-primary underline"
+                      >
+                        View transaction on Solana Explorer
+                      </a>
+                    </AlertDescription>
+                  </Alert>
+                )}
               </div>
             )}
           </DialogTemplate>
@@ -726,6 +1044,19 @@ export default function MarketplacePage({
                   onChange={(e) => setMSeller(e.target.value)}
                   placeholder="Your firm or name"
                 />
+              </div>
+              <div className="space-y-2">
+                <Label>Receiving Wallet</Label>
+                {workspaceMarketplaceWallet ? (
+                  <p className="text-sm break-all font-mono text-muted-foreground">
+                    {workspaceMarketplaceWallet}
+                  </p>
+                ) : (
+                  <p className="text-sm text-amber-600">
+                    No marketplace wallet selected. Buyers will see “Seller has no
+                    wallet.” Set one in Billing.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Location *</Label>
@@ -865,7 +1196,151 @@ export default function MarketplacePage({
               )}
             </>
           )}
-          </DashboardCard>
+              </DashboardCard>
+            </TabsContent>
+
+            <TabsContent value="myRequests">
+              <DashboardCard title="My Requests" icon={<Send size={16} />}>
+                {myRequestsLoading ? (
+                  <PageLoader />
+                ) : myRequests.length === 0 ? (
+                  <div className="py-12 text-center text-sm text-muted-foreground">
+                    You have not requested any items yet.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {myRequests.map((req) => (
+                      <Card key={req.id} className="overflow-hidden">
+                        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="space-y-1">
+                            <h4 className="font-semibold">
+                              {req.marketplace_listings.name}
+                            </h4>
+                            <p className="text-xs text-muted-foreground">
+                              {req.marketplace_listings.type} ·{" "}
+                              {req.marketplace_listings.listing_type === "hire"
+                                ? "Hire"
+                                : "Purchase"}{" "}
+                              · ${req.marketplace_listings.price.toLocaleString()}
+                            </p>
+                            {(req.desired_start_date || req.desired_end_date) && (
+                              <p className="text-xs text-muted-foreground">
+                                {req.desired_start_date && `From ${req.desired_start_date}`}
+                                {req.desired_start_date && req.desired_end_date && " · "}
+                                {req.desired_end_date && `Until ${req.desired_end_date}`}
+                              </p>
+                            )}
+                            {req.message && (
+                              <p className="text-sm text-muted-foreground">{req.message}</p>
+                            )}
+                          </div>
+                          <div className="flex flex-col items-start gap-2 sm:items-end">
+                            <Badge
+                              variant={
+                                req.status === "accepted"
+                                  ? "success"
+                                  : req.status === "declined" || req.status === "cancelled"
+                                    ? "destructive"
+                                    : "default"
+                              }
+                            >
+                              {req.status}
+                            </Badge>
+                            {req.status === "pending" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleUpdateRequestStatus(req.id, "cancelled")}
+                              >
+                                <Ban className="mr-2 h-3 w-3" /> Cancel
+                              </Button>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </DashboardCard>
+            </TabsContent>
+
+            <TabsContent value="incomingRequests">
+              <DashboardCard title="Incoming Requests" icon={<Inbox size={16} />}>
+                {incomingRequestsLoading ? (
+                  <PageLoader />
+                ) : incomingRequests.length === 0 ? (
+                  <div className="py-12 text-center text-sm text-muted-foreground">
+                    No one has requested your listings yet.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {incomingRequests.map((req) => (
+                      <Card key={req.id} className="overflow-hidden">
+                        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="space-y-1">
+                            <h4 className="font-semibold">
+                              {req.marketplace_listings.name}
+                            </h4>
+                            <p className="text-xs text-muted-foreground">
+                              {req.marketplace_listings.type} ·{" "}
+                              {req.marketplace_listings.listing_type === "hire"
+                                ? "Hire"
+                                : "Purchase"}
+                            </p>
+                            {req.workspaces?.name && (
+                              <p className="text-xs text-muted-foreground">
+                                From workspace: {req.workspaces.name}
+                              </p>
+                            )}
+                            {(req.desired_start_date || req.desired_end_date) && (
+                              <p className="text-xs text-muted-foreground">
+                                {req.desired_start_date && `From ${req.desired_start_date}`}
+                                {req.desired_start_date && req.desired_end_date && " · "}
+                                {req.desired_end_date && `Until ${req.desired_end_date}`}
+                              </p>
+                            )}
+                            {req.message && (
+                              <p className="text-sm text-muted-foreground">{req.message}</p>
+                            )}
+                          </div>
+                          <div className="flex flex-col items-start gap-2 sm:items-end">
+                            <Badge
+                              variant={
+                                req.status === "accepted"
+                                  ? "success"
+                                  : req.status === "declined" || req.status === "cancelled"
+                                    ? "destructive"
+                                    : "default"
+                              }
+                            >
+                              {req.status}
+                            </Badge>
+                            {req.status === "pending" && (
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleUpdateRequestStatus(req.id, "accepted")}
+                                >
+                                  <CheckCircle2 className="mr-2 h-3 w-3" /> Accept
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleUpdateRequestStatus(req.id, "declined")}
+                                >
+                                  <Ban className="mr-2 h-3 w-3" /> Decline
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </DashboardCard>
+            </TabsContent>
+          </Tabs>
         </>
       )}
     </DashboardShell>

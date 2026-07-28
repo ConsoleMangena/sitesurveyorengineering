@@ -1060,6 +1060,7 @@ export type Database = {
           name: string
           price: number
           seller: string
+          seller_wallet_address: string | null
           specs: string[] | null
           type: string
           updated_at: string
@@ -1078,6 +1079,7 @@ export type Database = {
           name: string
           price: number
           seller: string
+          seller_wallet_address?: string | null
           specs?: string[] | null
           type: string
           updated_at?: string
@@ -1096,6 +1098,7 @@ export type Database = {
           name?: string
           price?: number
           seller?: string
+          seller_wallet_address?: string | null
           specs?: string[] | null
           type?: string
           updated_at?: string
@@ -2346,6 +2349,7 @@ export type Database = {
           created_at: string
           currency_code: string
           id: string
+          marketplace_wallet_address: string | null
           name: string
           owner_user_id: string
           slug: string | null
@@ -2360,11 +2364,12 @@ export type Database = {
           created_at?: string
           currency_code?: string
           id?: string
+          marketplace_wallet_address?: string | null
           name: string
           owner_user_id: string
           slug?: string | null
           timezone?: string
-          type: Database["public"]["Enums"]["workspace_type"]
+          type?: Database["public"]["Enums"]["workspace_type"]
           updated_at?: string
         }
         Update: {
@@ -2374,6 +2379,7 @@ export type Database = {
           created_at?: string
           currency_code?: string
           id?: string
+          marketplace_wallet_address?: string | null
           name?: string
           owner_user_id?: string
           slug?: string | null

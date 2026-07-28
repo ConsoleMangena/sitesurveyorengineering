@@ -130,10 +130,10 @@ const ResourceAvatar = ({
       className={cn(
         "inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold shrink-0",
         kind === "crew"
-          ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200"
+          ? "bg-blue-100 text-blue-700"
           : kind === "vehicle"
-            ? "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-200"
-            : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200",
+            ? "bg-orange-100 text-orange-700"
+            : "bg-emerald-100 text-emerald-700",
       )}
     >
       {kind === "crew" ? initial : kind === "vehicle" ? <Truck size={12} /> : <Package size={12} />}

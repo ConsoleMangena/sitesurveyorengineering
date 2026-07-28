@@ -55,7 +55,7 @@ import {
   listMarketplaceListings,
   type MarketplaceListingRow,
 } from "../../lib/repositories/marketplace.ts";
-import { getWorkspaceById } from "../../lib/repositories/workspaces.ts";
+import { getMarketplaceWallet, getWorkspaceById } from "../../lib/repositories/workspaces.ts";
 import { listProjects, type ProjectWithOrg } from "../../lib/repositories/projects.ts";
 import { mapAssetRowToInstrument, type UiInstrument } from "../../lib/mappers.ts";
 
@@ -90,9 +90,9 @@ function calDaysClass(days: number): string {
 
 function calBgClass(days: number): string {
   if (days < 0) return "bg-destructive/10 text-destructive border-destructive/20";
-  if (days <= 30) return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950 dark:text-amber-200";
-  if (days <= 60) return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-950 dark:text-yellow-200";
-  return "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-200";
+  if (days <= 30) return "bg-amber-100 text-amber-800 border-amber-200";
+  if (days <= 60) return "bg-yellow-100 text-yellow-800 border-yellow-200";
+  return "bg-emerald-100 text-emerald-800 border-emerald-200";
 }
 
 function calLabel(days: number): string {
@@ -109,13 +109,13 @@ const statusVariant: Record<string, BadgeProps["variant"]> = {
 };
 
 const typeBgClass: Record<string, string> = {
-  "Total Station": "bg-violet-100 text-violet-800 border-violet-200 dark:bg-violet-900 dark:text-violet-200",
-  "GNSS Receiver": "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900 dark:text-blue-200",
-  "Digital Level": "bg-sky-100 text-sky-800 border-sky-200 dark:bg-sky-900 dark:text-sky-200",
-  "UAV / Drone": "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900 dark:text-amber-200",
-  Controller: "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900 dark:text-emerald-200",
-  "Calibration Service": "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-900 dark:text-rose-200",
-  Other: "bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-800 dark:text-slate-200",
+  "Total Station": "bg-violet-100 text-violet-800 border-violet-200",
+  "GNSS Receiver": "bg-blue-100 text-blue-800 border-blue-200",
+  "Digital Level": "bg-sky-100 text-sky-800 border-sky-200",
+  "UAV / Drone": "bg-amber-100 text-amber-800 border-amber-200",
+  Controller: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  "Calibration Service": "bg-rose-100 text-rose-800 border-rose-200",
+  Other: "bg-slate-100 text-slate-800 border-slate-200",
 };
 
 type Tab = "register" | "calibration" | "deployments" | "maintenance";
@@ -190,6 +190,7 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [workspaceName, setWorkspaceName] = useState<string>("Our Company");
+  const [workspaceMarketplaceWallet, setWorkspaceMarketplaceWallet] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("register");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
@@ -210,6 +211,7 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
 
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     name: "",
     kind: "instrument" as "instrument" | "vehicle" | "equipment" | "other",
@@ -230,6 +232,7 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
     location: "",
     description: "",
     seller: workspaceName,
+    seller_wallet_address: "",
   });
 
   const [projects, setProjects] = useState<ProjectWithOrg[]>([]);
@@ -290,6 +293,17 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
   }, [workspaceId]);
 
   useAsyncAction(fetchAssets, [fetchAssets]);
+
+  const fetchWorkspaceWallet = useCallback(async () => {
+    try {
+      const address = await getMarketplaceWallet(workspaceId);
+      setWorkspaceMarketplaceWallet(address);
+    } catch {
+      setWorkspaceMarketplaceWallet(null);
+    }
+  }, [workspaceId]);
+
+  useAsyncAction(fetchWorkspaceWallet, [fetchWorkspaceWallet]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -375,11 +389,12 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
           location: listing.location,
           description: listing.description || "",
           seller: listing.seller || workspaceName,
+          seller_wallet_address: listing.seller_wallet_address || "",
         });
       } else {
         setListOnMarketplace(false);
         setMarketplaceListingId(null);
-        setListingForm({ listing_type: "sale", price: "", condition: "New", location: "", description: "", seller: workspaceName });
+        setListingForm({ listing_type: "sale", price: "", condition: "New", location: "", description: "", seller: workspaceName, seller_wallet_address: "" });
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load marketplace listing for this asset.");
@@ -396,7 +411,6 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
       setError("Please specify a price for the marketplace listing.");
       return;
     }
-
     setSaving(true);
     try {
       await updateAsset(editingAssetId, {
@@ -420,6 +434,7 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
           price: Number(listingForm.price),
           currency: "USD",
           seller: listingForm.seller.trim() || workspaceName,
+          seller_wallet_address: workspaceMarketplaceWallet ?? null,
           location: listingForm.location || "HQ",
           description: listingForm.description || "",
           specs: editForm.model ? [editForm.model] : [],
@@ -437,6 +452,11 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
       setShowEditModal(false);
       setEditingAssetId(null);
       await fetchAssets();
+      setSuccessMessage(
+        listOnMarketplace
+          ? "Asset updated and marketplace listing saved."
+          : "Asset updated successfully.",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update asset.");
     } finally {
@@ -973,6 +993,19 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
                   <Input id="listing-seller" value={listingForm.seller} onChange={(e) => setListingForm((f) => ({ ...f, seller: e.target.value }))} />
                 </div>
                 <div className="space-y-1.5 sm:col-span-2">
+                  <Label>Receiving Wallet</Label>
+                  {workspaceMarketplaceWallet ? (
+                    <p className="text-sm break-all font-mono text-muted-foreground">
+                      {workspaceMarketplaceWallet}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-amber-600">
+                      No marketplace wallet selected. Buyers will see “Seller has
+                      no wallet.” Set one in Billing.
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
                   <Label htmlFor="listing-description">Listing Description</Label>
                   <textarea
                     id="listing-description"
@@ -1096,6 +1129,24 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
             )}
           </div>
         </form>
+      </DialogTemplate>
+
+      {/* Success Dialog */}
+      <DialogTemplate
+        open={!!successMessage}
+        onOpenChange={() => setSuccessMessage(null)}
+        title="Success"
+        description={successMessage ?? ""}
+        size="sm"
+        footer={
+          <Button onClick={() => setSuccessMessage(null)} className="w-full sm:w-auto">
+            Done
+          </Button>
+        }
+      >
+        <div className="flex justify-center py-4">
+          <CheckCircle2 className="h-12 w-12 text-emerald-600" />
+        </div>
       </DialogTemplate>
     </DashboardShell>
   );

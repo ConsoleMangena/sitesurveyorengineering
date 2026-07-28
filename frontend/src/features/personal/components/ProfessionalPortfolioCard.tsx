@@ -497,7 +497,7 @@ export function ProfessionalPortfolioCard({
                 <div
                   className={`rounded-lg border px-4 py-3 text-sm ${
                     notice.type === "success"
-                      ? "border-emerald-500/50 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"
+                      ? "border-emerald-500/50 bg-emerald-50 text-emerald-700"
                       : "border-destructive/50 bg-destructive/10 text-destructive"
                   }`}
                 >

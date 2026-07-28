@@ -21,6 +21,7 @@ import { Separator } from "@/components/ui/separator";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
+import { SuccessDialog } from "@/components/SuccessDialog.tsx";
 import {
   Sheet,
   SheetContent,
@@ -332,6 +333,7 @@ export default function InvoicesPage({ workspaceId }: InvoicesPageProps) {
   const [invoiceToDelete, setInvoiceToDelete] = useState<UiInvoice | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const [organizations, setOrganizations] = useState<OrganizationRow[]>([]);
   const [projectOptions, setProjectOptions] = useState<{ id: string; name: string }[]>([]);
@@ -493,6 +495,7 @@ export default function InvoicesPage({ workspaceId }: InvoicesPageProps) {
         paid_at: new Date().toISOString(),
       });
       await fetchInvoices();
+      setSuccessMessage("Invoice marked as paid.");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to mark as paid");
     }
@@ -598,6 +601,7 @@ export default function InvoicesPage({ workspaceId }: InvoicesPageProps) {
       setInvoiceToDelete(null);
       setDeleteConfirmOpen(false);
       await fetchInvoices();
+      setSuccessMessage("Invoice deleted successfully.");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to delete invoice");
       setDeleteConfirmOpen(false);
@@ -664,6 +668,9 @@ export default function InvoicesPage({ workspaceId }: InvoicesPageProps) {
       setEditingInvoiceId(null);
       setActiveInvoiceId(null);
       await fetchInvoices();
+      setSuccessMessage(
+        isEditing ? "Invoice updated successfully." : "Invoice created successfully.",
+      );
     } catch (err: unknown) {
       setCreateError(err instanceof Error ? err.message : "Failed to save invoice");
     }
@@ -1087,6 +1094,12 @@ export default function InvoicesPage({ workspaceId }: InvoicesPageProps) {
         onOpenChange={setBusinessDialogOpen}
         profile={profile}
         onSave={setProfile}
+      />
+
+      <SuccessDialog
+        open={!!successMessage}
+        onOpenChange={() => setSuccessMessage(null)}
+        message={successMessage ?? ""}
       />
     </DashboardShell>
   );

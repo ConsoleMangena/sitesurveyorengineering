@@ -94,11 +94,11 @@ const typeVariant: Record<string, "default" | "secondary" | "destructive" | "out
 };
 
 const typeBgClass: Record<string, string> = {
-  boundary: "bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200 border-violet-200",
-  topo: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border-blue-200",
-  construction: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 border-amber-200",
-  pegging: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 border-emerald-200",
-  other: "bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200 border-slate-200",
+  boundary: "bg-violet-100 text-violet-800 border-violet-200",
+  topo: "bg-blue-100 text-blue-800 border-blue-200",
+  construction: "bg-amber-100 text-amber-800 border-amber-200",
+  pegging: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  other: "bg-slate-100 text-slate-800 border-slate-200",
 };
 
 function formatDuration(start: string | null, end: string | null): string {

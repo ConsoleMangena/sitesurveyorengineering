@@ -5381,6 +5381,114 @@
   margin-bottom: -6px;
 }
 
+.wallet-input-with-scan {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.wallet-input-with-scan .input-field {
+  width: 100%;
+  padding-right: 40px;
+}
+
+.wallet-scan-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.wallet-scan-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.wallet-scan-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.qr-scanner-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(4px);
+}
+
+.qr-scanner-modal {
+  width: 100%;
+  max-width: 360px;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  box-shadow: var(--shadow-lg);
+}
+
+.qr-scanner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.qr-scanner-header h4 {
+  margin: 0;
+}
+
+.qr-scanner-viewport-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.qr-scanner-viewport {
+  width: 100%;
+  height: 100%;
+}
+
+.qr-scanner-viewport video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.qr-scanner-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface-muted);
+}
+
 .wallet-send-balance-hint {
   font-size: 12px;
   color: var(--text);
@@ -9856,318 +9964,6 @@
   .file-manager-breadcrumb {
     display: none;
   }
-}
-
-[data-theme="dark"] .filter-chip,
-[data-theme="dark"] .search-input,
-[data-theme="dark"] .coord-banner,
-[data-theme="dark"] .mini-stat,
-[data-theme="dark"] .setting-input,
-[data-theme="dark"] .btn-outline,
-[data-theme="dark"] .billing-method-card,
-[data-theme="dark"] .billing-history-select,
-[data-theme="dark"] .billing-modal,
-[data-theme="dark"] .mkt-post-select,
-[data-theme="dark"] .schedule-modal,
-[data-theme="dark"] .file-manager-select,
-[data-theme="dark"] .file-manager-type-pill,
-[data-theme="dark"] .file-manager-action-btn,
-[data-theme="dark"] .file-manager-row-menu,
-[data-theme="dark"] .dispatch-calendar,
-[data-theme="dark"] .dispatch-sidebar,
-[data-theme="dark"] .dispatch-modal,
-[data-theme="dark"] .split-list,
-[data-theme="dark"] .split-detail,
-[data-theme="dark"] .quote-totals-card,
-[data-theme="dark"] .invoices-detail-panel,
-[data-theme="dark"] .invoices-create-modal,
-[data-theme="dark"] .quotes-create-modal,
-[data-theme="dark"] .contacts-modal {
-  background: var(--surface);
-}
-
-[data-theme="dark"] .team-row:hover,
-[data-theme="dark"] .pro-row:hover,
-[data-theme="dark"] .mkt-row:hover,
-[data-theme="dark"] .billing-method-card.is-default,
-[data-theme="dark"] .quotes-split-list .split-list-item.active,
-[data-theme="dark"] .invoices-list-item.active,
-[data-theme="dark"] .setting-row:hover {
-  background: var(--table-row-hover-bg);
-}
-
-[data-theme="dark"] .dispatch-week-header,
-[data-theme="dark"] .dispatch-day-col.today,
-[data-theme="dark"] .dispatch-day-col.selected,
-[data-theme="dark"] .dispatch-modal-pick,
-[data-theme="dark"] .dispatch-day-label,
-[data-theme="dark"] .dispatch-card,
-[data-theme="dark"] .dispatch-empty {
-  background: var(--surface);
-  color: var(--text-h);
-}
-
-[data-theme="dark"] .dispatch-day-label.selected,
-[data-theme="dark"] .dispatch-day-col.drag-over,
-[data-theme="dark"] .dispatch-pill.active {
-  background: var(--accent-bg);
-}
-
-[data-theme="dark"] .dispatch-card-client,
-[data-theme="dark"] .dispatch-card-resources,
-[data-theme="dark"] .dispatch-day-label-inner,
-[data-theme="dark"] .dispatch-resource-role,
-[data-theme="dark"] .dispatch-resource-meta,
-[data-theme="dark"] .dispatch-section-label {
-  color: var(--text);
-}
-
-[data-theme="dark"] .dispatch-resource-row:hover,
-[data-theme="dark"] .dispatch-resource-avatar,
-[data-theme="dark"] .dispatch-modal-close {
-  background: var(--surface-muted);
-}
-
-[data-theme="dark"] .dispatch-resource-row.conflict {
-  background: rgba(234, 88, 12, 0.15);
-}
-
-[data-theme="dark"] .dispatch-day-date,
-[data-theme="dark"] .dispatch-week-current {
-  color: var(--text-h);
-}
-
-[data-theme="dark"] .file-manager-dropzone,
-[data-theme="dark"] .file-manager-storage-card,
-[data-theme="dark"] .file-manager-kpi-card,
-[data-theme="dark"] .file-manager-project-card,
-[data-theme="dark"] .file-manager-table-card,
-[data-theme="dark"] .file-manager-selection-bar {
-  background: var(--surface);
-  border-color: var(--border);
-}
-
-[data-theme="dark"] .file-manager-dropzone {
-  background-image:
-    radial-gradient(circle at 20% 30%, color-mix(in oklab, var(--accent) 6%, transparent), transparent 12rem),
-    radial-gradient(color-mix(in oklab, var(--border) 55%, transparent) 1px, transparent 1px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-}
-
-[data-theme="dark"] .file-manager-dropzone.drag-over {
-  background-color: var(--accent-bg);
-}
-
-[data-theme="dark"] .file-manager-storage-card:hover,
-[data-theme="dark"] .file-manager-table-card:hover {
-  border-color: color-mix(in oklab, var(--accent) 28%, var(--border));
-}
-
-[data-theme="dark"] .file-manager-storage-track {
-  background: color-mix(in oklab, var(--border) 60%, var(--surface));
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
-}
-
-[data-theme="dark"] .file-manager-storage-fill {
-  box-shadow: 0 0 14px color-mix(in oklab, var(--accent) 45%, transparent);
-}
-
-[data-theme="dark"] .file-manager-table tbody tr.selected {
-  background: color-mix(in oklab, var(--accent) 10%, var(--surface));
-}
-
-[data-theme="dark"] .file-manager-table tbody tr.selected td {
-  border-bottom-color: color-mix(in oklab, var(--accent) 24%, var(--border));
-}
-
-[data-theme="dark"] .file-manager-selection-bar {
-  background: color-mix(in oklab, var(--accent) 8%, var(--surface));
-}
-
-[data-theme="dark"] .file-manager-type-pill {
-  background: var(--surface);
-}
-
-[data-theme="dark"] .file-manager-action-btn {
-  background: var(--surface);
-}
-
-[data-theme="dark"] .file-manager-row-menu-btn:hover {
-  background: var(--accent-bg);
-}
-
-[data-theme="dark"] .file-manager-row-menu-item:hover {
-  background: color-mix(in oklab, var(--accent) 10%, var(--surface));
-}
-
-[data-theme="dark"] .file-manager-empty-state {
-  background: radial-gradient(circle at center, color-mix(in oklab, var(--accent) 7%, transparent), transparent 20rem);
-}
-
-/* ── Additional dark mode overrides ── */
-[data-theme="dark"] .cogo-mode-btn.active,
-[data-theme="dark"] .mkt-modal,
-[data-theme="dark"] .invoices-sort-select,
-[data-theme="dark"] .quotes-sort-select,
-[data-theme="dark"] .invoices-line-remove-btn,
-[data-theme="dark"] .quotes-line-remove-btn,
-[data-theme="dark"] .schedule-type-pill,
-[data-theme="dark"] .schedule-modal-select {
-  background: var(--surface);
-}
-
-[data-theme="dark"] .split-list-item:hover,
-[data-theme="dark"] .invoices-meta-grid,
-[data-theme="dark"] .file-manager-row-menu-item:hover,
-[data-theme="dark"] .mkt-modal-icon,
-[data-theme="dark"] .mkt-spec-chip,
-[data-theme="dark"] .mkt-modal-seller,
-[data-theme="dark"] .mkt-request-form,
-[data-theme="dark"] .mkt-modal-close:hover {
-  background: var(--surface-muted);
-}
-
-[data-theme="dark"] .mkt-request-success {
-  background: color-mix(in oklab, #22c55e 10%, transparent);
-  border-color: color-mix(in oklab, #22c55e 20%, transparent);
-  color: #4ade80;
-}
-
-[data-theme="dark"] .status-draft,
-[data-theme="dark"] .billing-add-icon,
-[data-theme="dark"] .team-member-chip,
-[data-theme="dark"] .schedule-event-chip {
-  background: var(--surface-muted);
-  color: var(--text);
-}
-
-[data-theme="dark"] .badge-gray,
-[data-theme="dark"] .type-asbuilt,
-[data-theme="dark"] .cogo-mode-toggle,
-[data-theme="dark"] .cogo-leg-num,
-[data-theme="dark"] .billing-modal-close,
-[data-theme="dark"] .invoices-create-close,
-[data-theme="dark"] .quotes-create-close,
-[data-theme="dark"] .contacts-modal-close,
-[data-theme="dark"] .schedule-modal-close,
-[data-theme="dark"] .file-manager-type-tag {
-  background: var(--surface-muted);
-  color: var(--text);
-}
-
-/* ── Dark mode: badges and status tags ── */
-[data-theme="dark"] .badge-green,
-[data-theme="dark"] .badge-blue,
-[data-theme="dark"] .badge-yellow,
-[data-theme="dark"] .badge-red,
-[data-theme="dark"] .badge-gray,
-[data-theme="dark"] .badge-purple,
-[data-theme="dark"] .badge-orange,
-[data-theme="dark"] .quality-aa,
-[data-theme="dark"] .quality-a,
-[data-theme="dark"] .quality-b,
-[data-theme="dark"] .quality-c,
-[data-theme="dark"] .type-topo,
-[data-theme="dark"] .type-control,
-[data-theme="dark"] .type-boundary,
-[data-theme="dark"] .type-monitoring,
-[data-theme="dark"] .type-asbuilt,
-[data-theme="dark"] .type-hydro,
-[data-theme="dark"] .alert-warning,
-[data-theme="dark"] .alert-success,
-[data-theme="dark"] .status-sent,
-[data-theme="dark"] .status-paid,
-[data-theme="dark"] .status-overdue,
-[data-theme="dark"] .status-pending,
-[data-theme="dark"] .status-failed,
-[data-theme="dark"] .status-accepted,
-[data-theme="dark"] .status-declined,
-[data-theme="dark"] .status-draft {
-  background: var(--surface-muted);
-  color: var(--text);
-  border-color: var(--border);
-}
-
-/* ── Dark mode: hardcoded dark text colors → adaptive ── */
-[data-theme="dark"] .team-cell-project,
-[data-theme="dark"] .team-cell-lead,
-[data-theme="dark"] .team-cell-crew,
-[data-theme="dark"] .team-member-chip,
-[data-theme="dark"] .pro-row-name,
-[data-theme="dark"] .pro-row-discipline,
-[data-theme="dark"] .pro-row-rate-val,
-[data-theme="dark"] .mkt-item-name,
-[data-theme="dark"] .mkt-price-val,
-[data-theme="dark"] .mkt-cell-location,
-[data-theme="dark"] .mkt-seller-name {
-  color: var(--text-h);
-}
-
-[data-theme="dark"] .team-cell-location,
-[data-theme="dark"] .team-cell-equipment,
-[data-theme="dark"] .team-cell-checkin,
-[data-theme="dark"] .team-cell-projects,
-[data-theme="dark"] .team-cell-surveys,
-[data-theme="dark"] .pro-row-title,
-[data-theme="dark"] .pro-row-location,
-[data-theme="dark"] .pro-row-rate-per,
-[data-theme="dark"] .pro-row-menu-btn,
-[data-theme="dark"] .mkt-item-type,
-[data-theme="dark"] .mkt-price-currency,
-[data-theme="dark"] .mkt-seller-posted,
-[data-theme="dark"] .mkt-row-menu-btn {
-  color: var(--text);
-}
-
-/* ── Dark mode: hardcoded borders ── */
-[data-theme="dark"] .data-table td,
-[data-theme="dark"] .data-table th,
-[data-theme="dark"] .invoice-table td,
-[data-theme="dark"] .adj-stat,
-[data-theme="dark"] .setting-row,
-[data-theme="dark"] .crew-members,
-[data-theme="dark"] .pro-card-footer,
-[data-theme="dark"] .quote-lines-table tbody tr,
-[data-theme="dark"] .dispatch-resource-row,
-[data-theme="dark"] .ast-deploy-actions,
-[data-theme="dark"] .ast-maint-timeline,
-[data-theme="dark"] .ast-maint-total,
-[data-theme="dark"] .ast-detail-cal,
-[data-theme="dark"] .team-member-chip,
-[data-theme="dark"] .mkt-card-icon,
-[data-theme="dark"] .mkt-spec-chip,
-[data-theme="dark"] .phase-tag,
-[data-theme="dark"] .datum-code,
-[data-theme="dark"] .progress-bar-mini,
-[data-theme="dark"] .eq-calibration,
-[data-theme="dark"] .crew-member-chip {
-  border-color: var(--border);
-  background: var(--surface-muted);
-}
-
-/* ── Dark mode: phase/datum/progress backgrounds ── */
-[data-theme="dark"] .phase-tag,
-[data-theme="dark"] .datum-code,
-[data-theme="dark"] .progress-bar-mini,
-[data-theme="dark"] .eq-calibration,
-[data-theme="dark"] .crew-member-chip,
-[data-theme="dark"] .mkt-card-icon,
-[data-theme="dark"] .mkt-spec-chip {
-  background: var(--surface-muted);
-  color: var(--text);
-}
-
-/* ── Dark mode: light gray backgrounds → surface-muted ── */
-[data-theme="dark"] .quote-totals-card,
-[data-theme="dark"] .billing-method-card,
-[data-theme="dark"] .ast-cal-card,
-[data-theme="dark"] .ast-deploy-card,
-[data-theme="dark"] .ast-maint-card {
-  background: var(--surface);
-}
-
-[data-theme="dark"] .ast-cal-card.cal-overdue {
-  background: var(--color-error-bg);
 }
 
 /* ── Motion Layer ── */

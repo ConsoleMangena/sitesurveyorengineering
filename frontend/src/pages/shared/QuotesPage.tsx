@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
+import { SuccessDialog } from "@/components/SuccessDialog.tsx";
 import {
   Sheet,
   SheetContent,
@@ -267,6 +268,7 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [draft, setDraft] = useState({
     quote_number: "",
     organization_id: "",
@@ -363,6 +365,7 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
         }));
       await saveQuoteItems(workspaceId, activeQuote.dbId, cleaned);
       await fetchQuotes();
+      setSuccessMessage("Quote items saved successfully.");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to save items");
     } finally {
@@ -381,6 +384,7 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
       await updateQuote(activeQuote.dbId, { status: "sent" });
       setSendPreviewOpen(false);
       await fetchQuotes();
+      setSuccessMessage("Quote marked as sent.");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to update status");
     }
@@ -439,6 +443,7 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
       setIsCreateOpen(false);
       setActiveQuote(null);
       await fetchQuotes();
+      setSuccessMessage("Quote created successfully.");
     } catch (err: unknown) {
       setCreateError(err instanceof Error ? err.message : "Failed to create quote");
     }
@@ -905,6 +910,12 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
           onSend={handleSendToClient}
         />
       )}
+
+      <SuccessDialog
+        open={!!successMessage}
+        onOpenChange={() => setSuccessMessage(null)}
+        message={successMessage ?? ""}
+      />
     </DashboardShell>
   );
 }

@@ -85,38 +85,38 @@ export function ProjectOutputsManager({ projectId, workspaceId }: ProjectOutputs
             </div>
           ) : (
             <div className="overflow-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm min-w-[520px]">
                 <thead className="bg-muted/50 text-left">
                   <tr>
-                    <th className="px-4 py-2 font-medium">Output</th>
-                    <th className="px-4 py-2 font-medium hidden sm:table-cell">File name</th>
-                    <th className="px-4 py-2 font-medium">Size</th>
-                    <th className="px-4 py-2 font-medium hidden md:table-cell">Created</th>
-                    <th className="px-4 py-2 font-medium text-right">Actions</th>
+                    <th className="px-2 sm:px-4 py-2 font-medium w-[45%]">Output</th>
+                    <th className="px-2 sm:px-4 py-2 font-medium hidden sm:table-cell w-[25%]">File name</th>
+                    <th className="px-2 sm:px-4 py-2 font-medium w-[12%]">Size</th>
+                    <th className="px-2 sm:px-4 py-2 font-medium hidden md:table-cell w-[18%]">Created</th>
+                    <th className="px-2 sm:px-4 py-2 font-medium text-right w-[21%]">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sorted.map((o) => (
                     <tr key={o.id} className="border-t">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
+                      <td className="px-2 sm:px-4 py-2 sm:py-3">
+                        <div className="flex items-center gap-2 min-w-0">
                           <OutputIcon mimeType={o.mimeType} />
-                          <div>
-                            <p className="font-medium">{o.label}</p>
+                          <div className="min-w-0">
+                            <p className="font-medium truncate max-w-[180px] sm:max-w-[240px]">{o.label}</p>
                             {o.description ? (
-                              <p className="text-xs text-muted-foreground">{o.description}</p>
+                              <p className="text-xs text-muted-foreground truncate max-w-[180px] sm:max-w-[240px]">{o.description}</p>
                             ) : null}
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 hidden sm:table-cell text-muted-foreground">
+                      <td className="px-2 sm:px-4 py-2 sm:py-3 hidden sm:table-cell text-muted-foreground truncate max-w-[200px]">
                         {o.fileName}
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">{formatBytes(o.size)}</td>
-                      <td className="px-4 py-3 hidden md:table-cell text-muted-foreground">
+                      <td className="px-2 sm:px-4 py-2 sm:py-3 text-muted-foreground whitespace-nowrap">{formatBytes(o.size)}</td>
+                      <td className="px-2 sm:px-4 py-2 sm:py-3 hidden md:table-cell text-muted-foreground whitespace-nowrap">
                         {formatDate(o.createdAt)}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-2 sm:px-4 py-2 sm:py-3">
                         <div className="flex items-center justify-end gap-1">
                           <Button
                             size="icon"

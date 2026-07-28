@@ -849,7 +849,7 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
       )}
 
       {notice && (
-        <div className={`flex items-center justify-between rounded-lg px-4 py-3 text-sm ${notice.type === 'success' ? 'border border-emerald-200 bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 dark:border-emerald-900' : 'border border-blue-200 bg-blue-50 text-blue-800 dark:bg-blue-950 dark:text-blue-200 dark:border-blue-900'}`} role="status" aria-live="polite">
+        <div className={`flex items-center justify-between rounded-lg px-4 py-3 text-sm ${notice.type === 'success' ? 'border border-emerald-200 bg-emerald-50 text-emerald-800' : 'border border-blue-200 bg-blue-50 text-blue-800'}`} role="status" aria-live="polite">
           <span>{notice.message}</span>
           <button type="button" onClick={() => setNotice(null)} className="text-lg leading-none" aria-label="Dismiss notice">×</button>
         </div>
@@ -860,7 +860,17 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
           {projectMobileMenuOpen && (
             <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setProjectMobileMenuOpen(false)} />
           )}
-          <aside className={`shrink-0 border-r bg-muted/30 flex flex-col transition-all ${projectSidebarCollapsed ? 'w-16' : 'w-64'} ${projectMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 fixed lg:static z-50 h-full lg:h-auto`}>
+          <aside
+            className={[
+              'shrink-0 flex flex-col transition-transform duration-200 ease-in-out',
+              'fixed lg:static inset-y-0 left-0 z-50 lg:z-auto',
+              'h-dvh lg:h-auto w-64',
+              projectSidebarCollapsed ? 'lg:w-16' : 'lg:w-64',
+              'border-r bg-background shadow-2xl lg:shadow-none',
+              projectMobileMenuOpen ? 'translate-x-0' : '-translate-x-full',
+              'lg:translate-x-0',
+            ].join(' ')}
+          >
             <div className="p-4 border-b">
               <Button variant="outline" size="sm" className="w-full justify-start gap-2" onClick={exitProject} title="Back to Projects">
                 <ArrowLeft size={16} />

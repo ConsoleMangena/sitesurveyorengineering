@@ -127,56 +127,6 @@
   }
 }
 
-[data-theme="dark"] {
-  --text: #b5b2c0;
-  --text-h: #f3f2f7;
-  --bg: #0f1117;
-  --surface: #171a23;
-  --surface-muted: #1f2430;
-  --border: #2b3140;
-  --border-heavy: #3a4254;
-  --code-bg: #232938;
-  --accent: #60a5fa;
-  --accent-bg: rgba(96, 165, 250, 0.2);
-  --accent-border: rgba(96, 165, 250, 0.45);
-  --accent-purple: #a78bfa;
-  --accent-purple-bg: rgba(167, 139, 250, 0.15);
-  --social-bg: rgba(35, 41, 56, 0.6);
-
-  /* Semantic status colors */
-  --color-error: #f87171;
-  --color-error-bg: rgba(248, 113, 113, 0.12);
-  --color-error-border: rgba(248, 113, 113, 0.25);
-  --color-success: #4ade80;
-  --color-success-bg: rgba(74, 222, 128, 0.12);
-  --color-success-border: rgba(74, 222, 128, 0.25);
-  --color-warning: #fbbf24;
-  --color-warning-bg: rgba(251, 191, 36, 0.12);
-  --color-warning-border: rgba(251, 191, 36, 0.25);
-  --color-info: #60a5fa;
-  --color-info-bg: rgba(96, 165, 250, 0.12);
-  --color-info-border: rgba(96, 165, 250, 0.25);
-
-  /* Text */
-  --placeholder: #8b8fa0;
-  --text-secondary: #b5b2c0;
-  --text-muted: #8e9ab0;
-  --muted-foreground: var(--text-muted);
-
-  /* Monochromatic extras */
-  --background: var(--bg);
-  --foreground: var(--text-h);
-  --color-count: var(--accent);
-  --cad-text-dim: #94a3b8;
-
-  --table-head-bg: #1f2430;
-  --table-row-hover-bg: #212735;
-  --shadow: rgba(0, 0, 0, 0.4) 0 10px 20px -4px;
-  --shadow-sm: rgba(0, 0, 0, 0.35) 0 2px 6px;
-  --shadow-hover: rgba(0, 0, 0, 0.5) 0 12px 28px;
-  color-scheme: dark;
-}
-
 
 #root {
   max-width: 100%;
@@ -306,10 +256,6 @@ select.input-field {
   background-size: 16px;
 }
 
-[data-theme="dark"] select.input-field {
-  background-image: url('data:image/svg+xml;utf8,<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="%238b8fa0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>');
-}
-
 .input-field:focus {
   outline: none;
   border-color: var(--accent);
@@ -317,26 +263,6 @@ select.input-field {
 }
 
 .input-field::placeholder {
-  color: var(--placeholder);
-}
-
-[data-theme="dark"] .input-field,
-[data-theme="dark"] .form-input,
-[data-theme="dark"] .setting-input,
-[data-theme="dark"] .search-input,
-[data-theme="dark"] .billing-history-select,
-[data-theme="dark"] .mkt-post-select,
-[data-theme="dark"] .schedule-modal-select,
-[data-theme="dark"] .file-manager-select {
-  background: var(--surface);
-  color: var(--text-h);
-  border-color: var(--border);
-}
-
-[data-theme="dark"] .input-field::placeholder,
-[data-theme="dark"] .form-input::placeholder,
-[data-theme="dark"] .setting-input::placeholder,
-[data-theme="dark"] .search-input::placeholder {
   color: var(--placeholder);
 }
 
@@ -407,32 +333,6 @@ textarea.input-field {
   --foreground: var(--text-h);
   --color-count: var(--accent);
   --cad-text-dim: #475569;
-}
-
-[data-theme="dark"] {
-  --bg: #0b1020;
-  --surface: #111827;
-  --surface-muted: #172033;
-  --border: #273449;
-  --border-heavy: #3b4a64;
-  --text: #aab6c8;
-  --text-h: #f8fafc;
-  --accent: #60a5fa;
-  --accent-bg: rgba(96, 165, 250, 0.16);
-  --accent-border: rgba(96, 165, 250, 0.38);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --shadow: 0 16px 34px rgba(0, 0, 0, 0.38);
-  --shadow-hover: 0 20px 46px rgba(0, 0, 0, 0.48);
-
-  /* Text / extras */
-  --placeholder: #6c7a93;
-  --text-secondary: #8e9ab0;
-  --text-muted: #6c7a93;
-  --muted-foreground: var(--text-muted);
-  --background: var(--bg);
-  --foreground: var(--text-h);
-  --color-count: var(--accent);
-  --cad-text-dim: #94a3b8;
 }
 
 html {

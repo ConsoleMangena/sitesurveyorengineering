@@ -8,23 +8,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background:
-    radial-gradient(circle at 20% 20%, color-mix(in oklab, var(--accent) 12%, transparent), transparent 36rem),
-    radial-gradient(circle at 80% 80%, color-mix(in oklab, var(--accent-purple) 12%, transparent), transparent 34rem),
-    linear-gradient(
-      135deg,
-      color-mix(in oklab, var(--surface-muted) 88%, white) 0%,
-      color-mix(in oklab, var(--surface-muted) 70%, var(--accent-bg)) 50%,
-      color-mix(in oklab, var(--surface-muted) 75%, var(--accent-bg)) 100%
-    );
-  background-size: 400% 400%;
+  background: linear-gradient(180deg, #f3f7fc 0%, #e7edf5 100%);
   padding: max(24px, env(safe-area-inset-top, 0px) + 12px)
     max(20px, env(safe-area-inset-right, 0px))
     max(24px, env(safe-area-inset-bottom, 0px) + 12px)
     max(20px, env(safe-area-inset-left, 0px));
   position: relative;
   overflow: hidden;
-  animation: auth-bg-drift 22s ease-in-out infinite;
 }
 
 /* Mobile edge-to-edge fallback: prevent the system status and gesture bars from
@@ -33,34 +23,6 @@
 .mobile-build .auth-screen {
   padding-top: max(48px, env(safe-area-inset-top, 0px) + 12px);
   padding-bottom: max(56px, env(safe-area-inset-bottom, 0px) + 12px);
-}
-
-/* Subtle grid pattern */
-.auth-screen::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(color-mix(in oklab, var(--accent) 3%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in oklab, var(--accent) 3%, transparent) 1px, transparent 1px);
-  background-size: 40px 40px;
-  pointer-events: none;
-  animation: auth-grid-pulse 10s ease-in-out infinite;
-}
-
-/* Floating orbs behind the card */
-.auth-screen::after {
-  content: '';
-  position: absolute;
-  inset: -20%;
-  background:
-    radial-gradient(circle at 30% 30%, color-mix(in oklab, var(--accent) 18%, transparent) 0%, transparent 38%),
-    radial-gradient(circle at 70% 70%, color-mix(in oklab, var(--accent-purple) 14%, transparent) 0%, transparent 36%);
-  filter: blur(40px);
-  pointer-events: none;
-  opacity: 0.75;
-  animation: auth-orb-float 18s ease-in-out infinite alternate;
-  z-index: 0;
 }
 
 /* ── Auth Card ── */
@@ -714,60 +676,9 @@
   }
 }
 
-[data-theme="dark"] .auth-screen::before {
-  background-image:
-    linear-gradient(rgba(96, 165, 250, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(96, 165, 250, 0.06) 1px, transparent 1px);
-}
-
-[data-theme="dark"] .auth-card {
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.35);
-}
-
-[data-theme="dark"] .account-type-icon.personal {
-  color: var(--accent);
-}
-
-[data-theme="dark"] .form-error {
-  color: var(--color-error);
-}
-
-[data-theme="dark"] .form-success {
-  color: var(--color-success);
-}
-
 /* ════════════════════════════════════════════
    Auth Animations
    ════════════════════════════════════════════ */
-
-@keyframes auth-bg-drift {
-  0%,
-  100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-}
-
-@keyframes auth-grid-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.6;
-  }
-}
-
-@keyframes auth-orb-float {
-  0% {
-    transform: translate(0, 0) rotate(0deg) scale(1);
-  }
-  100% {
-    transform: translate(4%, -3%) rotate(6deg) scale(1.06);
-  }
-}
 
 @keyframes auth-card-enter {
   from {
@@ -842,106 +753,100 @@
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
-  background:
-    radial-gradient(circle at 20% 20%, color-mix(in oklab, var(--accent) 14%, transparent), transparent 36rem),
-    radial-gradient(circle at 80% 80%, color-mix(in oklab, var(--accent-purple) 14%, transparent), transparent 34rem),
-    linear-gradient(
-      135deg,
-      color-mix(in oklab, var(--surface-muted) 88%, white) 0%,
-      color-mix(in oklab, var(--surface-muted) 70%, var(--accent-bg)) 50%,
-      color-mix(in oklab, var(--surface-muted) 75%, var(--accent-bg)) 100%
-    );
-  background-size: 400% 400%;
-  animation: auth-bg-drift 22s ease-in-out infinite;
+ contain: layout paint;
 }
 
-.auth-background::before {
-  content: '';
+/* Web3-style network grid - slow pan for depth */
+.auth-bg-network-lines {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(color-mix(in oklab, var(--accent) 3%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in oklab, var(--accent) 3%, transparent) 1px, transparent 1px);
-  background-size: 40px 40px;
-  opacity: 0.8;
-  animation: auth-grid-pulse 10s ease-in-out infinite;
+    linear-gradient(90deg, transparent 49.5%, color-mix(in oklab, var(--accent) 7%, transparent) 49.5%, color-mix(in oklab, var(--accent) 7%, transparent) 50.5%, transparent 50.5%),
+    linear-gradient(0deg, transparent 49.5%, color-mix(in oklab, var(--accent) 7%, transparent) 49.5%, color-mix(in oklab, var(--accent) 7%, transparent) 50.5%, transparent 50.5%);
+  background-size: 80px 80px;
+  opacity: 0.18;
+  animation: auth-grid-pan 90s linear infinite;
+  will-change: background-position;
 }
 
+/* Subtle node dots */
+.auth-bg-grid-dots {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle at 1px 1px, color-mix(in oklab, var(--accent) 18%, transparent) 1.25px, transparent 0);
+  background-size: 40px 40px;
+  opacity: 0.14;
+}
+
+/* Edge vignette to keep focus on the form */
 .auth-bg-vignette {
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at center, transparent 0%, color-mix(in oklab, var(--surface-muted) 35%, transparent) 100%);
+  background: radial-gradient(circle at center, transparent 40%, color-mix(in oklab, var(--surface-muted) 20%, transparent) 100%);
 }
 
-.auth-bg-grid {
-  position: absolute;
-  inset: 0;
-  color: var(--accent);
-  opacity: 0.45;
-  animation: auth-grid-drift 60s linear infinite;
-  mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
-  -webkit-mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
-}
-
+/* Soft Web3 gradient orbs - transform-only animations */
 .auth-blob {
   position: absolute;
   border-radius: 50%;
-  filter: blur(60px);
-  opacity: 0.55;
+  filter: blur(44px);
+  opacity: 0.35;
+  will-change: transform;
+  contain: paint;
+  pointer-events: none;
 }
 
 .auth-blob-1 {
-  width: 42rem;
-  height: 42rem;
-  top: -14rem;
-  left: -14rem;
-  background: radial-gradient(circle, color-mix(in oklab, var(--accent) 35%, transparent) 0%, transparent 70%);
-  animation: auth-blob-move-1 24s ease-in-out infinite alternate;
+  width: 28rem;
+  height: 28rem;
+  top: -6rem;
+  left: -6rem;
+  background: radial-gradient(circle, color-mix(in oklab, var(--accent) 30%, transparent) 0%, transparent 65%);
+  animation: auth-blob-float-1 20s ease-in-out infinite alternate;
 }
 
 .auth-blob-2 {
-  width: 38rem;
-  height: 38rem;
-  bottom: -12rem;
-  right: -12rem;
-  background: radial-gradient(circle, color-mix(in oklab, var(--accent-purple) 32%, transparent) 0%, transparent 70%);
-  animation: auth-blob-move-2 28s ease-in-out infinite alternate;
+  width: 24rem;
+  height: 24rem;
+  bottom: -6rem;
+  right: -5rem;
+  background: radial-gradient(circle, color-mix(in oklab, var(--accent-purple) 26%, transparent) 0%, transparent 65%);
+  animation: auth-blob-float-2 24s ease-in-out infinite alternate;
 }
 
 .auth-blob-3 {
-  width: 26rem;
-  height: 26rem;
-  top: 40%;
-  left: 55%;
-  background: radial-gradient(circle, color-mix(in oklab, var(--accent) 22%, transparent) 0%, transparent 70%);
-  animation: auth-blob-move-3 32s ease-in-out infinite alternate;
+  width: 18rem;
+  height: 18rem;
+  top: 55%;
+  left: 60%;
+  background: radial-gradient(circle, color-mix(in oklab, var(--accent) 20%, transparent) 0%, transparent 65%);
+  animation: auth-blob-float-3 28s ease-in-out infinite alternate;
 }
 
-@keyframes auth-blob-move-1 {
+@keyframes auth-blob-float-1 {
   0% { transform: translate(0, 0) scale(1); }
-  100% { transform: translate(10%, 8%) scale(1.08); }
+  100% { transform: translate(8vw, 6vh) scale(1.06); }
 }
 
-@keyframes auth-blob-move-2 {
+@keyframes auth-blob-float-2 {
   0% { transform: translate(0, 0) scale(1); }
-  100% { transform: translate(-8%, -10%) scale(1.12); }
+  100% { transform: translate(-6vw, -8vh) scale(1.08); }
 }
 
-@keyframes auth-blob-move-3 {
+@keyframes auth-blob-float-3 {
   0% { transform: translate(0, 0) scale(1); }
-  100% { transform: translate(6%, -6%) scale(1.15); }
+  100% { transform: translate(6vw, -5vh) scale(1.12); }
 }
 
-@keyframes auth-grid-drift {
-  0% { transform: translate(0, 0); }
-  100% { transform: translate(-40px, -40px); }
+@keyframes auth-grid-pan {
+  0% { background-position: 0 0, 0 0; }
+  100% { background-position: 80px 80px, 80px 80px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .auth-background,
-  .auth-background::before,
-  .auth-blob,
-  .auth-bg-grid {
+  .auth-bg-network-lines,
+  .auth-blob {
     animation: none !important;
   }
 }
@@ -957,14 +862,6 @@
   box-shadow:
     0 8px 32px color-mix(in oklab, var(--accent) 8%, transparent),
     0 1px 3px rgba(0, 0, 0, 0.04);
-}
-
-[data-theme="dark"] .auth-card-glass {
-  background: color-mix(in oklab, var(--surface) 88%, transparent);
-  border-color: color-mix(in oklab, var(--border) 55%, transparent);
-  box-shadow:
-    0 14px 40px rgba(0, 0, 0, 0.45),
-    0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 /* ── Polished auth inputs ─────────────────────────────────────────────── */
@@ -992,10 +889,6 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-bg);
   background: var(--surface);
-}
-
-[data-theme="dark"] .auth-input {
-  background: color-mix(in oklab, var(--surface) 90%, transparent);
 }
 
 .password-wrapper .auth-input {

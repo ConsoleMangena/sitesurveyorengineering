@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
+import { SuccessDialog } from "@/components/SuccessDialog.tsx";
 import {
   Select,
   SelectContent,
@@ -63,7 +64,7 @@ export default function AdminUsersPage({
   const [detailUser, setDetailUser] = useState<AdminProfileWithWorkspaces | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [toggling, setToggling] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!isPlatformAdmin) return;
@@ -130,8 +131,7 @@ export default function AdminUsersPage({
     try {
       await togglePlatformAdmin(detailUser.id, newVal);
       setDetailUser({ ...detailUser, is_platform_admin: newVal });
-      setNotice(`Platform admin ${action}d.`);
-      window.setTimeout(() => setNotice(null), 2300);
+      setSuccessMessage(`Platform admin ${action}d.`);
       await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : `Failed to ${action} platform admin.`);
@@ -167,12 +167,6 @@ export default function AdminUsersPage({
           {error}
         </div>
       )}
-      {notice && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
-          {notice}
-        </div>
-      )}
-
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[220px] max-w-md">
           <Search
@@ -406,6 +400,12 @@ export default function AdminUsersPage({
           </div>
         )}
       </DialogTemplate>
+
+      <SuccessDialog
+        open={!!successMessage}
+        onOpenChange={() => setSuccessMessage(null)}
+        message={successMessage ?? ""}
+      />
     </DashboardShell>
   );
 }

@@ -7,6 +7,7 @@ import type { PluginOption } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
+import { VitePWA } from 'vite-plugin-pwa'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -94,6 +95,36 @@ export default defineConfig({
     ...wasmPlugins(),
     disableWasmPlugin(),
     cadWorkspacePlatformPlugin(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      manifest: false,
+      workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+        globPatterns: [
+          '**/*.{js,css,html,ico,png,svg,json,woff2,webmanifest,wasm}',
+        ],
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/[^/]+\.(?:png|jpg|jpeg|svg|webp|ico)$/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'images',
+              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 365 },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/.+\.supabase\.co\/rest\/v1\/.*/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'supabase-rest',
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 },
+            },
+          },
+        ],
+      },
+    }),
   ],
   // @solana/web3.js (v1) and its deps reference Node's `global`. Alias it to
   // globalThis so the browser bundle resolves it; `Buffer` is polyfilled in

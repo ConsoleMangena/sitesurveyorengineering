@@ -28,6 +28,8 @@ Open the **Supabase SQL editor** and paste/run these **in order**, one at a time
 | 14 | `14_project_crs.sql` | Per-project coordinate reference system. |
 | 15 | `15_project_drafting_units.sql` | Per-project drafting units. |
 | 16 | `20_offline_sync_support.sql` | Soft-delete / tombstone columns and sync indexes for offline-first WatermelonDB replication. |
+| 17 | `21_marketplace_listing_wallet.sql` | Adds `seller_wallet_address` to marketplace listings for Solana payments. |
+| 18 | `22_workspace_marketplace_wallet.sql` | Adds a default `marketplace_wallet_address` column to workspaces. |
 
 The order matters: tables -> functions -> policies (policies call the
 functions) -> seeds -> later features. Each file is its own transaction, so if

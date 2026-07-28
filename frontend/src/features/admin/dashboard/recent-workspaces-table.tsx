@@ -62,7 +62,7 @@ function StatusBadge({ archivedAt }: { archivedAt: string | null }) {
     );
   }
   return (
-    <Badge variant="outline" className="border-green-700/25 text-green-700 dark:border-green-300/25 dark:text-green-300 gap-1">
+    <Badge variant="outline" className="border-green-700/25 text-green-700 gap-1">
       <span className="size-1.5 rounded-full bg-current" />
       Active
     </Badge>

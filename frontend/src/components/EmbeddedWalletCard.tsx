@@ -16,6 +16,7 @@ import {
   Lock,
   Plus,
   RefreshCw,
+  Scan,
   Send,
   ShieldCheck,
   Trash2,
@@ -36,6 +37,7 @@ import {
 } from "../lib/solana/walletHistory.ts";
 import { QRCodeSVG } from "qrcode.react";
 import SolanaLogo from "./SolanaLogo.tsx";
+import QrCodeScanner from "./QrCodeScanner.tsx";
 
 const RECENT_RECIPIENTS_KEY = "sitesurveyor:wallet:recent-recipients";
 
@@ -133,6 +135,7 @@ export default function EmbeddedWalletCard() {
   const [confirmNewPin, setConfirmNewPin] = useState("");
   const [showReceive, setShowReceive] = useState(false);
   const [showSend, setShowSend] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
   const [sendToken, setSendToken] = useState<"SOL" | "USDC">("USDC");
   const [sendRecipient, setSendRecipient] = useState("");
   const [sendAmount, setSendAmount] = useState("");
@@ -240,6 +243,25 @@ export default function EmbeddedWalletCard() {
         setShowChangePin(false);
       })
       .catch(() => {});
+  };
+
+  const parseQrAddress = (raw: string): string => {
+    const trimmed = raw.trim();
+    let address = trimmed;
+    if (address.toLowerCase().startsWith("solana:")) {
+      address = address.slice(7);
+      const queryIndex = address.indexOf("?");
+      if (queryIndex > 0) {
+        address = address.slice(0, queryIndex);
+      }
+    }
+    return address.trim();
+  };
+
+  const handleScan = (raw: string) => {
+    const address = parseQrAddress(raw);
+    setSendRecipient(address);
+    setShowScanner(false);
   };
 
   const handleSend = () => {
@@ -1102,14 +1124,26 @@ export default function EmbeddedWalletCard() {
             </div>
 
             <label className="wallet-form-label">Recipient address</label>
-            <input
-              type="text"
-              className="input-field"
-              placeholder="Solana wallet address"
-              value={sendRecipient}
-              onChange={(e) => setSendRecipient(e.target.value)}
-              disabled={wallet.sending}
-            />
+            <div className="wallet-input-with-scan">
+              <input
+                type="text"
+                className="input-field"
+                placeholder="Solana wallet address"
+                value={sendRecipient}
+                onChange={(e) => setSendRecipient(e.target.value)}
+                disabled={wallet.sending}
+              />
+              <button
+                type="button"
+                className="wallet-scan-btn"
+                onClick={() => setShowScanner(true)}
+                disabled={wallet.sending}
+                aria-label="Scan QR code"
+                title="Scan QR code"
+              >
+                <Scan size={16} />
+              </button>
+            </div>
             {recentRecipients.length > 0 && (
               <div className="wallet-recent-recipients">
                 <span className="wallet-recent-recipients-label">Recent</span>
@@ -1261,6 +1295,13 @@ export default function EmbeddedWalletCard() {
             </div>
           </div>
         </div>
+      )}
+
+      {showScanner && (
+        <QrCodeScanner
+          onScan={handleScan}
+          onClose={() => setShowScanner(false)}
+        />
       )}
     </div>
   );

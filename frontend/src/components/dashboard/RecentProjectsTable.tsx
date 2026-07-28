@@ -49,7 +49,7 @@ function ProjectStatusBadge({ status }: { status: string }) {
   }
   if (status === "active") {
     return (
-      <Badge variant="outline" className="border-green-700/25 text-green-700 dark:border-green-300/25 dark:text-green-300">
+      <Badge variant="outline" className="border-green-700/25 text-green-700">
         Active
       </Badge>
     );

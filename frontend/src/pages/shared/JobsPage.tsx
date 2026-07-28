@@ -38,6 +38,7 @@ import { Label } from "../../components/ui/label.tsx";
 import { Badge } from "../../components/ui/badge.tsx";
 import { Card, CardContent } from "../../components/ui/card.tsx";
 import { DialogTemplate } from "../../components/templates/DialogTemplate.tsx";
+import { SuccessDialog } from "../../components/SuccessDialog.tsx";
 import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx";
 import { Separator } from "../../components/ui/separator.tsx";
@@ -121,6 +122,7 @@ export default function JobsPage({
   const [jobEditorOpen, setJobEditorOpen] = useState(false);
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
   const [savingJob, setSavingJob] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [jobTitle, setJobTitle] = useState("");
   const [jobDescription, setJobDescription] = useState("");
   const [jobType, setJobType] = useState("");
@@ -214,6 +216,7 @@ export default function JobsPage({
       }
       setJobEditorOpen(false);
       await fetchJobs();
+      setSuccessMessage(editingJobId ? "Job updated successfully." : "Job created successfully.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save job.");
     } finally {
@@ -228,6 +231,7 @@ export default function JobsPage({
       await archiveJob(id);
       setSelectedJob(null);
       await fetchJobs();
+      setSuccessMessage("Job archived successfully.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to archive job.");
     }
@@ -662,6 +666,12 @@ export default function JobsPage({
           )}
         </>
       )}
+
+      <SuccessDialog
+        open={!!successMessage}
+        onOpenChange={() => setSuccessMessage(null)}
+        message={successMessage ?? ""}
+      />
     </div>
   );
 }

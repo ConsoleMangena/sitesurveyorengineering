@@ -71,8 +71,8 @@ export function DialogTemplate({
                 {title}
               </DialogTitle>
               {description && (
-                <DialogDescription className="text-sm text-muted-foreground">
-                  {description}
+                <DialogDescription className="text-sm text-muted-foreground" asChild>
+                  <div>{description}</div>
                 </DialogDescription>
               )}
             </div>

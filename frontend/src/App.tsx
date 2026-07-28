@@ -17,8 +17,11 @@ import {
 } from "./lib/auth/app-user.ts";
 import {
   getCurrentSession,
+  loadStoredSession,
   onAuthStateChange,
 } from "./lib/auth/session.ts";
+import { isOnline } from "./lib/supabase/client.ts";
+
 import {
   saveCachedUser,
   loadCachedUser,
@@ -70,6 +73,14 @@ async function mapUserWithRetries(): Promise<{
     workspacesFetchFailed: false,
   };
 
+  // When offline, don't waste time retrying network calls.
+  if (!isOnline()) {
+    const { context, diagnostics } = await getCurrentAppUserWithDiagnostics();
+    lastDiagnostics = diagnostics;
+    const mapped = mapAppUserToUiUser(context);
+    return { user: mapped, diagnostics };
+  }
+
   const attempts = 1 + delaysBeforeRetryMs.length;
 
   for (let attempt = 0; attempt < attempts; attempt++) {
@@ -104,7 +115,10 @@ export default function App() {
 
   const syncUser = useCallback(async () => {
     try {
-      const session = await getCurrentSession();
+      let session = await getCurrentSession();
+      if (!session && !isOnline()) {
+        session = loadStoredSession();
+      }
       if (!session) {
         clearCachedUser();
         setUser(null);
@@ -156,6 +170,10 @@ export default function App() {
         return;
       }
       if (event === "SIGNED_OUT") {
+        if (!isOnline()) {
+          // Ignore sign-out events triggered by failed token refresh while offline.
+          return;
+        }
         clearCachedUser();
         setSessionExpired(true);
         return;

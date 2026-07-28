@@ -24,17 +24,17 @@ function formatEventTypeLabel(type: string | null): string {
 function getEventTypeColor(type: string | null): string {
   switch (type?.toLowerCase()) {
     case "field_work":
-      return "bg-sky-500 dark:bg-sky-400";
+      return "bg-sky-500";
     case "delivery":
-      return "bg-amber-500 dark:bg-amber-400";
+      return "bg-amber-500";
     case "meeting":
-      return "bg-violet-500 dark:bg-violet-400";
+      return "bg-violet-500";
     case "calibration":
-      return "bg-emerald-500 dark:bg-emerald-400";
+      return "bg-emerald-500";
     case "maintenance":
-      return "bg-slate-500 dark:bg-slate-400";
+      return "bg-slate-500";
     case "survey":
-      return "bg-indigo-500 dark:bg-indigo-400";
+      return "bg-indigo-500";
     default:
       return "bg-muted-foreground";
   }
@@ -43,17 +43,17 @@ function getEventTypeColor(type: string | null): string {
 function getEventTypeBadge(type: string | null): string {
   switch (type?.toLowerCase()) {
     case "field_work":
-      return "border-sky-600/50 bg-sky-50 text-sky-700 dark:border-sky-800/50 dark:bg-sky-500/10 dark:text-sky-300";
+      return "border-sky-600/50 bg-sky-50 text-sky-700";
     case "delivery":
-      return "border-amber-600/50 bg-amber-50 text-amber-700 dark:border-amber-800/50 dark:bg-amber-500/10 dark:text-amber-300";
+      return "border-amber-600/50 bg-amber-50 text-amber-700";
     case "meeting":
-      return "border-violet-600/50 bg-violet-50 text-violet-700 dark:border-violet-800/50 dark:bg-violet-500/10 dark:text-violet-300";
+      return "border-violet-600/50 bg-violet-50 text-violet-700";
     case "calibration":
-      return "border-emerald-600/50 bg-emerald-50 text-emerald-700 dark:border-emerald-800/50 dark:bg-emerald-500/10 dark:text-emerald-300";
+      return "border-emerald-600/50 bg-emerald-50 text-emerald-700";
     case "maintenance":
-      return "border-slate-600/50 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-500/10 dark:text-slate-300";
+      return "border-slate-600/50 bg-slate-50 text-slate-700";
     case "survey":
-      return "border-indigo-600/50 bg-indigo-50 text-indigo-700 dark:border-indigo-800/50 dark:bg-indigo-500/10 dark:text-indigo-300";
+      return "border-indigo-600/50 bg-indigo-50 text-indigo-700";
     default:
       return "border-border bg-muted text-muted-foreground";
   }
@@ -86,11 +86,11 @@ function getEventStatus(
 function getStatusBadge(status: "past" | "current" | "upcoming"): string {
   switch (status) {
     case "current":
-      return "border-green-600/50 bg-green-50 text-green-700 dark:border-green-800/50 dark:bg-green-500/10 dark:text-green-300";
+      return "border-green-600/50 bg-green-50 text-green-700";
     case "past":
-      return "border-slate-600/50 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-500/10 dark:text-slate-300";
+      return "border-slate-600/50 bg-slate-50 text-slate-700";
     default:
-      return "border-yellow-600/50 bg-yellow-50 text-yellow-700 dark:border-yellow-800/50 dark:bg-yellow-500/10 dark:text-yellow-300";
+      return "border-yellow-600/50 bg-yellow-50 text-yellow-700";
   }
 }
 

@@ -312,7 +312,7 @@ function CsvImportDialog({ open, onOpenChange, onImport, sections }: CsvImportDi
             </div>
 
             <div className="rounded-md border overflow-x-auto">
-              <table className="w-full text-sm min-w-[600px]">
+              <table className="w-full text-sm min-w-[480px]">
                 <thead className="bg-muted/50">
                   <tr>
                     {Array.from({ length: maxCols }).map((_, i) => (
@@ -780,10 +780,10 @@ export function ProjectPointsManager({ projectId }: ProjectPointsManagerProps) {
         <Card>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[850px] table-fixed">
+              <table className="w-full text-sm min-w-[720px] table-fixed">
                 <thead className="bg-muted/50 text-left">
                   <tr>
-                    <th className="px-2 py-2 w-10">
+                    <th className="px-2 py-2 w-[5%]">
                       <Checkbox
                         checked={
                           grouped.ungrouped.length > 0 &&
@@ -798,13 +798,13 @@ export function ProjectPointsManager({ projectId }: ProjectPointsManagerProps) {
                         aria-label="Select all ungrouped coordinates"
                       />
                     </th>
-                    <th className="px-2 py-2 font-medium w-[15%]">Point no.</th>
-                    <th className="px-2 py-2 font-medium w-[15%]">Easting (Y)</th>
-                    <th className="px-2 py-2 font-medium w-[15%]">Northing (X)</th>
-                    <th className="px-2 py-2 font-medium w-[14%]">RL (Z)</th>
-                    <th className="px-2 py-2 font-medium w-[16%]">Code</th>
+                    <th className="px-2 py-2 font-medium w-[13%]">Point no.</th>
+                    <th className="px-2 py-2 font-medium w-[13%]">Easting (Y)</th>
+                    <th className="px-2 py-2 font-medium w-[13%]">Northing (X)</th>
+                    <th className="px-2 py-2 font-medium w-[12%]">RL (Z)</th>
+                    <th className="px-2 py-2 font-medium w-[14%]">Code</th>
                     <th className="px-2 py-2 font-medium w-[18%]">Section</th>
-                    <th className="px-2 py-2 font-medium text-right w-[7%]">Actions</th>
+                    <th className="px-2 py-2 font-medium text-right w-[5%]">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -885,10 +885,10 @@ export function ProjectPointsManager({ projectId }: ProjectPointsManagerProps) {
             {!isCollapsed && section.points.length > 0 && (
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm min-w-[850px] table-fixed">
+                  <table className="w-full text-sm min-w-[720px] table-fixed">
                     <thead className="bg-muted/30 text-left">
                       <tr>
-                        <th className="px-2 py-2 w-10">
+                        <th className="px-2 py-2 w-[5%]">
                           <Checkbox
                             checked={
                               section.points.length > 0 &&
@@ -903,13 +903,13 @@ export function ProjectPointsManager({ projectId }: ProjectPointsManagerProps) {
                             aria-label={`Select all coordinates in ${section.name}`}
                           />
                         </th>
-                        <th className="px-2 py-2 font-medium w-[15%]">Point no.</th>
-                        <th className="px-2 py-2 font-medium w-[15%]">Easting (Y)</th>
-                        <th className="px-2 py-2 font-medium w-[15%]">Northing (X)</th>
-                        <th className="px-2 py-2 font-medium w-[14%]">RL (Z)</th>
-                        <th className="px-2 py-2 font-medium w-[16%]">Code</th>
+                        <th className="px-2 py-2 font-medium w-[13%]">Point no.</th>
+                        <th className="px-2 py-2 font-medium w-[13%]">Easting (Y)</th>
+                        <th className="px-2 py-2 font-medium w-[13%]">Northing (X)</th>
+                        <th className="px-2 py-2 font-medium w-[12%]">RL (Z)</th>
+                        <th className="px-2 py-2 font-medium w-[14%]">Code</th>
                         <th className="px-2 py-2 font-medium w-[18%]">Section</th>
-                        <th className="px-2 py-2 font-medium text-right w-[7%]">Actions</th>
+                        <th className="px-2 py-2 font-medium text-right w-[5%]">Actions</th>
                       </tr>
                     </thead>
                     <tbody>

@@ -125,6 +125,31 @@ export async function getWorkspaceById(
   return data;
 }
 
+export async function getMarketplaceWallet(
+  workspaceId: string,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("workspaces")
+    .select("marketplace_wallet_address")
+    .eq("id", workspaceId)
+    .maybeSingle();
+
+  if (error) throw normalizeWorkspaceError(error);
+  return data?.marketplace_wallet_address ?? null;
+}
+
+export async function updateMarketplaceWallet(
+  workspaceId: string,
+  address: string | null,
+): Promise<void> {
+  const { error } = await supabase
+    .from("workspaces")
+    .update({ marketplace_wallet_address: address })
+    .eq("id", workspaceId);
+
+  if (error) throw normalizeWorkspaceError(error);
+}
+
 export async function switchDefaultWorkspace(
   targetWorkspaceId: string,
 ): Promise<boolean> {

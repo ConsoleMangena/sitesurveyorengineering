@@ -23,6 +23,7 @@ import { Label } from "../../components/ui/label.tsx";
 import { Badge, type BadgeProps } from "../../components/ui/badge.tsx";
 import { Card, CardContent } from "../../components/ui/card.tsx";
 import { DialogTemplate } from "../../components/templates/DialogTemplate.tsx";
+import { SuccessDialog } from "../../components/SuccessDialog.tsx";
 import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx";
 import {
@@ -66,6 +67,7 @@ export default function ContactsPage({ workspaceId }: ContactsPageProps) {
   });
   const [createError, setCreateError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const fetchContacts = useCallback(async () => {
     try {
@@ -115,6 +117,7 @@ export default function ContactsPage({ workspaceId }: ContactsPageProps) {
         phone: "",
       });
       await fetchContacts();
+      setSuccessMessage("Contact created successfully.");
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Failed to create contact.");
     } finally {
@@ -126,6 +129,7 @@ export default function ContactsPage({ workspaceId }: ContactsPageProps) {
     try {
       await archiveContact(dbId);
       await fetchContacts();
+      setSuccessMessage("Contact archived successfully.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to archive contact.");
     }
@@ -426,6 +430,12 @@ export default function ContactsPage({ workspaceId }: ContactsPageProps) {
           )}
         </form>
       </DialogTemplate>
+
+      <SuccessDialog
+        open={!!successMessage}
+        onOpenChange={() => setSuccessMessage(null)}
+        message={successMessage ?? ""}
+      />
     </div>
   );
 }

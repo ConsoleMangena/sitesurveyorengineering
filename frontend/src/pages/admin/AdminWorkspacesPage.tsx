@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
+import { SuccessDialog } from "@/components/SuccessDialog.tsx";
 import {
   Table,
   TableBody,
@@ -61,7 +62,7 @@ export default function AdminWorkspacesPage({
   const [showArchived, setShowArchived] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const [selectedWsId, setSelectedWsId] = useState<string | null>(null);
   const [members, setMembers] = useState<WorkspaceMemberAdmin[]>([]);
@@ -138,8 +139,7 @@ export default function AdminWorkspacesPage({
       } else {
         await archiveWorkspace(selectedRow.id);
       }
-      setNotice(`Workspace ${verb.toLowerCase()}d.`);
-      window.setTimeout(() => setNotice(null), 2300);
+      setSuccessMessage(`Workspace ${verb.toLowerCase()}d.`);
       setSelectedWsId(null);
       await load();
     } catch (err: unknown) {
@@ -176,12 +176,6 @@ export default function AdminWorkspacesPage({
           {error}
         </div>
       )}
-      {notice && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
-          {notice}
-        </div>
-      )}
-
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[220px] max-w-md">
           <Search
@@ -400,6 +394,12 @@ export default function AdminWorkspacesPage({
           </div>
         ) : null}
       </DialogTemplate>
+
+      <SuccessDialog
+        open={!!successMessage}
+        onOpenChange={() => setSuccessMessage(null)}
+        message={successMessage ?? ""}
+      />
     </DashboardShell>
   );
 }

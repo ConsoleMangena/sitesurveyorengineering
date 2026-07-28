@@ -6,7 +6,6 @@ import {
   requestAccountDeletion,
 } from "../../lib/repositories/profiles.ts";
 import { signOut } from "../../lib/auth/session.ts";
-import { useThemeMode } from "../../lib/theme.ts";
 import PageLoader from "../../components/PageLoader.tsx";
 import { Button } from "../../components/ui/button.tsx";
 import { Input } from "../../components/ui/input.tsx";
@@ -25,7 +24,6 @@ import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert.t
 import { Separator } from "../../components/ui/separator.tsx";
 
 export default function ProfileSettingsPage() {
-  const { isDarkMode, setThemeMode } = useThemeMode();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -243,21 +241,6 @@ export default function ProfileSettingsPage() {
               </div>
 
               <Separator />
-
-              <div className="flex items-center justify-between gap-4">
-                <div className="space-y-0.5">
-                  <Label className="text-sm">Dark Mode</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Use a darker interface optimized for low-light work
-                  </p>
-                </div>
-                <Switch
-                  checked={isDarkMode}
-                  onCheckedChange={(checked) =>
-                    setThemeMode(checked ? "dark" : "light")
-                  }
-                />
-              </div>
 
               <div className="flex items-center justify-between gap-4">
                 <div className="space-y-0.5">

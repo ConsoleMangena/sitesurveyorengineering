@@ -1,0 +1,24 @@
+{
+  "name": "SiteSurveyor Engineering",
+  "short_name": "SiteSurveyor",
+  "description": "Offline-first engineering workspace for site surveys, CAD, and marketplace.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

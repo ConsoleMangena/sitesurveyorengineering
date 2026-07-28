@@ -18,6 +18,7 @@ import { Label } from "../../components/ui/label.tsx";
 import { Badge } from "../../components/ui/badge.tsx";
 import { Card, CardContent, CardHeader } from "../../components/ui/card.tsx";
 import { DialogTemplate } from "../../components/templates/DialogTemplate.tsx";
+import { SuccessDialog } from "../../components/SuccessDialog.tsx";
 import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx";
 import { Switch } from "../../components/ui/switch.tsx";
@@ -74,6 +75,7 @@ export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps)
   const [activeTab, setActiveTab] = useState<"time" | "expenses">("time");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [projectFilter, setProjectFilter] = useState<string>("all");
 
@@ -204,6 +206,9 @@ export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps)
         await deleteExpenseEntry(id);
       }
       await loadData();
+      setSuccessMessage(
+        type === "time" ? "Time entry deleted successfully." : "Expense entry deleted successfully.",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete entry.");
     }
@@ -236,6 +241,9 @@ export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps)
       }
       setShowCreateModal(false);
       await loadData();
+      setSuccessMessage(
+        activeTab === "time" ? "Time entry saved successfully." : "Expense entry saved successfully.",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save entry.");
     } finally {
@@ -682,6 +690,12 @@ export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps)
           )}
         </form>
       </DialogTemplate>
+
+      <SuccessDialog
+        open={!!successMessage}
+        onOpenChange={() => setSuccessMessage(null)}
+        message={successMessage ?? ""}
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Banknote, ExternalLink, Loader2, Plus, Download } from "lucide-react";
+import { Banknote, ExternalLink, Loader2, Plus, Download, Wallet } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import PageLoader from "@/components/PageLoader.tsx";
@@ -31,7 +31,12 @@ import {
   type PaymentMethodRow,
 } from "../../lib/repositories/paymentMethods.ts";
 import { canManageFinance } from "../../lib/permissions.ts";
-import { getMyWorkspaceMembership, type WorkspaceMemberRow } from "../../lib/repositories/workspaces.ts";
+import {
+  getMarketplaceWallet,
+  getMyWorkspaceMembership,
+  updateMarketplaceWallet,
+  type WorkspaceMemberRow,
+} from "../../lib/repositories/workspaces.ts";
 import SolanaLogo from "../../components/SolanaLogo.tsx";
 import EmbeddedWalletCard from "../../components/EmbeddedWalletCard.tsx";
 import { useEmbeddedWallet } from "../../hooks/useEmbeddedWallet.ts";
@@ -59,6 +64,9 @@ export default function BillingPage({
   const [notice, setNotice] = useState<string | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodRow[]>([]);
   const [methodsLoading, setMethodsLoading] = useState(true);
+  const [marketplaceWallet, setMarketplaceWallet] = useState<string | null>(null);
+  const [marketplaceWalletLoading, setMarketplaceWalletLoading] = useState(false);
+  const [savingMarketplaceWallet, setSavingMarketplaceWallet] = useState(false);
   const [history, setHistory] = useState<PaymentWithInvoice[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -97,6 +105,20 @@ export default function BillingPage({
   }, [workspaceId]);
 
   useAsyncAction(fetchMethods, [fetchMethods]);
+
+  const fetchMarketplaceWallet = useCallback(async () => {
+    setMarketplaceWalletLoading(true);
+    try {
+      const address = await getMarketplaceWallet(workspaceId);
+      setMarketplaceWallet(address);
+    } catch (err: unknown) {
+      setNotice(err instanceof Error ? err.message : "Failed to load marketplace wallet");
+    } finally {
+      setMarketplaceWalletLoading(false);
+    }
+  }, [workspaceId]);
+
+  useAsyncAction(fetchMarketplaceWallet, [fetchMarketplaceWallet]);
 
   const fetchHistory = useCallback(async () => {
     try {
@@ -161,6 +183,22 @@ export default function BillingPage({
       showNotice("Default payment method updated.");
     } catch (err: unknown) {
       showNotice(err instanceof Error ? err.message : "Failed to update default.");
+    }
+  };
+
+  const handleMarketplaceWalletChange = async (value: string) => {
+    const address = value || null;
+    setMarketplaceWallet(address);
+    setSavingMarketplaceWallet(true);
+    try {
+      await updateMarketplaceWallet(workspaceId, address);
+      showNotice(address ? "Marketplace receiving wallet saved." : "Marketplace wallet cleared.");
+    } catch (err: unknown) {
+      showNotice(err instanceof Error ? err.message : "Failed to save marketplace wallet.");
+      // Revert to the stored value on error.
+      void getMarketplaceWallet(workspaceId).then(setMarketplaceWallet);
+    } finally {
+      setSavingMarketplaceWallet(false);
     }
   };
 
@@ -394,12 +432,59 @@ export default function BillingPage({
       />
 
       {notice && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           {notice}
         </div>
       )}
 
       <EmbeddedWalletCard />
+
+      <DashboardCard
+        title="Marketplace Receiving Wallet"
+        icon={<Wallet size={16} />}
+        className="mt-4"
+      >
+        {marketplaceWalletLoading ? (
+          <PageLoader compact />
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Choose the wallet that will receive Solana payments from
+              marketplace sales and hires.
+            </p>
+            <Select
+              value={marketplaceWallet ?? ""}
+              onValueChange={handleMarketplaceWalletChange}
+              disabled={savingMarketplaceWallet}
+            >
+              <SelectTrigger className="max-w-md">
+                <SelectValue placeholder="Select a Solana wallet" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">— No wallet selected —</SelectItem>
+                {embeddedWallet.walletAddress && (
+                  <SelectItem value={embeddedWallet.walletAddress}>
+                    Embedded Wallet ({embeddedWallet.shortAddress})
+                  </SelectItem>
+                )}
+                {paymentMethods
+                  .filter((m) => m.type === "Crypto Wallet" && m.detail)
+                  .map((m) => (
+                    <SelectItem key={m.id} value={m.detail}>
+                      {m.label} ({m.detail.slice(0, 6)}…{m.detail.slice(-6)})
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            {!marketplaceWallet && (
+              <p className="text-sm text-amber-600">
+                No wallet selected. Buyers will see “Seller has no wallet” until
+                one is assigned.
+              </p>
+            )}
+          </div>
+        )}
+      </DashboardCard>
 
       <Tabs
         value={activeTab}
@@ -439,10 +524,10 @@ export default function BillingPage({
                               className={cn(
                                 "h-10 w-10 rounded-lg flex items-center justify-center text-sm font-semibold",
                                 method.type === "Card"
-                                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200"
+                                  ? "bg-blue-100 text-blue-700"
                                   : method.type === "Crypto Wallet"
-                                    ? "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200"
-                                    : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200",
+                                    ? "bg-purple-100 text-purple-700"
+                                    : "bg-emerald-100 text-emerald-700",
                               )}
                             >
                               {method.type === "Card"

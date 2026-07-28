@@ -11,7 +11,7 @@ import type {
   Timestamp,
 } from '@nozbe/watermelondb/sync'
 import { BehaviorSubject } from 'rxjs'
-import { supabase } from '../supabase/client.ts'
+import { isOnline, supabase } from '../supabase/client.ts'
 import type { LocalDb } from './db.ts'
 
 export type OfflineSyncState = 'idle' | 'syncing' | 'synced' | 'error'
@@ -236,6 +236,10 @@ async function sanitizeStaleForeignKeys(
  * because those parents are pushed before children in dependency order.
  */
 async function repairStaleForeignKeys(wmDatabase: Database): Promise<void> {
+  if (!isOnline()) {
+    console.log('[sync] repairStaleForeignKeys skipped: offline')
+    return
+  }
   console.log('[sync] repairStaleForeignKeys starting')
   const recordsByTable: Record<string, unknown[]> = {}
   const pendingCreatedIds: Record<string, Set<string>> = {}
@@ -504,6 +508,12 @@ async function emergencyClearProjectOrgIds(wmDatabase: Database): Promise<void> 
 function runWorkspaceSync(wmDatabase: Database, workspaceId: string): Promise<void> {
   const key = workspaceId
   return (async () => {
+    if (!isOnline()) {
+      pendingSyncs.delete(key)
+      recomputeStatus('Offline — sync paused')
+      return
+    }
+
     let lastError: string | undefined
     try {
       await runSync(wmDatabase, workspaceId)
@@ -545,11 +555,15 @@ export function startWorkspaceSync(db: LocalDb, workspaceId: string) {
 
   const wmDatabase = db._wmDatabase
 
-  pendingSyncs.set(key, runWorkspaceSync(wmDatabase, workspaceId))
+  if (isOnline()) {
+    pendingSyncs.set(key, runWorkspaceSync(wmDatabase, workspaceId))
+  } else {
+    console.log('[sync] startWorkspaceSync: device is offline, deferring first sync')
+  }
 
   const interval = setInterval(() => {
-    // Don't keep chewing network/IndexedDB while the window is hidden.
-    if (!isAppVisible()) return
+    // Don't keep chewing network/IndexedDB while the window is hidden or offline.
+    if (!isOnline() || !isAppVisible()) return
     if (pendingSyncs.has(key)) return
     pendingSyncs.set(key, runWorkspaceSync(wmDatabase, workspaceId))
   }, 10000)
