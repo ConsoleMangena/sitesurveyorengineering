@@ -105,6 +105,13 @@ export default defineConfig({
   // must be relative to that file rather than absolute from the origin root.
   base: './',
 
+  // Tauri expects the dev server on port 5174. Prevent Vite from silently
+  // picking a different port if 5174 is busy.
+  server: {
+    port: 5174,
+    strictPort: true,
+  },
+
   // WebAssembly and top-level await require a modern output target. The default
   // (es2020/chrome87) cannot transform the wrapper that vite-plugin-top-level-await
   // emits, so pin both the dependency-optimizer and the final build to es2022.

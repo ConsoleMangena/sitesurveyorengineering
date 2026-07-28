@@ -10,9 +10,7 @@
     "tauri:build:win": "node ../scripts/build-windows.mjs",
     "cargo:build:gdal": "cargo build --features gdal",
     "cargo:check:gdal": "cargo check --features gdal",
-    "download:gdal": "node ../scripts/download-gdal.mjs",
-    "bundle:gdal": "node ../scripts/download-gdal.mjs --if-missing && node ../scripts/bundle-gdal.mjs",
-    "setup:gdal": "node ../scripts/download-gdal.mjs --if-missing && node ../scripts/bundle-gdal.mjs",
+    "bundle:gdal": "node ../scripts/bundle-gdal.mjs",
     "clean:gdal": "node ../scripts/clean-gdal.mjs"
   }
 }

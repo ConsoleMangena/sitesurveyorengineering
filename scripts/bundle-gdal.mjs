@@ -77,9 +77,14 @@ function gatherBinDirs(prefix, root) {
   return dirs;
 }
 
-function copyBinaries(sourceDirs, targetBin) {
-  const copied = [];
-  mkdirSync(targetBin, { recursive: true });
+function copyBinaries(sourceDirs, targetRoot) {
+  const dllTarget = targetRoot;
+  const exeTarget = join(targetRoot, "bin");
+  mkdirSync(dllTarget, { recursive: true });
+  mkdirSync(exeTarget, { recursive: true });
+
+  const copiedDlls = [];
+  const copiedExes = [];
   for (const dir of sourceDirs) {
     for (const entry of readdirSync(dir)) {
       const src = join(dir, entry);
@@ -91,16 +96,20 @@ function copyBinaries(sourceDirs, targetBin) {
         ? lower.endsWith(".exe")
         : (stat.mode & 0o111) !== 0;
       if (!isLib && !isExe) continue;
-      const dst = join(targetBin, entry);
+
+      // Place shared libraries next to the application executable so Windows
+      // resolves them at process startup. Utilities stay in a bin/ subfolder.
+      const dst = isLib ? join(dllTarget, entry) : join(exeTarget, entry);
       if (existsSync(dst)) {
         log(`  skipping duplicate ${entry}`);
         continue;
       }
       copyFileSync(src, dst);
-      copied.push(entry);
+      (isLib ? copiedDlls : copiedExes).push(entry);
     }
   }
-  log(`copied ${copied.length} binaries to ${targetBin}`);
+  log(`copied ${copiedDlls.length} shared libraries to ${dllTarget}`);
+  log(`copied ${copiedExes.length} utilities to ${exeTarget}`);
 }
 
 function copyDataDirs(roots, targetShare) {
@@ -138,11 +147,21 @@ function verifyBundle(target) {
         "The source GDAL_HOME may be missing runtime binaries.",
     );
   }
+
+  // The DLLs live in the bundle root (next to the main executable), but
+  // gdalinfo.exe is in bin/. Make sure the loader can find the DLLs.
+  const pathSep = process.platform === "win32" ? ";" : ":";
+  const env = {
+    ...process.env,
+    PATH: `${target}${pathSep}${process.env.PATH || ""}`,
+  };
+
   const result = spawnSync(exe, ["--version"], {
     encoding: "utf8",
     shell: false,
     timeout: 30000,
     cwd: join(target, "bin"),
+    env,
   });
   if (result.status !== 0 || !result.stdout) {
     fatal(
@@ -173,12 +192,10 @@ function main() {
   if (!gdalHome) {
     fatal(
       "GDAL_HOME is not set and no downloaded SDK was found.\n\n" +
-        "Either install GDAL manually and set GDAL_HOME:\n" +
-        "  Windows (PowerShell): $env:GDAL_HOME = 'C:\\OSGeo4W\\apps\\gdal-dev'\n" +
-        "  macOS:                export GDAL_HOME=/opt/homebrew/opt/gdal\n" +
-        "  Linux:                export GDAL_HOME=/usr\n\n" +
-        "Or download a Windows SDK automatically:\n" +
-        "  npm run download:gdal",
+        "For local Windows development, install OSGeo4W and set GDAL_HOME:\n" +
+        "  Windows (PowerShell): $env:GDAL_HOME = 'C:\\OSGeo4W\\apps\\gdal-dev'\n\n" +
+        "For CI / release builds, download a Windows SDK first:\n" +
+        "  node scripts/download-gdal.mjs",
     );
   }
 
@@ -191,13 +208,21 @@ function main() {
   log(`target:        ${target}`);
 
   rmSync(target, { recursive: true, force: true });
-  mkdirSync(join(target, "bin"), { recursive: true });
+  mkdirSync(target, { recursive: true });
+  // Preserve the empty-directory marker so bundled-gdal is tracked even when
+  // no runtime has been collected yet (e.g. on macOS/Linux builds).
+  writeFileSync(
+    join(target, ".gitkeep"),
+    "# This directory is auto-populated by `scripts/bundle-gdal.mjs` before a release build.\n" +
+      "# It must exist so that Tauri's resource bundling config resolves during development,\n" +
+      "# but its contents are gitignored and should not be committed.\n",
+  );
 
   const binDirs = gatherBinDirs(prefix, root);
   if (binDirs.length === 0) {
     fatal("No GDAL bin directories found.");
   }
-  copyBinaries(binDirs, join(target, "bin"));
+  copyBinaries(binDirs, target);
   copyDataDirs([prefix, root], join(target, "share"));
 
   const version = verifyBundle(target);

@@ -10,9 +10,12 @@ use survey_core::cogo;
 use survey_core::geojson_io::{self, GeoModel};
 use survey_core::geom::{self, Bounds};
 use survey_core::terrain::{self, TerrainStats, TriangleAnalysis};
-use gdal::Metadata;
-use std::collections::HashMap;
 use survey_core::{contour, tin, volume, ContourLine, Point3, Tin, Vertex, VolumeResult};
+
+#[cfg(feature = "gdal")]
+use gdal::Metadata;
+#[cfg(feature = "gdal")]
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

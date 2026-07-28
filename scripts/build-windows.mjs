@@ -2,28 +2,23 @@
 /**
  * Build the SiteSurveyor Windows desktop installer with a GDAL SDK.
  *
- * This wrapper finds or downloads a GDAL SDK, sets GDAL_HOME so the Rust
- * gdal-sys crate can link, bundles the GDAL/PROJ runtime as a Tauri resource,
- * and then runs the Tauri build with the `gdal` feature enabled.
- *
- * It detects, in order:
- *   1. GDAL_HOME environment variable
- *   2. OSGeo4W installation (C:\OSGeo4W64, C:\OSGeo4W, or %OSGEO4W_ROOT%)
- *   3. The GISInternals SDK cached in backend/gdal-sdk/ (auto-downloaded if missing)
+ * For local development, install OSGeo4W (or set GDAL_HOME manually).
+ * For CI / release builds, the GitHub Actions workflow is responsible for
+ * downloading a self-contained GDAL SDK and exporting GDAL_HOME before this
+ * script runs.
  *
  * Run from PowerShell:
  *   npm run tauri:build:win
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const BACKEND = join(ROOT, "backend");
-const SDK_DIR = join(BACKEND, "gdal-sdk");
 
 function log(...args) {
   console.log("[build-windows]", ...args);
@@ -58,6 +53,7 @@ function findOsgeo4wRoot() {
     }
   }
 
+  // OSGeo4W installed per-user (e.g. via winget or the web installer).
   if (process.env.LOCALAPPDATA) {
     const candidate = join(process.env.LOCALAPPDATA, "Programs", "OSGeo4W");
     const dev = join(candidate, "apps", "gdal-dev");
@@ -68,34 +64,7 @@ function findOsgeo4wRoot() {
   return null;
 }
 
-function findQgisGdal() {
-  for (const programFiles of [
-    process.env["ProgramFiles"] || "C:\\Program Files",
-    process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)",
-  ]) {
-    if (!existsSync(programFiles)) continue;
-    try {
-      for (const entry of readdirSync(programFiles)) {
-        if (/^QGIS/i.test(entry)) {
-          const candidate = join(programFiles, entry);
-          if (hasGdalHeaders(candidate)) return candidate;
-          const apps = join(candidate, "apps");
-          if (existsSync(apps)) {
-            for (const app of readdirSync(apps)) {
-              const sub = join(apps, app);
-              if (hasGdalHeaders(sub)) return sub;
-            }
-          }
-        }
-      }
-    } catch {
-      // ignore permission errors
-    }
-  }
-  return null;
-}
-
-async function findGdalHome() {
+function findGdalHome() {
   if (process.env.GDAL_HOME && hasGdalHeaders(process.env.GDAL_HOME)) {
     log(`using GDAL_HOME from environment: ${process.env.GDAL_HOME}`);
     return process.env.GDAL_HOME;
@@ -107,28 +76,12 @@ async function findGdalHome() {
     return osgeo;
   }
 
-  const qgis = findQgisGdal();
-  if (qgis) {
-    log(`using QGIS-bundled GDAL: ${qgis}`);
-    return qgis;
-  }
-
-  if (!hasGdalHeaders(SDK_DIR)) {
-    log("No local GDAL found; downloading GISInternals SDK...");
-    const code = await run(process.execPath, [join(ROOT, "scripts", "download-gdal.mjs")], {
-      cwd: ROOT,
-    });
-    if (code !== 0) {
-      fatal("GDAL SDK download failed. Set GDAL_HOME to an existing GDAL install manually.");
-    }
-  }
-
-  if (!hasGdalHeaders(SDK_DIR)) {
-    fatal(`Could not find a usable GDAL install. Install OSGeo4W or set GDAL_HOME to a prefix that contains include/gdal.h.`);
-  }
-
-  log(`using downloaded GISInternals SDK: ${SDK_DIR}`);
-  return SDK_DIR;
+  fatal(
+    "No usable GDAL install found.\n\n" +
+      "For local development, install OSGeo4W and set GDAL_HOME, e.g.:\n" +
+      "  $env:GDAL_HOME = 'C:\\OSGeo4W\\apps\\gdal-dev'\n\n" +
+      "For CI / release builds, run scripts/download-gdal.mjs first and export GDAL_HOME."
+  );
 }
 
 function run(command, args, options) {
@@ -140,10 +93,10 @@ function run(command, args, options) {
 
 async function main() {
   if (process.platform !== "win32") {
-    fatal("This script is for Windows desktop builds. Use the platform-specific Tauri build on macOS/Linux, and make sure GDAL_HOME is set.");
+    fatal("This script is for Windows desktop builds only.");
   }
 
-  const gdalHome = await findGdalHome();
+  const gdalHome = findGdalHome();
   const buildEnv = { ...process.env, GDAL_HOME: gdalHome };
 
   // Bundle the GDAL/PROJ runtime so the installer ships it.

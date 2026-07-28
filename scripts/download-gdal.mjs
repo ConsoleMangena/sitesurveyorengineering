@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 /**
- * Download a self-contained Windows GDAL SDK from GISInternals.
+ * Download a self-contained Windows GDAL SDK from GISInternals for CI.
  *
- * This is a convenience fallback when GDAL is not installed system-wide (e.g.
- * no OSGeo4W). The downloaded SDK can be used both for linking
+ * This script is intended for GitHub Actions release builds. It should not be
+ * necessary for local development, which is expected to use an OSGeo4W install
+ * (or GDAL_HOME set manually).
+ *
+ * The downloaded SDK can be used both for linking
  * (`GDAL_HOME=backend/gdal-sdk`) and as the source for `npm run bundle:gdal`.
  *
  * Usage:

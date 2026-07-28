@@ -2,24 +2,19 @@
 /**
  * Start the Tauri dev app on Windows using a locally installed GDAL SDK.
  *
- * It detects, in order:
- *   1. GDAL_HOME environment variable
- *   2. OSGeo4W installation (C:\OSGeo4W64, C:\OSGeo4W, or %OSGEO4W_ROOT%)
- *   3. The GISInternals SDK cached in backend/gdal-sdk/ (auto-downloaded if missing)
+ * For local development, install OSGeo4W (or set GDAL_HOME manually).
  *
  * Run from PowerShell (not WSL):
  *   npm run tauri:dev:win
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
-const BACKEND = join(ROOT, "backend");
-const SDK_DIR = join(BACKEND, "gdal-sdk");
 
 function log(...args) {
   console.log("[dev-windows]", ...args);
@@ -28,10 +23,6 @@ function log(...args) {
 function fatal(...args) {
   console.error("[dev-windows]", ...args);
   process.exit(1);
-}
-
-function quote(p) {
-  return `"${p}"`;
 }
 
 function hasGdalHeaders(prefix) {
@@ -69,34 +60,6 @@ function findOsgeo4wRoot() {
   return null;
 }
 
-function findQgisGdal() {
-  for (const programFiles of [
-    process.env["ProgramFiles"] || "C:\\Program Files",
-    process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)",
-  ]) {
-    if (!existsSync(programFiles)) continue;
-    try {
-      for (const entry of readdirSync(programFiles)) {
-        if (/^QGIS/i.test(entry)) {
-          const candidate = join(programFiles, entry);
-          // QGIS ships GDAL under apps\gdal or similar; be permissive.
-          if (hasGdalHeaders(candidate)) return candidate;
-          const apps = join(candidate, "apps");
-          if (existsSync(apps)) {
-            for (const app of readdirSync(apps)) {
-              const sub = join(apps, app);
-              if (hasGdalHeaders(sub)) return sub;
-            }
-          }
-        }
-      }
-    } catch {
-      // ignore permission errors
-    }
-  }
-  return null;
-}
-
 function findGdalHome() {
   if (process.env.GDAL_HOME && hasGdalHeaders(process.env.GDAL_HOME)) {
     return process.env.GDAL_HOME;
@@ -105,28 +68,7 @@ function findGdalHome() {
   const osgeo = findOsgeo4wRoot();
   if (osgeo) return osgeo;
 
-  const qgis = findQgisGdal();
-  if (qgis) return qgis;
-
-  if (hasGdalHeaders(SDK_DIR)) return SDK_DIR;
-
   return null;
-}
-
-async function downloadSdk() {
-  log("No local GDAL found; downloading GISInternals SDK...");
-
-  // Run node directly (no shell) so paths with spaces in node.exe are handled
-  // correctly by CreateProcess.
-  const child = spawn(process.execPath, [join(ROOT, "scripts", "download-gdal.mjs")], {
-    cwd: ROOT,
-    stdio: "inherit",
-  });
-
-  const code = await new Promise((resolve) => child.on("close", resolve));
-  if (code !== 0) {
-    fatal("GDAL SDK download failed. Set GDAL_HOME to an existing GDAL install manually.");
-  }
 }
 
 async function main() {
@@ -137,13 +79,11 @@ async function main() {
   let gdalHome = findGdalHome();
 
   if (!gdalHome) {
-    await downloadSdk();
-    gdalHome = findGdalHome();
-  }
-
-  if (!gdalHome) {
     fatal(
-      "Could not find a usable GDAL install. Install OSGeo4W or set GDAL_HOME to a prefix that contains include/gdal.h."
+      "No usable GDAL install found.\n\n" +
+        "For local development, install OSGeo4W and set GDAL_HOME, e.g.:\n" +
+        "  $env:GDAL_HOME = 'C:\\OSGeo4W\\apps\\gdal-dev'\n\n" +
+        "For CI / release builds, run scripts/download-gdal.mjs first and export GDAL_HOME."
     );
   }
 
@@ -169,7 +109,7 @@ async function main() {
   const tauriCli = join(ROOT, "frontend", "node_modules", "@tauri-apps", "cli", "tauri.js");
   const child = spawn(
     process.execPath,
-    [tauriCli, "dev", "--features", "gdal", "--no-dev-server-wait"],
+    [tauriCli, "dev", "--features", "gdal"],
     {
       cwd: ROOT,
       env,

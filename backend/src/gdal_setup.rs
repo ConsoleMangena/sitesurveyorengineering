@@ -39,22 +39,53 @@ pub fn initialize(resource_dir: Option<&Path>) {
 pub fn initialize(_resource_dir: Option<&Path>) {}
 
 #[cfg(feature = "gdal")]
+fn has_gdal_dll(dir: &Path) -> bool {
+    if cfg!(target_os = "windows") {
+        for name in ["gdal.dll", "gdal309.dll", "gdal312.dll"] {
+            if dir.join(name).is_file() {
+                return true;
+            }
+        }
+        false
+    } else {
+        dir.join("libgdal.so").is_file() || dir.join("libgdal.dylib").is_file()
+    }
+}
+
+#[cfg(feature = "gdal")]
 fn bundled_runtime(resource_dir: Option<&Path>) -> Option<GdalRuntime> {
-    let dir = resource_dir?.join("gdal");
-    let bin_dir = dir.join("bin");
-    if !bin_dir.is_dir() {
-        return None;
+    let root = resource_dir?;
+
+    // New installer layout: GDAL/PROJ DLLs are placed next to the executable so
+    // Windows resolves them at process startup, while the data directories are
+    // kept under share/.
+    let new_share = root.join("share");
+    let new_gdal_data = new_share.join("gdal");
+    let new_proj_data = new_share.join("proj");
+    if has_gdal_dll(root) && (new_gdal_data.is_dir() || new_proj_data.is_dir()) {
+        return Some(GdalRuntime {
+            bin_dir: root.to_path_buf(),
+            gdal_data: new_gdal_data,
+            proj_data: new_proj_data,
+        });
     }
-    let gdal_data = dir.join("share").join("gdal");
-    let proj_data = dir.join("share").join("proj");
-    if !gdal_data.is_dir() && !proj_data.is_dir() {
-        return None;
+
+    // Legacy layout where the whole GDAL prefix was bundled under a gdal/ subfolder.
+    let legacy = root.join("gdal");
+    let legacy_bin = legacy.join("bin");
+    if legacy_bin.is_dir() {
+        let legacy_gdal_data = legacy.join("share").join("gdal");
+        let legacy_proj_data = legacy.join("share").join("proj");
+        if legacy_gdal_data.is_dir() || legacy_proj_data.is_dir() {
+            return Some(GdalRuntime {
+                bin_dir: legacy_bin,
+                gdal_data: legacy_gdal_data,
+                proj_data: legacy_proj_data,
+            });
+        }
     }
-    Some(GdalRuntime {
-        bin_dir,
-        gdal_data,
-        proj_data,
-    })
+
+    None
 }
 
 #[cfg(not(feature = "gdal"))]

@@ -64,12 +64,14 @@ cargo build --features proj,gdal,shapefile,las
 
 ### Windows development
 
-The desktop app is built and run natively on Windows using the locally installed
-GDAL. This avoids WSLg and produces the same binary end users will receive.
+Local Windows development is meant to use an OSGeo4W GDAL install. Install OSGeo4W
+with the GDAL-dev package and optionally set `GDAL_HOME` to the `apps/gdal-dev`
+folder.
 
 ```powershell
 cd C:\Users\THINKPAD\Documents\sitesurveyorengineering
 npm install
+$env:GDAL_HOME = "C:\OSGeo4W\apps\gdal-dev"
 npm run tauri:dev:win
 ```
 
@@ -77,45 +79,19 @@ npm run tauri:dev:win
 1. Use `GDAL_HOME` if it is already set.
 2. Otherwise look for an OSGeo4W install in the usual locations
    (`C:\OSGeo4W64`, `C:\OSGeo4W`, or `%OSGEO4W_ROOT%`).
-3. If no local GDAL is found, download a self-contained Windows GDAL SDK from
-   GISInternals into `backend/gdal-sdk/` (cached for subsequent runs).
 
-The first GISInternals download is ~200 MB and may take a few minutes. If you
-install OSGeo4W, no download is required.
+If no local GDAL is found, the script fails with instructions to install OSGeo4W.
+Automatic SDK downloads are reserved for the GitHub Actions release workflow.
 
 ### Bundled GDAL runtime
 
-The desktop installer ships its own GDAL/PROJ runtime in `backend/bundled-gdal`,
+The Windows desktop installer ships its own GDAL/PROJ runtime in `backend/bundled-gdal`,
 which is bundled as a Tauri resource and loaded at app startup. End users do **not**
 need OSGeo4W or any other system GDAL install.
 
-The build machine still needs GDAL/PROJ headers and import libraries so that the
-`gdal-sys` / `proj-sys` crates can link.
-
-- **Debian/Ubuntu**
-
-  ```bash
-  sudo apt-get install libgdal-dev libproj-dev
-  ```
-
-- **macOS (Homebrew)**
-
-  ```bash
-  brew install gdal proj
-  ```
-
-- **Windows**
-
-  Install GDAL (OSGeo4W or GISInternals SDK) and set `GDAL_HOME` to the prefix
-  that contains `include/gdal.h` and `lib/gdal_i.lib`. For OSGeo4W this is usually
-  the `apps/gdal-dev` folder under the OSGeo4W root.
-
-  ```powershell
-  $env:GDAL_HOME = "C:\OSGeo4W\apps\gdal-dev"
-  ```
-
-  `gdal-sys` reads `GDAL_HOME` (and, if necessary, `GDAL_VERSION`) directly, so
-  no wrapper script is required.
+The GitHub Actions release workflow downloads a self-contained Windows GDAL SDK from
+GISInternals into `backend/gdal-sdk/` and exports `GDAL_HOME` before building, so the
+release pipeline does not depend on a runner-hosted GDAL install.
 
 ### Building
 
@@ -125,48 +101,33 @@ Default build (GeoRust only, no native C libs required):
 cargo build              # or: cargo check / cargo test
 ```
 
-Enable the native geospatial features (requires the system libraries above):
+Enable the native geospatial features on Windows:
 
-```bash
+```powershell
 cd backend
-$env:GDAL_HOME = "C:\path\to\gdal"   # or export GDAL_HOME=/path/to/gdal
+$env:GDAL_HOME = "C:\OSGeo4W\apps\gdal-dev"
 npm run cargo:build:gdal           # cargo build --features gdal
-```
-
-If you used the automatic downloader, point `GDAL_HOME` at the downloaded SDK:
-
-```bash
-cd backend
-npm run download:gdal
-$env:GDAL_HOME = "$PWD\gdal-sdk"
-npm run cargo:build:gdal
 ```
 
 Desktop development with live reload:
 
 ```powershell
 cd C:\Users\THINKPAD\Documents\sitesurveyorengineering
+$env:GDAL_HOME = "C:\OSGeo4W\apps\gdal-dev"
 npm run tauri:dev:win
 ```
 
 Packaged installer (bundles GDAL for redistribution):
 
-```bash
+```powershell
 cd backend
-npm run bundle:gdal   # downloads SDK if needed, then collects runtime GDAL
+$env:GDAL_HOME = "C:\OSGeo4W\apps\gdal-dev"
+npm run bundle:gdal   # collects runtime GDAL from GDAL_HOME
 npm run tauri:build   # builds Tauri installer including the bundled runtime
 ```
 
-On Windows, if you do not have OSGeo4W installed, `npm run bundle:gdal` will
-automatically download a self-contained GDAL SDK from GISInternals into
-`backend/gdal-sdk/` and use it as the source. You can also download it explicitly:
-
-```bash
-cd backend
-npm run download:gdal
-$env:GDAL_HOME = "$PWD\gdal-sdk"   # so cargo can link against it
-npm run cargo:build:gdal
-```
+`gdal-sys` reads `GDAL_HOME` (and, if necessary, `GDAL_VERSION`) directly, so no
+wrapper script is required for linking.
 
 > `gdal-sys` ships prebuilt bindings up to a certain GDAL version. If your
 > installed GDAL is newer, set `GDAL_VERSION` to the latest supported binding

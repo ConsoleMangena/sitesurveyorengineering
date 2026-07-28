@@ -125,6 +125,11 @@ jobs:
           key: gdal-sdk-${{ runner.os }}-${{ hashFiles('scripts/download-gdal.mjs') }}
           restore-keys: gdal-sdk-${{ runner.os }}-
 
+      - name: Prepare Windows GDAL SDK
+        if: runner.os == 'Windows'
+        shell: bash
+        run: node scripts/download-gdal.mjs --if-missing
+
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
         working-directory: frontend
@@ -188,6 +193,7 @@ jobs:
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GDAL_HOME: ${{ runner.os == 'Windows' && format('{0}/backend/gdal-sdk', github.workspace) || '' }}
 
       - name: Upload release assets
         if: startsWith(github.ref, 'refs/tags/v')
