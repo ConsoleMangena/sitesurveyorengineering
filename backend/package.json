@@ -4,6 +4,7 @@
   "scripts": {
     "build": "npm --prefix ../frontend run build",
     "dev": "npm --prefix ../frontend run dev",
+    "tauri": "node ../frontend/node_modules/@tauri-apps/cli/tauri.js",
     "tauri:dev": "node ../scripts/dev-windows.mjs",
     "tauri:dev:win": "node ../scripts/dev-windows.mjs",
     "tauri:build": "node ../scripts/build-windows.mjs",

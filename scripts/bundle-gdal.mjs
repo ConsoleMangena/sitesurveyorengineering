@@ -139,13 +139,26 @@ function copyRecursive(src, dst) {
   }
 }
 
-function verifyBundle(target) {
-  const exe = join(target, "bin", `gdalinfo${EXE_EXT}`);
+function verifyBundle(target, prefix) {
+  const bundledExe = join(target, "bin", `gdalinfo${EXE_EXT}`);
+  let exe = bundledExe;
+  let cwd = join(target, "bin");
+  let libPath = target;
+
   if (!existsSync(exe)) {
-    fatal(
-      `gdalinfo not found in bundle (${exe}). ` +
-        "The source GDAL_HOME may be missing runtime binaries.",
-    );
+    // Some minimal SDKs (e.g. the GISInternals runtime archive) do not ship
+    // the command-line tools. Fall back to the source gdalinfo if available,
+    // otherwise just skip version verification.
+    const sourceExe = join(prefix, "bin", `gdalinfo${EXE_EXT}`);
+    if (existsSync(sourceExe)) {
+      log(`gdalinfo not bundled; verifying against source ${sourceExe}`);
+      exe = sourceExe;
+      cwd = dirname(exe);
+      libPath = cwd;
+    } else {
+      log("warning: gdalinfo not found; skipping version verification");
+      return "unknown";
+    }
   }
 
   // The DLLs live in the bundle root (next to the main executable), but
@@ -153,19 +166,19 @@ function verifyBundle(target) {
   const pathSep = process.platform === "win32" ? ";" : ":";
   const env = {
     ...process.env,
-    PATH: `${target}${pathSep}${process.env.PATH || ""}`,
+    PATH: `${libPath}${pathSep}${process.env.PATH || ""}`,
   };
 
   const result = spawnSync(exe, ["--version"], {
     encoding: "utf8",
     shell: false,
     timeout: 30000,
-    cwd: join(target, "bin"),
+    cwd,
     env,
   });
   if (result.status !== 0 || !result.stdout) {
     fatal(
-      `gdalinfo --version failed in bundle:\n${result.stderr || result.error || result.stdout || ""}`,
+      `gdalinfo --version failed:\n${result.stderr || result.error || result.stdout || ""}`,
     );
   }
   const version = result.stdout.trim();
@@ -225,7 +238,7 @@ function main() {
   copyBinaries(binDirs, target);
   copyDataDirs([prefix, root], join(target, "share"));
 
-  const version = verifyBundle(target);
+  const version = verifyBundle(target, prefix);
   writeManifest(target, prefix, root, version);
 
   log(`bundle ready at ${target}`);
