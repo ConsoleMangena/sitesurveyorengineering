@@ -132,6 +132,7 @@ export default function SignupPage() {
 
       navigate("/", { replace: true });
     } catch (err) {
+      console.error("[SignupPage] sign up failed:", err);
       setError(formatAuthUserFacingError(err, "Unable to create account."));
     } finally {
       setIsSubmitting(false);

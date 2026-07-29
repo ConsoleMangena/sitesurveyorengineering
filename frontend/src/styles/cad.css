@@ -227,6 +227,125 @@
   color: var(--cad-text-hi);
 }
 
+/* ── Active tool dropdown (triggered from the ribbon / top-bar) ────────────── */
+.cad-tool-dropdown-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.cad-tool-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--cad-panel);
+  border: 1px solid var(--cad-border);
+  border-radius: 4px;
+  color: var(--cad-text);
+  padding: 2px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.cad-tool-trigger:hover {
+  background: var(--cad-panel-2);
+  border-color: var(--cad-border-2);
+}
+
+.cad-tool-trigger-chevron {
+  transition: transform 0.15s ease;
+}
+
+.cad-tool-trigger-chevron.open {
+  transform: rotate(180deg);
+}
+
+.cad-tool-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1400;
+  min-width: 170px;
+  max-width: 260px;
+  margin-top: 2px;
+  background: var(--cad-bg-2);
+  border: 1px solid var(--cad-border-2);
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cad-tool-dropdown-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.cad-tool-dropdown-group-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--cad-text-dim);
+  padding: 4px 6px;
+  font-weight: 700;
+}
+
+.cad-tool-dropdown-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--cad-text);
+  padding: 5px 6px;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--sans, sans-serif);
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.cad-tool-dropdown-btn:hover {
+  background: var(--cad-panel);
+  border-color: var(--cad-border);
+  color: var(--cad-text-hi);
+}
+
+.cad-tool-dropdown-btn.active {
+  background: var(--cad-accent-bg);
+  border-color: var(--cad-accent);
+  color: var(--cad-accent);
+}
+
+.cad-tool-dropdown-btn svg {
+  width: 14px;
+  height: 14px;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+.cad-tool-dropdown-btn-label {
+  flex: 1;
+}
+
+.cad-tool-dropdown-btn-key {
+  color: var(--cad-text-dim);
+  font-size: 10px;
+  font-family: var(--mono, monospace);
+}
+
+.cad-tool-dropdown-check {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cad-accent);
+}
+
 .cad-ribbon-tabs {
   display: flex;
   align-items: center;
@@ -2582,18 +2701,20 @@
 }
 
 /* ── Custom prompt/confirm/alert dialogs ──────────────────────────────────── */
-/* CAD dialogs inherit the scoped light CAD variables so tiles stay readable. */
-.cad-dialog-content {
-  background-color: var(--cad-panel, #ffffff) !important;
-  color: var(--cad-text, #27272a) !important;
+/* CAD dialogs inherit the scoped light CAD variables so tiles stay readable.
+   The scoped .cad-admin-scope prefix gives these rules higher specificity than
+   Tailwind utilities without forcing !important on colours that Button/Input
+   components need to override. */
+.cad-admin-scope .cad-dialog-content {
+  background-color: var(--cad-panel, #ffffff);
   border-color: var(--cad-border, rgba(0, 0, 0, 0.1)) !important;
 }
 
-.cad-dialog-content [data-slot="dialog-header"] {
+.cad-admin-scope .cad-dialog-content [data-slot="dialog-header"] {
   text-align: left;
 }
 
-.cad-dialog-content [data-slot="dialog-footer"] {
+.cad-admin-scope .cad-dialog-content [data-slot="dialog-footer"] {
   margin: 0 -1.5rem -1.5rem;
   padding: 1rem 1.5rem;
 }

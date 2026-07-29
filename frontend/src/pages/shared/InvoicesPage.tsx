@@ -21,6 +21,7 @@ import { Separator } from "@/components/ui/separator";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
+import { PageForm } from "@/components/templates/PageForm.tsx";
 import { SuccessDialog } from "@/components/SuccessDialog.tsx";
 import {
   Sheet,
@@ -684,6 +685,192 @@ export default function InvoicesPage({ workspaceId }: InvoicesPageProps) {
     );
   }
 
+  if (isCreateOpen) {
+    return (
+      <PageForm
+        title={isEditing ? "Edit Invoice" : "Create Invoice"}
+        description={
+          isEditing
+            ? "Update the invoice details and line items."
+            : "Issue a new invoice to a client."
+        }
+        onBack={() => {
+          setIsCreateOpen(false);
+          setEditingInvoiceId(null);
+        }}
+        footer={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsCreateOpen(false);
+                setEditingInvoiceId(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={submitCreateInvoice}>
+              {isEditing ? "Save Changes" : "Create Invoice"}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="inv-number">Invoice number</Label>
+            <Input
+              id="inv-number"
+              placeholder="e.g. INV-2026-020"
+              value={draftInvoice.invoice_number}
+              onChange={(e) =>
+                setDraftInvoice((prev) => ({ ...prev, invoice_number: e.target.value }))
+              }
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Client</Label>
+            <Select
+              value={draftInvoice.organization_id}
+              onValueChange={(v) =>
+                setDraftInvoice((prev) => ({ ...prev, organization_id: v }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select Client" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Select Client</SelectItem>
+                {organizations.map((org) => (
+                  <SelectItem key={org.id} value={org.id}>
+                    {org.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Project</Label>
+            <Select
+              value={draftInvoice.project_id}
+              onValueChange={(v) =>
+                setDraftInvoice((prev) => ({ ...prev, project_id: v }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select Project" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Select Project (optional)</SelectItem>
+                {projectOptions.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="inv-issue">Issue date</Label>
+            <Input
+              id="inv-issue"
+              type="date"
+              value={draftInvoice.issue_date}
+              onChange={(e) =>
+                setDraftInvoice((prev) => ({ ...prev, issue_date: e.target.value }))
+              }
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="inv-due">Due date</Label>
+            <Input
+              id="inv-due"
+              type="date"
+              value={draftInvoice.due_date}
+              onChange={(e) =>
+                setDraftInvoice((prev) => ({ ...prev, due_date: e.target.value }))
+              }
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Status</Label>
+            <Select
+              value={draftInvoice.status}
+              onValueChange={(v) =>
+                setDraftInvoice((prev) => ({ ...prev, status: v as InvoiceDraft["status"] }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="draft">Draft</SelectItem>
+                <SelectItem value="sent">Sent</SelectItem>
+                <SelectItem value="paid">Paid</SelectItem>
+                <SelectItem value="overdue">Overdue</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <Label>Line items</Label>
+          <LineItemsEditor
+            items={draftInvoice.items}
+            onChange={updateDraftItem}
+            onAdd={addDraftItem}
+            onRemove={removeDraftItem}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="create-inv-notes">Notes</Label>
+            <Textarea
+              id="create-inv-notes"
+              rows={3}
+              value={formNotes}
+              onChange={(e) => setFormNotes(e.target.value)}
+              placeholder="Notes visible to the client"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="create-inv-terms">Terms & Conditions</Label>
+            <Textarea
+              id="create-inv-terms"
+              rows={3}
+              value={defaults.terms}
+              onChange={(e) => setTerms(e.target.value)}
+              placeholder="Payment terms, late fees, etc."
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between border-t pt-4">
+          <div className="text-sm">
+            <span className="text-muted-foreground">Total:</span>{" "}
+            <strong>{formatCurrency(calcTotal(draftInvoice.items) * 1.15)}</strong>
+          </div>
+          {createError && (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {createError}
+            </div>
+          )}
+        </div>
+      </PageForm>
+    );
+  }
+
+  if (businessDialogOpen) {
+    return (
+      <BusinessProfileDialog
+        open={businessDialogOpen}
+        onOpenChange={setBusinessDialogOpen}
+        profile={profile}
+        onSave={setProfile}
+      />
+    );
+  }
+
   return (
     <DashboardShell className="hub-body invoices-page">
       <DashboardHeader
@@ -900,174 +1087,6 @@ export default function InvoicesPage({ workspaceId }: InvoicesPageProps) {
           </SheetContent>
         </Sheet>
       </div>
-
-      <DialogTemplate
-        open={isCreateOpen}
-        onOpenChange={(open) => {
-          if (!open) {
-            setIsCreateOpen(false);
-            setEditingInvoiceId(null);
-          }
-        }}
-        title={isEditing ? "Edit Invoice" : "Create Invoice"}
-        description={isEditing ? "Update the invoice details and line items." : "Issue a new invoice to a client."}
-        size="full"
-        footer={
-          <>
-            <Button variant="outline" onClick={() => {
-              setIsCreateOpen(false);
-              setEditingInvoiceId(null);
-            }}>
-              Cancel
-            </Button>
-            <Button onClick={submitCreateInvoice}>
-              {isEditing ? "Save Changes" : "Create Invoice"}
-            </Button>
-          </>
-        }
-      >
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="inv-number">Invoice number</Label>
-            <Input
-              id="inv-number"
-              placeholder="e.g. INV-2026-020"
-              value={draftInvoice.invoice_number}
-              onChange={(e) =>
-                setDraftInvoice((prev) => ({ ...prev, invoice_number: e.target.value }))
-              }
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Client</Label>
-            <Select
-              value={draftInvoice.organization_id}
-              onValueChange={(v) =>
-                setDraftInvoice((prev) => ({ ...prev, organization_id: v }))
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select Client" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Select Client</SelectItem>
-                {organizations.map((org) => (
-                  <SelectItem key={org.id} value={org.id}>
-                    {org.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Project</Label>
-            <Select
-              value={draftInvoice.project_id}
-              onValueChange={(v) =>
-                setDraftInvoice((prev) => ({ ...prev, project_id: v }))
-              }
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select Project" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Select Project (optional)</SelectItem>
-                {projectOptions.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="inv-issue">Issue date</Label>
-            <Input
-              id="inv-issue"
-              type="date"
-              value={draftInvoice.issue_date}
-              onChange={(e) =>
-                setDraftInvoice((prev) => ({ ...prev, issue_date: e.target.value }))
-              }
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="inv-due">Due date</Label>
-            <Input
-              id="inv-due"
-              type="date"
-              value={draftInvoice.due_date}
-              onChange={(e) =>
-                setDraftInvoice((prev) => ({ ...prev, due_date: e.target.value }))
-              }
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Status</Label>
-            <Select
-              value={draftInvoice.status}
-              onValueChange={(v) =>
-                setDraftInvoice((prev) => ({ ...prev, status: v as InvoiceDraft["status"] }))
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="draft">Draft</SelectItem>
-                <SelectItem value="sent">Sent</SelectItem>
-                <SelectItem value="paid">Paid</SelectItem>
-                <SelectItem value="overdue">Overdue</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <Label>Line items</Label>
-          <LineItemsEditor
-            items={draftInvoice.items}
-            onChange={updateDraftItem}
-            onAdd={addDraftItem}
-            onRemove={removeDraftItem}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="create-inv-notes">Notes</Label>
-            <Textarea
-              id="create-inv-notes"
-              rows={3}
-              value={formNotes}
-              onChange={(e) => setFormNotes(e.target.value)}
-              placeholder="Notes visible to the client"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="create-inv-terms">Terms & Conditions</Label>
-            <Textarea
-              id="create-inv-terms"
-              rows={3}
-              value={defaults.terms}
-              onChange={(e) => setTerms(e.target.value)}
-              placeholder="Payment terms, late fees, etc."
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-between items-center border-t pt-4">
-          <div className="text-sm">
-            <span className="text-muted-foreground">Total:</span>{" "}
-            <strong>{formatCurrency(calcTotal(draftInvoice.items) * 1.15)}</strong>
-          </div>
-          {createError && (
-            <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {createError}
-            </div>
-          )}
-        </div>
-      </DialogTemplate>
 
       <DialogTemplate
         open={deleteConfirmOpen}

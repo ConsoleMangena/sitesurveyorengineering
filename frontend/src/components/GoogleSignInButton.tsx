@@ -40,6 +40,7 @@ export default function GoogleSignInButton({
       await signInWithGoogle();
       onSuccess?.();
     } catch (err) {
+      console.error("[GoogleSignInButton] OAuth failed:", err);
       const error = err instanceof Error ? err : new Error(String(err));
       setErrorMsg(error.message);
       onError?.(error);

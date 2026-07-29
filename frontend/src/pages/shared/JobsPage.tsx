@@ -38,6 +38,7 @@ import { Label } from "../../components/ui/label.tsx";
 import { Badge } from "../../components/ui/badge.tsx";
 import { Card, CardContent } from "../../components/ui/card.tsx";
 import { DialogTemplate } from "../../components/templates/DialogTemplate.tsx";
+import { PageForm } from "../../components/templates/PageForm.tsx";
 import { SuccessDialog } from "../../components/SuccessDialog.tsx";
 import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx";
@@ -291,6 +292,122 @@ export default function JobsPage({
     );
   }
 
+  if (jobEditorOpen) {
+    return (
+      <PageForm
+        title={editingJobId ? "Edit job" : "Add job"}
+        description="Fill in the job details below."
+        onBack={() => setJobEditorOpen(false)}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setJobEditorOpen(false)} disabled={savingJob}>
+              Cancel
+            </Button>
+            <Button onClick={() => void saveJobEditor()} disabled={savingJob}>
+              {savingJob ? "Saving…" : "Save"}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2 space-y-2">
+            <Label htmlFor="job-editor-title">Title</Label>
+            <Input
+              id="job-editor-title"
+              value={jobTitle}
+              onChange={(e) => setJobTitle(e.target.value)}
+              placeholder="Job title"
+            />
+          </div>
+          <div className="sm:col-span-2 space-y-2">
+            <Label htmlFor="job-editor-desc">Description</Label>
+            <textarea
+              id="job-editor-desc"
+              className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1"
+              value={jobDescription}
+              onChange={(e) => setJobDescription(e.target.value)}
+              placeholder="Optional description"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Job type</Label>
+            <SelectDropdown
+              className="input-field w-full"
+              value={jobType}
+              onChange={setJobType}
+              placeholder="Type"
+              options={[
+                { value: "", label: "—" },
+                { value: "Topographical", label: "Topographical" },
+                { value: "Cadastral", label: "Cadastral" },
+                { value: "Engineering", label: "Engineering" },
+                { value: "Mining", label: "Mining" },
+                { value: "Monitoring", label: "Monitoring" },
+              ]}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="job-editor-location">Location</Label>
+            <Input
+              id="job-editor-location"
+              value={jobLocation}
+              onChange={(e) => setJobLocation(e.target.value)}
+              placeholder="Optional"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Status</Label>
+            <SelectDropdown
+              className="input-field w-full"
+              value={jobStatus}
+              onChange={(v) => setJobStatus(v as JobStatus)}
+              options={[
+                { value: "planned", label: "Planned" },
+                { value: "scheduled", label: "Scheduled" },
+                { value: "in_progress", label: "In progress" },
+                { value: "completed", label: "Completed" },
+                { value: "cancelled", label: "Cancelled" },
+              ]}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Project (optional)</Label>
+            <SelectDropdown
+              className="input-field w-full"
+              value={jobProjectId}
+              onChange={setJobProjectId}
+              options={[
+                { value: "", label: "No project" },
+                ...projects.map((p) => ({
+                  value: p.id,
+                  label: p.name || "Untitled project",
+                })),
+              ]}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="job-editor-start">Scheduled start</Label>
+            <Input
+              id="job-editor-start"
+              type="datetime-local"
+              value={jobScheduledStart}
+              onChange={(e) => setJobScheduledStart(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="job-editor-end">Scheduled end</Label>
+            <Input
+              id="job-editor-end"
+              type="datetime-local"
+              value={jobScheduledEnd}
+              onChange={(e) => setJobScheduledEnd(e.target.value)}
+            />
+          </div>
+        </div>
+      </PageForm>
+    );
+  }
+
   return (
     <div className="hub-body mx-auto max-w-6xl space-y-6">
       {error && (
@@ -435,120 +552,6 @@ export default function JobsPage({
             </Card>
           </div>
         )}
-      </DialogTemplate>
-
-      <DialogTemplate
-        open={jobEditorOpen}
-        onOpenChange={setJobEditorOpen}
-        title={editingJobId ? "Edit job" : "Add job"}
-        description="Fill in the job details below."
-        size="lg"
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setJobEditorOpen(false)} disabled={savingJob}>
-              Cancel
-            </Button>
-            <Button onClick={() => void saveJobEditor()} disabled={savingJob}>
-              {savingJob ? "Saving…" : "Save"}
-            </Button>
-          </>
-        }
-      >
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2 space-y-2">
-            <Label htmlFor="job-editor-title">Title</Label>
-            <Input
-              id="job-editor-title"
-              value={jobTitle}
-              onChange={(e) => setJobTitle(e.target.value)}
-              placeholder="Job title"
-            />
-          </div>
-          <div className="sm:col-span-2 space-y-2">
-            <Label htmlFor="job-editor-desc">Description</Label>
-            <textarea
-              id="job-editor-desc"
-              className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1"
-              value={jobDescription}
-              onChange={(e) => setJobDescription(e.target.value)}
-              placeholder="Optional description"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Job type</Label>
-            <SelectDropdown
-              className="input-field w-full"
-              value={jobType}
-              onChange={setJobType}
-              placeholder="Type"
-              options={[
-                { value: "", label: "—" },
-                { value: "Topographical", label: "Topographical" },
-                { value: "Cadastral", label: "Cadastral" },
-                { value: "Engineering", label: "Engineering" },
-                { value: "Mining", label: "Mining" },
-                { value: "Monitoring", label: "Monitoring" },
-              ]}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="job-editor-location">Location</Label>
-            <Input
-              id="job-editor-location"
-              value={jobLocation}
-              onChange={(e) => setJobLocation(e.target.value)}
-              placeholder="Optional"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Status</Label>
-            <SelectDropdown
-              className="input-field w-full"
-              value={jobStatus}
-              onChange={(v) => setJobStatus(v as JobStatus)}
-              options={[
-                { value: "planned", label: "Planned" },
-                { value: "scheduled", label: "Scheduled" },
-                { value: "in_progress", label: "In progress" },
-                { value: "completed", label: "Completed" },
-                { value: "cancelled", label: "Cancelled" },
-              ]}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Project (optional)</Label>
-            <SelectDropdown
-              className="input-field w-full"
-              value={jobProjectId}
-              onChange={setJobProjectId}
-              options={[
-                { value: "", label: "No project" },
-                ...projects.map((p) => ({
-                  value: p.id,
-                  label: p.name || "Untitled project",
-                })),
-              ]}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="job-editor-start">Scheduled start</Label>
-            <Input
-              id="job-editor-start"
-              type="datetime-local"
-              value={jobScheduledStart}
-              onChange={(e) => setJobScheduledStart(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="job-editor-end">Scheduled end</Label>
-            <Input
-              id="job-editor-end"
-              type="datetime-local"
-              value={jobScheduledEnd}
-              onChange={(e) => setJobScheduledEnd(e.target.value)}
-            />
-          </div>
-        </div>
       </DialogTemplate>
 
       {filtered.length === 0 ? (

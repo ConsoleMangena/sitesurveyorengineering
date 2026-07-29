@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { AlertTriangle, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Eraser, Trash2, Upload } from "lucide-react";
+import { clearSiteData } from "../../lib/clearSiteData.ts";
 import {
   getMyProfile,
   updateMyProfile,
@@ -279,6 +280,31 @@ export default function ProfileSettingsPage() {
                 </div>
                 <Button variant="outline" size="sm" className="w-full sm:w-auto">
                   Reset Password
+                </Button>
+              </div>
+              <Separator />
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-0.5">
+                  <Label className="text-sm">Clear Local Cache</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Delete stored login session, offline database, and cached assets, then reload
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "Clear all local caches and stored data? You will be signed out and returned to the login screen.",
+                      )
+                    ) {
+                      void clearSiteData();
+                    }
+                  }}
+                >
+                  <Eraser className="mr-2 h-4 w-4" /> Clear Cache
                 </Button>
               </div>
               <Separator />

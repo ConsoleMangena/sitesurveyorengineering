@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
+import { PageForm } from "@/components/templates/PageForm.tsx";
 import { SuccessDialog } from "@/components/SuccessDialog.tsx";
 import {
   Sheet,
@@ -533,6 +533,156 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
     );
   }
 
+  if (isCreateOpen) {
+    return (
+      <PageForm
+        title="Create Quote"
+        description="Prepare a new estimate for a client."
+        onBack={() => setIsCreateOpen(false)}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={submitCreateQuote}>Create Quote</Button>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="quote-number">Quote number</Label>
+            <Input
+              id="quote-number"
+              placeholder="e.g. EST-2026-053"
+              value={draft.quote_number}
+              onChange={(e) => setDraft({ ...draft, quote_number: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Client</Label>
+            <Select
+              value={draft.organization_id}
+              onValueChange={(v) => setDraft({ ...draft, organization_id: v })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select Client" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Select Client</SelectItem>
+                {organizations.map((org) => (
+                  <SelectItem key={org.id} value={org.id}>
+                    {org.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Project</Label>
+            <Select
+              value={draft.project_id}
+              onValueChange={(v) => setDraft({ ...draft, project_id: v })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select Project" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Select Project (optional)</SelectItem>
+                {projectOptions.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="quote-issue">Issue date</Label>
+            <Input
+              id="quote-issue"
+              type="date"
+              value={draft.issue_date}
+              onChange={(e) => setDraft({ ...draft, issue_date: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="quote-expires">Expires on</Label>
+            <Input
+              id="quote-expires"
+              type="date"
+              placeholder="Expires on"
+              value={draft.expires_on}
+              onChange={(e) => setDraft({ ...draft, expires_on: e.target.value })}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <Label>Line items</Label>
+          <LineItemsEditor
+            items={draftItems}
+            onChange={updateDraftItem}
+            onAdd={() =>
+              setDraftItems((prev) => [
+                ...prev,
+                { id: `new-${Date.now()}`, description: "", qty: 1, unit: "Hours", rate: 0 },
+              ])
+            }
+            onRemove={(id) =>
+              setDraftItems((prev) => (prev.length === 1 ? prev : prev.filter((i) => i.id !== id)))
+            }
+          />
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="create-notes">Notes</Label>
+            <Textarea
+              id="create-notes"
+              rows={3}
+              value={draftNotes}
+              onChange={(e) => setDraftNotes(e.target.value)}
+              placeholder="Notes visible to the client"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="create-terms">Terms & Conditions</Label>
+            <Textarea
+              id="create-terms"
+              rows={3}
+              value={defaults.terms}
+              onChange={(e) => setTerms(e.target.value)}
+              placeholder="Payment terms, validity, etc."
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between border-t pt-4">
+          <div className="text-sm">
+            <span className="text-muted-foreground">Total:</span>{" "}
+            <strong>{formatCurrency(calculateTotal(draftItems) * 1.15)}</strong>
+          </div>
+          {createError && (
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {createError}
+            </div>
+          )}
+        </div>
+      </PageForm>
+    );
+  }
+
+  if (businessDialogOpen) {
+    return (
+      <BusinessProfileDialog
+        open={businessDialogOpen}
+        onOpenChange={setBusinessDialogOpen}
+        profile={profile}
+        onSave={setProfile}
+      />
+    );
+  }
+
   return (
     <DashboardShell className="hub-body quotes-page">
       <DashboardHeader
@@ -755,143 +905,6 @@ export default function QuotesPage({ workspaceId }: { workspaceId: string }) {
           </SheetContent>
         </Sheet>
       </div>
-
-      <DialogTemplate
-        open={isCreateOpen}
-        onOpenChange={(open) => !open && setIsCreateOpen(false)}
-        title="Create Quote"
-        description="Prepare a new estimate for a client."
-        size="full"
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setIsCreateOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={submitCreateQuote}>Create Quote</Button>
-          </>
-        }
-      >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="quote-number">Quote number</Label>
-            <Input
-              id="quote-number"
-              placeholder="e.g. EST-2026-053"
-              value={draft.quote_number}
-              onChange={(e) => setDraft({ ...draft, quote_number: e.target.value })}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Client</Label>
-            <Select
-              value={draft.organization_id}
-              onValueChange={(v) => setDraft({ ...draft, organization_id: v })}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select Client" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Select Client</SelectItem>
-                {organizations.map((org) => (
-                  <SelectItem key={org.id} value={org.id}>
-                    {org.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Project</Label>
-            <Select
-              value={draft.project_id}
-              onValueChange={(v) => setDraft({ ...draft, project_id: v })}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select Project" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Select Project (optional)</SelectItem>
-                {projectOptions.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="quote-issue">Issue date</Label>
-            <Input
-              id="quote-issue"
-              type="date"
-              value={draft.issue_date}
-              onChange={(e) => setDraft({ ...draft, issue_date: e.target.value })}
-            />
-          </div>
-          <div className="space-y-1.5 sm:col-span-2">
-            <Label htmlFor="quote-expires">Expires on</Label>
-            <Input
-              id="quote-expires"
-              type="date"
-              placeholder="Expires on"
-              value={draft.expires_on}
-              onChange={(e) => setDraft({ ...draft, expires_on: e.target.value })}
-            />
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <Label>Line items</Label>
-          <LineItemsEditor
-            items={draftItems}
-            onChange={updateDraftItem}
-            onAdd={() =>
-              setDraftItems((prev) => [
-                ...prev,
-                { id: `new-${Date.now()}`, description: "", qty: 1, unit: "Hours", rate: 0 },
-              ])
-            }
-            onRemove={(id) =>
-              setDraftItems((prev) => (prev.length === 1 ? prev : prev.filter((i) => i.id !== id)))
-            }
-          />
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="create-notes">Notes</Label>
-            <Textarea
-              id="create-notes"
-              rows={3}
-              value={draftNotes}
-              onChange={(e) => setDraftNotes(e.target.value)}
-              placeholder="Notes visible to the client"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="create-terms">Terms & Conditions</Label>
-            <Textarea
-              id="create-terms"
-              rows={3}
-              value={defaults.terms}
-              onChange={(e) => setTerms(e.target.value)}
-              placeholder="Payment terms, validity, etc."
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-between items-center border-t pt-4">
-          <div className="text-sm">
-            <span className="text-muted-foreground">Total:</span>{" "}
-            <strong>{formatCurrency(calculateTotal(draftItems) * 1.15)}</strong>
-          </div>
-          {createError && (
-            <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {createError}
-            </div>
-          )}
-        </div>
-      </DialogTemplate>
 
       <BusinessProfileDialog
         open={businessDialogOpen}

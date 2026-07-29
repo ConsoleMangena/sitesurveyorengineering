@@ -23,6 +23,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
+import { PageForm } from "@/components/templates/PageForm.tsx";
 import {
   Select,
   SelectContent,
@@ -493,6 +494,208 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
     );
   }
 
+  if (showCreateModal) {
+    return (
+      <PageForm
+        title="Add Instrument"
+        description="Register a new survey instrument in your fleet."
+        onBack={() => setShowCreateModal(false)}
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>Cancel</Button>
+            <Button type="submit" form="asset-create-form" disabled={saving}>{saving ? "Saving..." : "Add Instrument"}</Button>
+          </>
+        }
+      >
+        <form id="asset-create-form" onSubmit={handleCreate} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="create-name">Name *</Label>
+            <Input id="create-name" value={createForm.name} onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. Leica TS16" required autoFocus />
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Kind</Label>
+              <Select value={createForm.kind} onValueChange={(v) => setCreateForm((f) => ({ ...f, kind: v as typeof createForm.kind }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="instrument">Instrument</SelectItem>
+                  <SelectItem value="vehicle">Vehicle</SelectItem>
+                  <SelectItem value="equipment">Equipment</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Category</Label>
+              <Select value={createForm.category} onValueChange={(v) => setCreateForm((f) => ({ ...f, category: v }))}>
+                <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                <SelectContent>
+                  {ASSET_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="create-make">Make</Label>
+              <Input id="create-make" value={createForm.make} onChange={(e) => setCreateForm((f) => ({ ...f, make: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="create-model">Model</Label>
+              <Input id="create-model" value={createForm.model} onChange={(e) => setCreateForm((f) => ({ ...f, model: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="create-serial">Serial Number</Label>
+              <Input id="create-serial" value={createForm.serial_number} onChange={(e) => setCreateForm((f) => ({ ...f, serial_number: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="create-purchase-date">Purchase Date</Label>
+              <Input id="create-purchase-date" type="date" value={createForm.purchase_date} onChange={(e) => setCreateForm((f) => ({ ...f, purchase_date: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="create-purchase-cost">Purchase Cost ($)</Label>
+              <Input id="create-purchase-cost" type="number" value={createForm.purchase_cost} onChange={(e) => setCreateForm((f) => ({ ...f, purchase_cost: e.target.value }))} />
+            </div>
+          </div>
+        </form>
+      </PageForm>
+    );
+  }
+
+  if (showEditModal) {
+    return (
+      <PageForm
+        title="Edit Instrument"
+        description="Update asset details and marketplace settings."
+        onBack={() => { setShowEditModal(false); setEditingAssetId(null); }}
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => { setShowEditModal(false); setEditingAssetId(null); }}>Cancel</Button>
+            <Button type="submit" form="asset-edit-form" disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button>
+          </>
+        }
+      >
+        <form id="asset-edit-form" onSubmit={handleSaveEdit} className="space-y-6">
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Asset Details</h3>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-name">Name *</Label>
+              <Input id="edit-name" value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} required autoFocus />
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Kind</Label>
+                <Select value={editForm.kind} onValueChange={(v) => setEditForm((f) => ({ ...f, kind: v as typeof editForm.kind }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="instrument">Instrument</SelectItem>
+                    <SelectItem value="vehicle">Vehicle</SelectItem>
+                    <SelectItem value="equipment">Equipment</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Category</Label>
+                <Select value={editForm.category} onValueChange={(v) => setEditForm((f) => ({ ...f, category: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                  <SelectContent>
+                    {ASSET_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-make">Make</Label>
+                <Input id="edit-make" value={editForm.make} onChange={(e) => setEditForm((f) => ({ ...f, make: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-model">Model</Label>
+                <Input id="edit-model" value={editForm.model} onChange={(e) => setEditForm((f) => ({ ...f, model: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="edit-serial">Serial Number</Label>
+                <Input id="edit-serial" value={editForm.serial_number} onChange={(e) => setEditForm((f) => ({ ...f, serial_number: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-purchase-date">Purchase Date</Label>
+                <Input id="edit-purchase-date" type="date" value={editForm.purchase_date} onChange={(e) => setEditForm((f) => ({ ...f, purchase_date: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-purchase-cost">Purchase Cost ($)</Label>
+                <Input id="edit-purchase-cost" type="number" value={editForm.purchase_cost} onChange={(e) => setEditForm((f) => ({ ...f, purchase_cost: e.target.value }))} />
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <Switch id="marketplace" checked={listOnMarketplace} onCheckedChange={setListOnMarketplace} />
+              <Label htmlFor="marketplace">List this asset on the Marketplace</Label>
+            </div>
+            {listOnMarketplace && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Listing Type</Label>
+                  <Select value={listingForm.listing_type} onValueChange={(v) => setListingForm((f) => ({ ...f, listing_type: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="hire">Available for Hire</SelectItem>
+                      <SelectItem value="sale">Available for Sale</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="listing-price">Price ($) *</Label>
+                  <Input id="listing-price" type="number" value={listingForm.price} onChange={(e) => setListingForm((f) => ({ ...f, price: e.target.value }))} required />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Condition</Label>
+                  <Select value={listingForm.condition} onValueChange={(v) => setListingForm((f) => ({ ...f, condition: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {["New", "Like New", "Good", "Fair"].map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="listing-location">Location</Label>
+                  <Input id="listing-location" value={listingForm.location} onChange={(e) => setListingForm((f) => ({ ...f, location: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="listing-seller">Seller Name / Company</Label>
+                  <Input id="listing-seller" value={listingForm.seller} onChange={(e) => setListingForm((f) => ({ ...f, seller: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label>Receiving Wallet</Label>
+                  {workspaceMarketplaceWallet ? (
+                    <p className="text-sm break-all font-mono text-muted-foreground">
+                      {workspaceMarketplaceWallet}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-amber-600">
+                      No marketplace wallet selected. Buyers will see “Seller has
+                      no wallet.” Set one in Billing.
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="listing-description">Listing Description</Label>
+                  <textarea
+                    id="listing-description"
+                    rows={3}
+                    value={listingForm.description}
+                    onChange={(e) => setListingForm((f) => ({ ...f, description: e.target.value }))}
+                    className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </form>
+      </PageForm>
+    );
+  }
+
   return (
     <DashboardShell className="hub-body">
       <DashboardHeader
@@ -820,206 +1023,6 @@ export default function AssetManagementPage({ workspaceId }: AssetManagementPage
           <CalibrationDuePanel instruments={instruments} maxItems={5} />
         </div>
       </div>
-
-      {/* Create Asset Dialog */}
-      <DialogTemplate
-        open={showCreateModal}
-        onOpenChange={(open) => { if (!open) setShowCreateModal(false); }}
-        title="Add Instrument"
-        description="Register a new survey instrument in your fleet."
-        size="lg"
-        footer={
-          <>
-            <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>Cancel</Button>
-            <Button type="submit" form="asset-create-form" disabled={saving}>{saving ? "Saving..." : "Add Instrument"}</Button>
-          </>
-        }
-      >
-        <form id="asset-create-form" onSubmit={handleCreate} className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="create-name">Name *</Label>
-            <Input id="create-name" value={createForm.name} onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))} placeholder="e.g. Leica TS16" required autoFocus />
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label>Kind</Label>
-              <Select value={createForm.kind} onValueChange={(v) => setCreateForm((f) => ({ ...f, kind: v as typeof createForm.kind }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="instrument">Instrument</SelectItem>
-                  <SelectItem value="vehicle">Vehicle</SelectItem>
-                  <SelectItem value="equipment">Equipment</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Category</Label>
-              <Select value={createForm.category} onValueChange={(v) => setCreateForm((f) => ({ ...f, category: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                <SelectContent>
-                  {ASSET_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="create-make">Make</Label>
-              <Input id="create-make" value={createForm.make} onChange={(e) => setCreateForm((f) => ({ ...f, make: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="create-model">Model</Label>
-              <Input id="create-model" value={createForm.model} onChange={(e) => setCreateForm((f) => ({ ...f, model: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="create-serial">Serial Number</Label>
-              <Input id="create-serial" value={createForm.serial_number} onChange={(e) => setCreateForm((f) => ({ ...f, serial_number: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="create-purchase-date">Purchase Date</Label>
-              <Input id="create-purchase-date" type="date" value={createForm.purchase_date} onChange={(e) => setCreateForm((f) => ({ ...f, purchase_date: e.target.value }))} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="create-purchase-cost">Purchase Cost ($)</Label>
-              <Input id="create-purchase-cost" type="number" value={createForm.purchase_cost} onChange={(e) => setCreateForm((f) => ({ ...f, purchase_cost: e.target.value }))} />
-            </div>
-          </div>
-        </form>
-      </DialogTemplate>
-
-      {/* Edit Asset Dialog */}
-      <DialogTemplate
-        open={showEditModal}
-        onOpenChange={(open) => { if (!open) { setShowEditModal(false); setEditingAssetId(null); } }}
-        title="Edit Instrument"
-        description="Update asset details and marketplace settings."
-        size="full"
-        footer={
-          <>
-            <Button type="button" variant="outline" onClick={() => { setShowEditModal(false); setEditingAssetId(null); }}>Cancel</Button>
-            <Button type="submit" form="asset-edit-form" disabled={saving}>{saving ? "Saving..." : "Save Changes"}</Button>
-          </>
-        }
-      >
-        <form id="asset-edit-form" onSubmit={handleSaveEdit} className="space-y-6">
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Asset Details</h3>
-            <div className="space-y-1.5">
-              <Label htmlFor="edit-name">Name *</Label>
-              <Input id="edit-name" value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} required autoFocus />
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Kind</Label>
-                <Select value={editForm.kind} onValueChange={(v) => setEditForm((f) => ({ ...f, kind: v as typeof editForm.kind }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="instrument">Instrument</SelectItem>
-                    <SelectItem value="vehicle">Vehicle</SelectItem>
-                    <SelectItem value="equipment">Equipment</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Category</Label>
-                <Select value={editForm.category} onValueChange={(v) => setEditForm((f) => ({ ...f, category: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                  <SelectContent>
-                    {ASSET_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-make">Make</Label>
-                <Input id="edit-make" value={editForm.make} onChange={(e) => setEditForm((f) => ({ ...f, make: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-model">Model</Label>
-                <Input id="edit-model" value={editForm.model} onChange={(e) => setEditForm((f) => ({ ...f, model: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="edit-serial">Serial Number</Label>
-                <Input id="edit-serial" value={editForm.serial_number} onChange={(e) => setEditForm((f) => ({ ...f, serial_number: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-purchase-date">Purchase Date</Label>
-                <Input id="edit-purchase-date" type="date" value={editForm.purchase_date} onChange={(e) => setEditForm((f) => ({ ...f, purchase_date: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-purchase-cost">Purchase Cost ($)</Label>
-                <Input id="edit-purchase-cost" type="number" value={editForm.purchase_cost} onChange={(e) => setEditForm((f) => ({ ...f, purchase_cost: e.target.value }))} />
-              </div>
-            </div>
-          </div>
-
-          <Separator />
-
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <Switch id="marketplace" checked={listOnMarketplace} onCheckedChange={setListOnMarketplace} />
-              <Label htmlFor="marketplace">List this asset on the Marketplace</Label>
-            </div>
-            {listOnMarketplace && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label>Listing Type</Label>
-                  <Select value={listingForm.listing_type} onValueChange={(v) => setListingForm((f) => ({ ...f, listing_type: v }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="hire">Available for Hire</SelectItem>
-                      <SelectItem value="sale">Available for Sale</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="listing-price">Price ($) *</Label>
-                  <Input id="listing-price" type="number" value={listingForm.price} onChange={(e) => setListingForm((f) => ({ ...f, price: e.target.value }))} required />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Condition</Label>
-                  <Select value={listingForm.condition} onValueChange={(v) => setListingForm((f) => ({ ...f, condition: v }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {["New", "Like New", "Good", "Fair"].map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="listing-location">Location</Label>
-                  <Input id="listing-location" value={listingForm.location} onChange={(e) => setListingForm((f) => ({ ...f, location: e.target.value }))} />
-                </div>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="listing-seller">Seller Name / Company</Label>
-                  <Input id="listing-seller" value={listingForm.seller} onChange={(e) => setListingForm((f) => ({ ...f, seller: e.target.value }))} />
-                </div>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label>Receiving Wallet</Label>
-                  {workspaceMarketplaceWallet ? (
-                    <p className="text-sm break-all font-mono text-muted-foreground">
-                      {workspaceMarketplaceWallet}
-                    </p>
-                  ) : (
-                    <p className="text-sm text-amber-600">
-                      No marketplace wallet selected. Buyers will see “Seller has
-                      no wallet.” Set one in Billing.
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="listing-description">Listing Description</Label>
-                  <textarea
-                    id="listing-description"
-                    rows={3}
-                    value={listingForm.description}
-                    onChange={(e) => setListingForm((f) => ({ ...f, description: e.target.value }))}
-                    className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </form>
-      </DialogTemplate>
 
       {/* Asset Detail Dialog */}
       <DialogTemplate

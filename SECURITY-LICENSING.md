@@ -74,8 +74,8 @@ is restricted to accounts with the platform admin role (`profiles`
 `is_platform_admin = true`). The role is verified server-side in every admin
 function. RLS limits a user to their own row, but Postgres RLS cannot restrict
 **which columns** are written, so RLS alone does **not** stop self-promotion.
-Use the SQL editor (service role) or the bootstrap templates in
-`backend/supabase/sql/99_admin_operations.sql` to provision admins:
+Use the SQL editor (service role) or the guide in
+`backend/sql/README.md` to provision admins:
 
 ```sql
 UPDATE profiles SET is_platform_admin = true WHERE lower(email) = 'you@example.com';
@@ -86,14 +86,8 @@ their JWT reflects the new role.
 
 ## One-time deployment checklist
 
-1. Run the licensing SQL in the Supabase SQL editor, in order:
-   - `backend/supabase/sql/01_schema.sql`
-   - `backend/supabase/sql/02_functions_triggers.sql`
-   - `backend/supabase/sql/03_rls_storage.sql`
-   - `backend/supabase/sql/04_seed.sql`
-   - `backend/supabase/sql/06_licensing.sql`
-   - `backend/supabase/sql/07_licensing_enforcement.sql`
-   - `backend/supabase/sql/99_admin_operations.sql` (cookbook/templates)
+1. Run the schema SQL in the Supabase SQL editor:
+   - `backend/sql/0001_schema.sql`
 2. Provision platform admin account(s).
 3. Deploy the Edge Functions:
    ```bash

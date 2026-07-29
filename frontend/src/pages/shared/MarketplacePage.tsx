@@ -58,6 +58,7 @@ import { Textarea } from "../../components/ui/textarea.tsx";
 import { Badge } from "../../components/ui/badge.tsx";
 import { Card, CardContent } from "../../components/ui/card.tsx";
 import { DialogTemplate } from "../../components/templates/DialogTemplate.tsx";
+import { PageForm } from "../../components/templates/PageForm.tsx";
 import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx";
 import { Switch } from "../../components/ui/switch.tsx";
@@ -573,6 +574,129 @@ export default function MarketplacePage({
   const hireListings = listingState.filter((l) => l.listing_type === "hire").length;
   const inUseListings = listingState.filter((l) => l.assets?.status === "deployed").length;
 
+  if (editorOpen) {
+    return (
+      <PageForm
+        title={editingId ? "Edit listing" : "List an instrument"}
+        description="Listing assets for hire is free for your workspace."
+        onBack={() => setEditorOpen(false)}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setEditorOpen(false)} disabled={savingListing}>
+              Cancel
+            </Button>
+            <Button onClick={saveListing} disabled={savingListing}>
+              {savingListing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
+                </>
+              ) : editingId ? (
+                "Save changes"
+              ) : (
+                "Publish listing"
+              )}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2 space-y-2">
+            <Label>Name *</Label>
+            <Input
+              value={mName}
+              onChange={(e) => setMName(e.target.value)}
+              placeholder="e.g. Leica TS16"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Type</Label>
+            <SelectDropdown options={TYPE_OPTIONS} value={mType} onChange={setMType} />
+          </div>
+          <div className="space-y-2">
+            <Label>Condition</Label>
+            <SelectDropdown options={CONDITION_OPTIONS} value={mCondition} onChange={setMCondition} />
+          </div>
+          <div className="space-y-2">
+            <Label>Price *</Label>
+            <Input
+              type="number"
+              min="0"
+              value={mPrice}
+              onChange={(e) => setMPrice(e.target.value)}
+              placeholder="0"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Currency</Label>
+            <Input
+              value={mCurrency}
+              onChange={(e) => setMCurrency(e.target.value)}
+              placeholder="USD"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Seller / Provider *</Label>
+            <Input
+              value={mSeller}
+              onChange={(e) => setMSeller(e.target.value)}
+              placeholder="Your firm or name"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Receiving Wallet</Label>
+            {workspaceMarketplaceWallet ? (
+              <p className="break-all text-sm font-mono text-muted-foreground">
+                {workspaceMarketplaceWallet}
+              </p>
+            ) : (
+              <p className="text-sm text-amber-600">
+                No marketplace wallet selected. Buyers will see “Seller has no
+                wallet.” Set one in Billing.
+              </p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label>Location *</Label>
+            <Input
+              value={mLocation}
+              onChange={(e) => setMLocation(e.target.value)}
+              placeholder="City, country"
+            />
+          </div>
+          <div className="sm:col-span-2 space-y-2">
+            <Label>Description</Label>
+            <Textarea
+              value={mDescription}
+              onChange={(e) => setMDescription(e.target.value)}
+              placeholder="Optional details"
+              rows={3}
+            />
+          </div>
+          <div className="sm:col-span-2 space-y-2">
+            <Label>Specs (comma separated)</Label>
+            <Input
+              value={mSpecs}
+              onChange={(e) => setMSpecs(e.target.value)}
+              placeholder="2'' accuracy, 1000m range"
+            />
+          </div>
+          {isPlatformAdmin && (
+            <div className="sm:col-span-2 flex items-center gap-3 rounded-md border p-3">
+              <Switch
+                id="listing-global"
+                checked={mIsGlobal}
+                onCheckedChange={setMIsGlobal}
+              />
+              <Label htmlFor="listing-global" className="cursor-pointer">
+                Publish globally (visible to all workspaces)
+              </Label>
+            </div>
+          )}
+        </div>
+      </PageForm>
+    );
+  }
+
   return (
     <DashboardShell>
       {fetchError && (
@@ -975,127 +1099,6 @@ export default function MarketplacePage({
                 )}
               </div>
             )}
-          </DialogTemplate>
-
-          <DialogTemplate
-            open={editorOpen}
-            onOpenChange={setEditorOpen}
-            title={editingId ? "Edit listing" : "List an instrument"}
-            description="Listing assets for hire is free for your workspace."
-            size="lg"
-            footer={
-              <>
-                <Button variant="outline" onClick={() => setEditorOpen(false)} disabled={savingListing}>
-                  Cancel
-                </Button>
-                <Button onClick={saveListing} disabled={savingListing}>
-                  {savingListing ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
-                    </>
-                  ) : editingId ? (
-                    "Save changes"
-                  ) : (
-                    "Publish listing"
-                  )}
-                </Button>
-              </>
-            }
-          >
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="sm:col-span-2 space-y-2">
-                <Label>Name *</Label>
-                <Input
-                  value={mName}
-                  onChange={(e) => setMName(e.target.value)}
-                  placeholder="e.g. Leica TS16"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Type</Label>
-                <SelectDropdown options={TYPE_OPTIONS} value={mType} onChange={setMType} />
-              </div>
-              <div className="space-y-2">
-                <Label>Condition</Label>
-                <SelectDropdown options={CONDITION_OPTIONS} value={mCondition} onChange={setMCondition} />
-              </div>
-              <div className="space-y-2">
-                <Label>Price *</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={mPrice}
-                  onChange={(e) => setMPrice(e.target.value)}
-                  placeholder="0"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Currency</Label>
-                <Input
-                  value={mCurrency}
-                  onChange={(e) => setMCurrency(e.target.value)}
-                  placeholder="USD"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Seller / Provider *</Label>
-                <Input
-                  value={mSeller}
-                  onChange={(e) => setMSeller(e.target.value)}
-                  placeholder="Your firm or name"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Receiving Wallet</Label>
-                {workspaceMarketplaceWallet ? (
-                  <p className="text-sm break-all font-mono text-muted-foreground">
-                    {workspaceMarketplaceWallet}
-                  </p>
-                ) : (
-                  <p className="text-sm text-amber-600">
-                    No marketplace wallet selected. Buyers will see “Seller has no
-                    wallet.” Set one in Billing.
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label>Location *</Label>
-                <Input
-                  value={mLocation}
-                  onChange={(e) => setMLocation(e.target.value)}
-                  placeholder="City, country"
-                />
-              </div>
-              <div className="sm:col-span-2 space-y-2">
-                <Label>Description</Label>
-                <Textarea
-                  value={mDescription}
-                  onChange={(e) => setMDescription(e.target.value)}
-                  placeholder="Optional details"
-                  rows={3}
-                />
-              </div>
-              <div className="sm:col-span-2 space-y-2">
-                <Label>Specs (comma separated)</Label>
-                <Input
-                  value={mSpecs}
-                  onChange={(e) => setMSpecs(e.target.value)}
-                  placeholder="2'' accuracy, 1000m range"
-                />
-              </div>
-              {isPlatformAdmin && (
-                <div className="sm:col-span-2 flex items-center gap-3 rounded-md border p-3">
-                  <Switch
-                    id="listing-global"
-                    checked={mIsGlobal}
-                    onCheckedChange={setMIsGlobal}
-                  />
-                  <Label htmlFor="listing-global" className="cursor-pointer">
-                    Publish globally (visible to all workspaces)
-                  </Label>
-                </div>
-              )}
-            </div>
           </DialogTemplate>
 
           {filtered.length === 0 ? (

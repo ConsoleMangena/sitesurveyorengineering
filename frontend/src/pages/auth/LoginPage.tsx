@@ -25,6 +25,7 @@ import {
   signInWithEmail,
 } from "../../lib/auth/session.ts";
 import { useAuthStore } from "../../lib/auth/auth-store";
+import { clearSiteData } from "../../lib/clearSiteData.ts";
 import "../../styles/auth.css";
 
 export default function LoginPage() {
@@ -64,6 +65,7 @@ export default function LoginPage() {
       // populated and bounce back to /login, flashing the login screen.
       await signInWithEmail({ email: trimmedEmail, password });
     } catch (err) {
+      console.error("[LoginPage] sign in failed:", err);
       setAuthLoading(false);
       if (isEmailNotConfirmedError(err)) {
         setEmailNotConfirmed(true);
@@ -96,6 +98,7 @@ export default function LoginPage() {
         message: "Confirmation email sent. Check your inbox (and spam folder).",
       });
     } catch (err) {
+      console.error("[LoginPage] resend confirmation failed:", err);
       setResendState({
         status: "error",
         message: formatAuthUserFacingError(
@@ -209,15 +212,31 @@ export default function LoginPage() {
           </form>
         </CardContent>
 
-        <CardFooter className="justify-center text-sm text-muted-foreground">
-          Don't have an account?{" "}
+        <CardFooter className="flex-wrap justify-center gap-x-1 gap-y-1 text-sm text-muted-foreground">
+          <span>Don't have an account?</span>
           <Button
             variant="link"
-            className="h-auto p-0 ml-1"
+            className="h-auto p-0"
             onClick={() => navigate("/signup")}
             asChild
           >
             <Link to="/signup">Sign up</Link>
+          </Button>
+          <span className="mx-1">·</span>
+          <Button
+            variant="link"
+            className="h-auto p-0"
+            onClick={() => {
+              if (
+                window.confirm(
+                  "Clear all local caches, storage, and sign-in data? This will reload the app.",
+                )
+              ) {
+                void clearSiteData();
+              }
+            }}
+          >
+            Clear local data
           </Button>
         </CardFooter>
       </Card>

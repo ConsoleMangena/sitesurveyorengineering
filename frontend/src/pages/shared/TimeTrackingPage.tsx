@@ -17,7 +17,7 @@ import { Input } from "../../components/ui/input.tsx";
 import { Label } from "../../components/ui/label.tsx";
 import { Badge } from "../../components/ui/badge.tsx";
 import { Card, CardContent, CardHeader } from "../../components/ui/card.tsx";
-import { DialogTemplate } from "../../components/templates/DialogTemplate.tsx";
+import { PageForm } from "../../components/templates/PageForm.tsx";
 import { SuccessDialog } from "../../components/SuccessDialog.tsx";
 import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx";
@@ -256,6 +256,183 @@ export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps)
       <div className="hub-body">
         <PageLoader />
       </div>
+    );
+  }
+
+  if (showCreateModal) {
+    return (
+      <PageForm
+        title={activeTab === "time" ? "Log Time" : "Log Expense"}
+        description="Create a new time or expense entry."
+        onBack={() => setShowCreateModal(false)}
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" form="time-expense-form" disabled={submitting}>
+              {submitting ? "Saving..." : "Save"}
+            </Button>
+          </>
+        }
+      >
+        <form id="time-expense-form" onSubmit={handleCreate} className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Date</Label>
+              <Input
+                type="date"
+                value={activeTab === "time" ? timeForm.entry_date : expenseForm.entry_date}
+                onChange={(e) =>
+                  activeTab === "time"
+                    ? setTimeForm((prev) => ({ ...prev, entry_date: e.target.value }))
+                    : setExpenseForm((prev) => ({ ...prev, entry_date: e.target.value }))
+                }
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Project</Label>
+              <select
+                className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-[color,box-shadow] focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-1"
+                value={activeTab === "time" ? timeForm.project_id : expenseForm.project_id}
+                onChange={(e) =>
+                  activeTab === "time"
+                    ? setTimeForm((prev) => ({ ...prev, project_id: e.target.value }))
+                    : setExpenseForm((prev) => ({ ...prev, project_id: e.target.value }))
+                }
+              >
+                <option value="">Internal / Not linked</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {activeTab === "time" ? (
+            <>
+              <div className="space-y-2">
+                <Label>Task</Label>
+                <Input
+                  value={timeForm.task}
+                  onChange={(e) =>
+                    setTimeForm((prev) => ({ ...prev, task: e.target.value }))
+                  }
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
+                <div className="space-y-2">
+                  <Label>Hours</Label>
+                  <Input
+                    type="number"
+                    min="0.25"
+                    step="0.25"
+                    value={timeForm.hours}
+                    onChange={(e) =>
+                      setTimeForm((prev) => ({ ...prev, hours: e.target.value }))
+                    }
+                    required
+                  />
+                </div>
+                <div className="flex items-end pb-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <Switch
+                      checked={timeForm.billable}
+                      onCheckedChange={(checked) =>
+                        setTimeForm((prev) => ({ ...prev, billable: checked }))
+                      }
+                    />
+                    Billable
+                  </label>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Notes</Label>
+                <textarea
+                  className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1"
+                  value={timeForm.notes}
+                  onChange={(e) =>
+                    setTimeForm((prev) => ({ ...prev, notes: e.target.value }))
+                  }
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Category</Label>
+                  <select
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-[color,box-shadow] focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-1"
+                    value={expenseForm.category}
+                    onChange={(e) =>
+                      setExpenseForm((prev) => ({
+                        ...prev,
+                        category: e.target.value as ExpenseCategory,
+                      }))
+                    }
+                  >
+                    {expenseCategories.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Amount</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={expenseForm.amount}
+                    onChange={(e) =>
+                      setExpenseForm((prev) => ({ ...prev, amount: e.target.value }))
+                    }
+                    required
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
+                <div className="space-y-2">
+                  <Label>Vendor</Label>
+                  <Input
+                    value={expenseForm.vendor}
+                    onChange={(e) =>
+                      setExpenseForm((prev) => ({ ...prev, vendor: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="flex items-end pb-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <Switch
+                      checked={expenseForm.reimbursable}
+                      onCheckedChange={(checked) =>
+                        setExpenseForm((prev) => ({ ...prev, reimbursable: checked }))
+                      }
+                    />
+                    Reimbursable
+                  </label>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Notes</Label>
+                <textarea
+                  className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1"
+                  value={expenseForm.notes}
+                  onChange={(e) =>
+                    setExpenseForm((prev) => ({ ...prev, notes: e.target.value }))
+                  }
+                />
+              </div>
+            </>
+          )}
+        </form>
+      </PageForm>
     );
   }
 
@@ -515,181 +692,6 @@ export default function TimeTrackingPage({ workspaceId }: TimeTrackingPageProps)
           )}
         </CardContent>
       </Card>
-
-      <DialogTemplate
-        open={showCreateModal}
-        onOpenChange={setShowCreateModal}
-        title={activeTab === "time" ? "Log Time" : "Log Expense"}
-        description="Create a new time or expense entry."
-        size="lg"
-        footer={
-          <>
-            <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" form="time-expense-form" disabled={submitting}>
-              {submitting ? "Saving..." : "Save"}
-            </Button>
-          </>
-        }
-      >
-        <form id="time-expense-form" onSubmit={handleCreate} className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label>Date</Label>
-              <Input
-                type="date"
-                value={activeTab === "time" ? timeForm.entry_date : expenseForm.entry_date}
-                onChange={(e) =>
-                  activeTab === "time"
-                    ? setTimeForm((prev) => ({ ...prev, entry_date: e.target.value }))
-                    : setExpenseForm((prev) => ({ ...prev, entry_date: e.target.value }))
-                }
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Project</Label>
-              <select
-                className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-[color,box-shadow] focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-1"
-                value={activeTab === "time" ? timeForm.project_id : expenseForm.project_id}
-                onChange={(e) =>
-                  activeTab === "time"
-                    ? setTimeForm((prev) => ({ ...prev, project_id: e.target.value }))
-                    : setExpenseForm((prev) => ({ ...prev, project_id: e.target.value }))
-                }
-              >
-                <option value="">Internal / Not linked</option>
-                {projects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {activeTab === "time" ? (
-            <>
-              <div className="space-y-2">
-                <Label>Task</Label>
-                <Input
-                  value={timeForm.task}
-                  onChange={(e) =>
-                    setTimeForm((prev) => ({ ...prev, task: e.target.value }))
-                  }
-                  required
-                />
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
-                <div className="space-y-2">
-                  <Label>Hours</Label>
-                  <Input
-                    type="number"
-                    min="0.25"
-                    step="0.25"
-                    value={timeForm.hours}
-                    onChange={(e) =>
-                      setTimeForm((prev) => ({ ...prev, hours: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-                <div className="flex items-end pb-2">
-                  <label className="flex items-center gap-2 text-sm">
-                    <Switch
-                      checked={timeForm.billable}
-                      onCheckedChange={(checked) =>
-                        setTimeForm((prev) => ({ ...prev, billable: checked }))
-                      }
-                    />
-                    Billable
-                  </label>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Notes</Label>
-                <textarea
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1"
-                  value={timeForm.notes}
-                  onChange={(e) =>
-                    setTimeForm((prev) => ({ ...prev, notes: e.target.value }))
-                  }
-                />
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Category</Label>
-                  <select
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-[color,box-shadow] focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-1"
-                    value={expenseForm.category}
-                    onChange={(e) =>
-                      setExpenseForm((prev) => ({
-                        ...prev,
-                        category: e.target.value as ExpenseCategory,
-                      }))
-                    }
-                  >
-                    {expenseCategories.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Amount</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={expenseForm.amount}
-                    onChange={(e) =>
-                      setExpenseForm((prev) => ({ ...prev, amount: e.target.value }))
-                    }
-                    required
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
-                <div className="space-y-2">
-                  <Label>Vendor</Label>
-                  <Input
-                    value={expenseForm.vendor}
-                    onChange={(e) =>
-                      setExpenseForm((prev) => ({ ...prev, vendor: e.target.value }))
-                    }
-                  />
-                </div>
-                <div className="flex items-end pb-2">
-                  <label className="flex items-center gap-2 text-sm">
-                    <Switch
-                      checked={expenseForm.reimbursable}
-                      onCheckedChange={(checked) =>
-                        setExpenseForm((prev) => ({ ...prev, reimbursable: checked }))
-                      }
-                    />
-                    Reimbursable
-                  </label>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Notes</Label>
-                <textarea
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1"
-                  value={expenseForm.notes}
-                  onChange={(e) =>
-                    setExpenseForm((prev) => ({ ...prev, notes: e.target.value }))
-                  }
-                />
-              </div>
-            </>
-          )}
-        </form>
-      </DialogTemplate>
 
       <SuccessDialog
         open={!!successMessage}

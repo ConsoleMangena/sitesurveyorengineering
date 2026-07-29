@@ -22,7 +22,7 @@ import { Input } from "../../components/ui/input.tsx";
 import { Label } from "../../components/ui/label.tsx";
 import { Badge, type BadgeProps } from "../../components/ui/badge.tsx";
 import { Card, CardContent } from "../../components/ui/card.tsx";
-import { DialogTemplate } from "../../components/templates/DialogTemplate.tsx";
+import { PageForm } from "../../components/templates/PageForm.tsx";
 import { SuccessDialog } from "../../components/SuccessDialog.tsx";
 import { Alert, AlertDescription } from "../../components/ui/alert.tsx";
 import { Tabs, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx";
@@ -165,6 +165,111 @@ export default function ContactsPage({ workspaceId }: ContactsPageProps) {
       <div className="hub-body">
         <PageLoader />
       </div>
+    );
+  }
+
+  if (showCreateModal) {
+    return (
+      <PageForm
+        title="Add Contact"
+        description="Create a new contact or client record."
+        onBack={() => setShowCreateModal(false)}
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" form="contact-create-form" disabled={saving}>
+              {saving ? "Saving..." : "Add Contact"}
+            </Button>
+          </>
+        }
+      >
+        <form id="contact-create-form" onSubmit={handleCreate}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2 space-y-2">
+              <Label htmlFor="contact-name">Full name *</Label>
+              <Input
+                id="contact-name"
+                placeholder="Full name"
+                value={createForm.full_name}
+                onChange={(e) =>
+                  setCreateForm((f) => ({ ...f, full_name: e.target.value }))
+                }
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="contact-org">Organization</Label>
+              <Select
+                value={createForm.organization_id || "__none__"}
+                onValueChange={(val) =>
+                  setCreateForm((f) => ({ ...f, organization_id: val === "__none__" ? "" : val }))
+                }
+              >
+                <SelectTrigger id="contact-org"><SelectValue placeholder="No organization" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No organization</SelectItem>
+                  {organizations.map((org) => <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="contact-title">Job title</Label>
+              <Input
+                id="contact-title"
+                placeholder="Job title"
+                value={createForm.title}
+                onChange={(e) =>
+                  setCreateForm((f) => ({ ...f, title: e.target.value }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="contact-type">Contact type</Label>
+              <Select
+                value={createForm.contact_type}
+                onValueChange={(val) =>
+                  setCreateForm((f) => ({ ...f, contact_type: val }))
+                }
+              >
+                <SelectTrigger id="contact-type"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {CONTACT_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="contact-email">Email</Label>
+              <Input
+                id="contact-email"
+                type="email"
+                placeholder="Email"
+                value={createForm.email}
+                onChange={(e) =>
+                  setCreateForm((f) => ({ ...f, email: e.target.value }))
+                }
+              />
+            </div>
+            <div className="sm:col-span-2 space-y-2">
+              <Label htmlFor="contact-phone">Phone</Label>
+              <Input
+                id="contact-phone"
+                placeholder="Phone"
+                value={createForm.phone}
+                onChange={(e) =>
+                  setCreateForm((f) => ({ ...f, phone: e.target.value }))
+                }
+              />
+            </div>
+          </div>
+          {createError && (
+            <Alert variant="destructive" className="mt-4">
+              <AlertDescription>{createError}</AlertDescription>
+            </Alert>
+          )}
+        </form>
+      </PageForm>
     );
   }
 
@@ -327,109 +432,6 @@ export default function ContactsPage({ workspaceId }: ContactsPageProps) {
           })}
         </div>
       )}
-
-      <DialogTemplate
-        open={showCreateModal}
-        onOpenChange={setShowCreateModal}
-        title="Add Contact"
-        description="Create a new contact or client record."
-        size="lg"
-        footer={
-          <>
-            <Button type="button" variant="outline" onClick={() => setShowCreateModal(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" form="contact-create-form" disabled={saving}>
-              {saving ? "Saving..." : "Add Contact"}
-            </Button>
-          </>
-        }
-      >
-        <form id="contact-create-form" onSubmit={handleCreate}>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2 space-y-2">
-              <Label htmlFor="contact-name">Full name *</Label>
-              <Input
-                id="contact-name"
-                placeholder="Full name"
-                value={createForm.full_name}
-                onChange={(e) =>
-                  setCreateForm((f) => ({ ...f, full_name: e.target.value }))
-                }
-                autoFocus
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="contact-org">Organization</Label>
-              <Select
-                value={createForm.organization_id || "__none__"}
-                onValueChange={(val) =>
-                  setCreateForm((f) => ({ ...f, organization_id: val === "__none__" ? "" : val }))
-                }
-              >
-                <SelectTrigger id="contact-org"><SelectValue placeholder="No organization" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">No organization</SelectItem>
-                  {organizations.map((org) => <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="contact-title">Job title</Label>
-              <Input
-                id="contact-title"
-                placeholder="Job title"
-                value={createForm.title}
-                onChange={(e) =>
-                  setCreateForm((f) => ({ ...f, title: e.target.value }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="contact-type">Contact type</Label>
-              <Select
-                value={createForm.contact_type}
-                onValueChange={(val) =>
-                  setCreateForm((f) => ({ ...f, contact_type: val }))
-                }
-              >
-                <SelectTrigger id="contact-type"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {CONTACT_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="contact-email">Email</Label>
-              <Input
-                id="contact-email"
-                type="email"
-                placeholder="Email"
-                value={createForm.email}
-                onChange={(e) =>
-                  setCreateForm((f) => ({ ...f, email: e.target.value }))
-                }
-              />
-            </div>
-            <div className="sm:col-span-2 space-y-2">
-              <Label htmlFor="contact-phone">Phone</Label>
-              <Input
-                id="contact-phone"
-                placeholder="Phone"
-                value={createForm.phone}
-                onChange={(e) =>
-                  setCreateForm((f) => ({ ...f, phone: e.target.value }))
-                }
-              />
-            </div>
-          </div>
-          {createError && (
-            <Alert variant="destructive" className="mt-4">
-              <AlertDescription>{createError}</AlertDescription>
-            </Alert>
-          )}
-        </form>
-      </DialogTemplate>
 
       <SuccessDialog
         open={!!successMessage}

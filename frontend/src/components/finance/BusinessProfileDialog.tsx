@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
+import { PageForm } from "@/components/templates/PageForm.tsx";
 import { Textarea } from "@/components/ui/textarea";
 import type { BusinessProfile } from "@/lib/businessProfile.ts";
 
@@ -22,15 +22,15 @@ export function BusinessProfileDialog({
 }: BusinessProfileDialogProps) {
   const [draft, setDraft] = useState<BusinessProfile>(profile);
 
+  if (!open) return null;
+
   const handleSubmit = () => {
     onSave(draft);
     onOpenChange(false);
   };
 
   return (
-    <DialogTemplate
-      open={open}
-      onOpenChange={onOpenChange}
+    <PageForm
       title={
         <span className="flex items-center gap-2">
           <Building2 size={18} />
@@ -38,7 +38,7 @@ export function BusinessProfileDialog({
         </span>
       }
       description="These details appear on quotes, invoices and receipts."
-      size="lg"
+      onBack={() => onOpenChange(false)}
       footer={
         <>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -110,6 +110,6 @@ export function BusinessProfileDialog({
           </div>
         </div>
       </div>
-    </DialogTemplate>
+    </PageForm>
   );
 }

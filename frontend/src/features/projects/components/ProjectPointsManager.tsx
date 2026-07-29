@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import {
   Upload,
   Download,
@@ -36,11 +36,6 @@ import { downloadCsv } from "../tools/calculators/calcUtils.ts";
 
 interface ProjectPointsManagerProps {
   projectId?: string;
-}
-
-function formatNum(v: number | null | undefined): string {
-  if (v == null || !Number.isFinite(v)) return "";
-  return v.toFixed(3);
 }
 
 const FIELD_OPTIONS: { value: keyof CsvColumnMapping | "ignore"; label: string }[] = [
@@ -367,84 +362,131 @@ function CsvImportDialog({ open, onOpenChange, onImport, sections }: CsvImportDi
 interface CoordinateRowProps {
   point: ProjectPoint;
   sections: CoordinateSection[];
-  draft: Partial<ProjectPoint> | undefined;
   selected: boolean;
-  onSelect: (checked: boolean) => void;
-  onDraftChange: (patch: Partial<ProjectPoint>) => void;
-  onCommit: () => void;
-  onRemove: () => void;
-  onSectionChange: (sectionId: string | null) => void;
+  onToggleSelect: (id: string, checked: boolean) => void;
+  onUpdate: (id: string, patch: Partial<ProjectPoint>) => void;
+  onRemove: (id: string) => void;
+  onSetSection: (id: string, sectionId: string | null) => void;
 }
 
-function CoordinateRow({
+const CoordinateRow = memo(function CoordinateRow({
   point,
   sections,
-  draft,
   selected,
-  onSelect,
-  onDraftChange,
-  onCommit,
+  onToggleSelect,
+  onUpdate,
   onRemove,
-  onSectionChange,
+  onSetSection,
 }: CoordinateRowProps) {
+  const [pointNo, setPointNo] = useState(point.pointNo);
+  const [e, setE] = useState(String(point.e));
+  const [n, setN] = useState(String(point.n));
+  const [z, setZ] = useState(point.z == null ? "" : String(point.z));
+  const [code, setCode] = useState(point.code ?? "");
+
+  // Sync local edits when the point is updated from outside (e.g. import).
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setPointNo(point.pointNo);
+    setE(String(point.e));
+    setN(String(point.n));
+    setZ(point.z == null ? "" : String(point.z));
+    setCode(point.code ?? "");
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [point]);
+
+  const commit = () => {
+    const patch: Partial<ProjectPoint> = {};
+    if (pointNo !== point.pointNo) patch.pointNo = pointNo;
+
+    const eVal = parseFloat(e);
+    if (Number.isFinite(eVal) && eVal !== point.e) patch.e = eVal;
+
+    const nVal = parseFloat(n);
+    if (Number.isFinite(nVal) && nVal !== point.n) patch.n = nVal;
+
+    if (z.trim() === "") {
+      if (point.z != null) patch.z = null;
+    } else {
+      const zVal = parseFloat(z);
+      if (Number.isFinite(zVal) && zVal !== point.z) patch.z = zVal;
+    }
+
+    if (code !== (point.code ?? "")) patch.code = code;
+    if (Object.keys(patch).length > 0) onUpdate(point.id, patch);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      (e.target as HTMLInputElement).blur();
+      commit();
+    }
+  };
+
   return (
-    <tr className="border-b last:border-b-0">
+    <tr
+      className="border-b last:border-b-0"
+      style={{ contentVisibility: "auto", containIntrinsicSize: "0 40px" }}
+    >
       <td className="px-2 py-1 align-middle">
         <Checkbox
           checked={selected}
-          onCheckedChange={onSelect}
+          onCheckedChange={(checked) => onToggleSelect(point.id, checked === true)}
           aria-label={`Select coordinate ${point.pointNo}`}
         />
       </td>
       <td className="px-2 py-1">
         <Input
           className="h-8 w-full min-w-0"
-          value={draft?.pointNo ?? point.pointNo}
-          onChange={(e) => onDraftChange({ pointNo: e.target.value })}
-          onBlur={onCommit}
+          value={pointNo}
+          onChange={(e) => setPointNo(e.target.value)}
+          onBlur={commit}
+          onKeyDown={handleKeyDown}
         />
       </td>
       <td className="px-2 py-1">
         <Input
           className="h-8 w-full min-w-0"
-          value={draft?.e != null ? String(draft.e) : formatNum(point.e)}
-          onChange={(e) => onDraftChange({ e: parseFloat(e.target.value) })}
-          onBlur={onCommit}
+          value={e}
+          onChange={(ev) => setE(ev.target.value)}
+          onBlur={commit}
+          onKeyDown={handleKeyDown}
         />
       </td>
       <td className="px-2 py-1">
         <Input
           className="h-8 w-full min-w-0"
-          value={draft?.n != null ? String(draft.n) : formatNum(point.n)}
-          onChange={(e) => onDraftChange({ n: parseFloat(e.target.value) })}
-          onBlur={onCommit}
+          value={n}
+          onChange={(ev) => setN(ev.target.value)}
+          onBlur={commit}
+          onKeyDown={handleKeyDown}
         />
       </td>
       <td className="px-2 py-1">
         <Input
           className="h-8 w-full min-w-0"
-          value={draft?.z != null ? (draft.z === null ? "" : String(draft.z)) : formatNum(point.z)}
+          value={z}
           placeholder="RL"
-          onChange={(e) => {
-            const raw = e.target.value;
-            onDraftChange({ z: raw.trim() === "" ? null : parseFloat(raw) });
-          }}
-          onBlur={onCommit}
+          onChange={(ev) => setZ(ev.target.value)}
+          onBlur={commit}
+          onKeyDown={handleKeyDown}
         />
       </td>
       <td className="px-2 py-1">
         <Input
           className="h-8 w-full min-w-0"
-          value={draft?.code ?? point.code}
+          value={code}
           placeholder="Code"
-          onChange={(e) => onDraftChange({ code: e.target.value })}
-          onBlur={onCommit}
+          onChange={(ev) => setCode(ev.target.value)}
+          onBlur={commit}
+          onKeyDown={handleKeyDown}
         />
       </td>
       <td className="px-2 py-1">
         <Select
           value={point.sectionId ?? "__none__"}
-          onValueChange={(v) => onSectionChange(v === "__none__" ? null : v)}
+          onValueChange={(v) => onSetSection(point.id, v === "__none__" ? null : v)}
         >
           <SelectTrigger className="h-8 text-xs w-full min-w-0 truncate">
             <SelectValue placeholder="No section" />
@@ -464,7 +506,7 @@ function CoordinateRow({
           variant="ghost"
           size="icon"
           className="h-8 w-8 text-destructive"
-          onClick={onRemove}
+          onClick={() => onRemove(point.id)}
           aria-label={`Delete coordinate ${point.pointNo}`}
         >
           <Trash2 size={15} />
@@ -472,7 +514,7 @@ function CoordinateRow({
       </td>
     </tr>
   );
-}
+});
 
 export function ProjectPointsManager({ projectId }: ProjectPointsManagerProps) {
   const {
@@ -487,7 +529,6 @@ export function ProjectPointsManager({ projectId }: ProjectPointsManagerProps) {
     setPointSection,
   } = useProjectPoints(projectId);
   const { add: addOutput } = useProjectOutputs(projectId);
-  const [drafts, setDrafts] = useState<Record<string, Partial<ProjectPoint>>>({});
   const [importError, setImportError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -519,21 +560,6 @@ export function ProjectPointsManager({ projectId }: ProjectPointsManagerProps) {
     }
     return { sections: sections.map((s) => ({ ...s, points: map.get(s.id) ?? [] })), ungrouped: map.get(null) ?? [] };
   }, [sorted, sections]);
-
-  const commitDraft = (id: string) => {
-    const d = drafts[id];
-    if (!d || !projectId) return;
-    update(id, d);
-    setDrafts((prev) => {
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
-  };
-
-  const setDraft = (id: string, patch: Partial<ProjectPoint>) => {
-    setDrafts((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
-  };
 
   const handleImport = (params: {
     text: string;
@@ -617,16 +643,16 @@ export function ProjectPointsManager({ projectId }: ProjectPointsManagerProps) {
     setCollapsedSections(next);
   };
 
-  const toggleSelect = (id: string, checked: boolean) => {
+  const toggleSelect = useCallback((id: string, checked: boolean) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (checked) next.add(id);
       else next.delete(id);
       return next;
     });
-  };
+  }, []);
 
-  const toggleSelectAll = (ids: string[], checked: boolean) => {
+  const toggleSelectAll = useCallback((ids: string[], checked: boolean) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       for (const id of ids) {
@@ -635,7 +661,7 @@ export function ProjectPointsManager({ projectId }: ProjectPointsManagerProps) {
       }
       return next;
     });
-  };
+  }, []);
 
   const clearSelection = () => setSelectedIds(new Set());
 
@@ -813,13 +839,11 @@ export function ProjectPointsManager({ projectId }: ProjectPointsManagerProps) {
                       key={p.id}
                       point={p}
                       sections={sections}
-                      draft={drafts[p.id]}
                       selected={selectedIds.has(p.id)}
-                      onSelect={(checked) => toggleSelect(p.id, checked)}
-                      onDraftChange={(patch) => setDraft(p.id, patch)}
-                      onCommit={() => commitDraft(p.id)}
-                      onRemove={() => remove(p.id)}
-                      onSectionChange={(sectionId) => setPointSection(p.id, sectionId)}
+                      onToggleSelect={toggleSelect}
+                      onUpdate={update}
+                      onRemove={remove}
+                      onSetSection={setPointSection}
                     />
                   ))}
                 </tbody>
@@ -918,13 +942,11 @@ export function ProjectPointsManager({ projectId }: ProjectPointsManagerProps) {
                           key={p.id}
                           point={p}
                           sections={sections}
-                          draft={drafts[p.id]}
                           selected={selectedIds.has(p.id)}
-                          onSelect={(checked) => toggleSelect(p.id, checked)}
-                          onDraftChange={(patch) => setDraft(p.id, patch)}
-                          onCommit={() => commitDraft(p.id)}
-                          onRemove={() => remove(p.id)}
-                          onSectionChange={(sectionId) => setPointSection(p.id, sectionId)}
+                          onToggleSelect={toggleSelect}
+                          onUpdate={update}
+                          onRemove={remove}
+                          onSetSection={setPointSection}
                         />
                       ))}
                     </tbody>

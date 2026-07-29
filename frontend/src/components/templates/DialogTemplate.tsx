@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
-export type DialogSize = "sm" | "md" | "lg" | "xl" | "2xl" | "full";
+export type DialogSize = "sm" | "md" | "lg" | "xl" | "2xl" | "full" | "screen";
 
 interface DialogTemplateProps {
   open: boolean;
@@ -35,6 +35,7 @@ const sizeClasses: Record<DialogSize, string> = {
   xl: "max-w-xl",
   "2xl": "max-w-2xl",
   full: "max-w-[calc(100vw-2rem)] sm:max-w-4xl",
+  screen: "!w-[calc(100vw-2rem)] !max-w-none h-[calc(100dvh-2rem)] !max-h-none flex flex-col !overflow-hidden",
 };
 
 export function DialogTemplate({
@@ -53,6 +54,7 @@ export function DialogTemplate({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        disableAnimation={size === "screen"}
         className={cn(
           "w-[calc(100vw-1.5rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto p-0 sm:w-auto",
           sizeClasses[size],
@@ -79,7 +81,15 @@ export function DialogTemplate({
           </div>
         </DialogHeader>
 
-        <div className={cn("px-5 py-4", contentClassName)}>{children}</div>
+        <div
+          className={cn(
+            "px-5 py-4",
+            size === "screen" && "flex-1 overflow-y-auto",
+            contentClassName
+          )}
+        >
+          {children}
+        </div>
 
         {footer && (
           <DialogFooter

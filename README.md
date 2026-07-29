@@ -215,7 +215,7 @@ supabase link --project-ref YOUR_PROJECT_REF
 supabase db push
 ```
 
-SQL schema is in `backend/supabase/sql/`.
+SQL schema is in `backend/sql/`.
 
 ### WASM Build (browser geometry engine)
 

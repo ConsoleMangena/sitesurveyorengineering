@@ -20,6 +20,9 @@ import {
   User,
   FileText,
   FolderOpen,
+  CloudOff,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react'
 
 import '../../styles/project-hub.css'
@@ -49,6 +52,7 @@ import { DashboardShell, DashboardHeader } from '@/components/dashboard/Dashboar
 import { DashboardCard } from '@/components/dashboard/DashboardCard.tsx'
 import { KpiCard } from '@/components/dashboard/KpiCard.tsx'
 import { DialogTemplate } from '@/components/templates/DialogTemplate.tsx'
+import { PageForm } from '@/components/templates/PageForm.tsx'
 
 import {
   createProject,
@@ -79,6 +83,7 @@ import { ProjectOutputsManager } from '../../features/projects/components/Projec
 import { ProjectFilesManager } from '../../features/projects/components/ProjectFilesManager.tsx'
 import { useProjectPoints } from '../../features/projects/tools/calculators/projectPoints.ts'
 import { useAsyncAction } from '../../hooks/useAsyncAction.ts'
+import { useOfflineSyncStatus } from '../../lib/hooks/useOfflineSyncStatus.ts'
 import {
   readCachedActivities,
   writeCachedActivities,
@@ -212,6 +217,9 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
 
   const { projects: projectRows, refresh: refreshProjectRows } = useProjects(workspaceId)
 
+  const syncStatus = useOfflineSyncStatus()
+  const prevSyncStatusRef = useRef(syncStatus.status)
+
   const [editName, setEditName] = useState('')
   const [editClient, setEditClient] = useState('')
   const [editOrgId, setEditOrgId] = useState('')
@@ -324,9 +332,11 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
     return () => { cancelled = true }
   }, [projectRows])
 
-  const fetchProjects = useCallback(async () => {
+  const fetchProjects = useCallback(async (opts?: { silent?: boolean }) => {
     try {
-      setLoading(true)
+      if (!opts?.silent) {
+        setLoading(true)
+      }
       setError(null)
       await refreshProjectRows()
       const orgs = await listOrganizations(workspaceId)
@@ -337,11 +347,34 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load projects.')
     } finally {
-      setLoading(false)
+      if (!opts?.silent) {
+        setLoading(false)
+      }
     }
   }, [workspaceId, refreshProjectRows])
 
   useAsyncAction(fetchProjects, [fetchProjects])
+
+  // Re-fetch the project list when the offline-first sync completes (or errors)
+  // so the UI reflects server rows without requiring a manual reload.
+  useEffect(() => {
+    if (
+      prevSyncStatusRef.current !== syncStatus.status &&
+      (syncStatus.status === 'synced' || syncStatus.status === 'error')
+    ) {
+      void fetchProjects({ silent: true })
+    }
+    prevSyncStatusRef.current = syncStatus.status
+  }, [syncStatus.status, fetchProjects])
+
+  // Periodic refresh while the page is visible, in case sync ran before this
+  // component mounted or the status stream was missed.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!document.hidden) void fetchProjects({ silent: true })
+    }, 15000)
+    return () => clearInterval(id)
+  }, [fetchProjects])
 
   useEffect(() => {
     localStorage.setItem(RECENT_TOOLS_KEY, JSON.stringify(recentToolIds))
@@ -840,6 +873,64 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
     )
   }
 
+  if (showNewModal) {
+    return (
+      <PageForm
+        title="Initialize Project"
+        description="Create a new project environment."
+        onBack={() => setShowNewModal(false)}
+        footer={
+          <Button type="submit" form="new-project-form" className="w-full sm:w-auto" disabled={saving}>{saving ? 'Creating...' : 'Launch Environment'}</Button>
+        }
+      >
+        <form id="new-project-form" className="space-y-4" onSubmit={handleCreateProject}>
+          <div className="space-y-1.5">
+            <Label htmlFor="new-name">Project Name *</Label>
+            <Input id="new-name" value={newName} onChange={e => setNewName(e.target.value)} required autoFocus />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Client (Organization)</Label>
+            <Select value={newOrgId} onValueChange={(val) => { setNewOrgId(val); if (val) setNewOrgName(''); }}>
+              <SelectTrigger><SelectValue placeholder="Select or create new..." /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Create new...</SelectItem>
+                {organizations.map(org => <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {!newOrgId && (
+              <Input id="new-org-name" name="new-org-name" placeholder="Or type a new organization name..." value={newOrgName} onChange={e => setNewOrgName(e.target.value)} className="mt-2" />
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="new-desc">Description</Label>
+            <textarea id="new-desc" value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Project notes, scope, and deliverables..." rows={3} className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[84px] resize-y" />
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="new-phase">Phase</Label>
+              <Input id="new-phase" value={newPhase} onChange={e => setNewPhase(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Datum</Label>
+              <Select value={newDatum} onValueChange={setNewDatum}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="WGS84 / UTM 36S">WGS84 / UTM 36S</SelectItem>
+                  <SelectItem value="WGS84 / UTM 35S">WGS84 / UTM 35S</SelectItem>
+                  <SelectItem value="Arc 1950">Arc 1950</SelectItem>
+                  <SelectItem value="custom">Custom EPSG...</SelectItem>
+                </SelectContent>
+              </Select>
+              {newDatum === 'custom' && (
+                <Input id="custom-datum" name="custom-datum" value={customDatum} onChange={e => setCustomDatum(e.target.value)} placeholder="e.g. EPSG:4326" className="mt-2" autoFocus />
+              )}
+            </div>
+          </div>
+        </form>
+      </PageForm>
+    );
+  }
+
   return (
       <DashboardShell className={`hub-body project-hub-body ${activeProject ? 'project-hub-body-fullscreen p-0 gap-0' : ''}`}>
       {error && (
@@ -852,6 +943,41 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
         <div className={`flex items-center justify-between rounded-lg px-4 py-3 text-sm ${notice.type === 'success' ? 'border border-emerald-200 bg-emerald-50 text-emerald-800' : 'border border-blue-200 bg-blue-50 text-blue-800'}`} role="status" aria-live="polite">
           <span>{notice.message}</span>
           <button type="button" onClick={() => setNotice(null)} className="text-lg leading-none" aria-label="Dismiss notice">×</button>
+        </div>
+      )}
+
+      {syncStatus.status !== 'idle' && syncStatus.status !== 'synced' && (
+        <div
+          className={`flex items-center justify-between rounded-lg px-4 py-2 text-sm ${
+            syncStatus.status === 'error'
+              ? 'border border-amber-200 bg-amber-50 text-amber-800'
+              : 'border border-blue-200 bg-blue-50 text-blue-800'
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          <span className="flex items-center gap-2">
+            {syncStatus.status === 'syncing' ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : syncStatus.status === 'error' &&
+              (syncStatus.lastError?.toLowerCase().includes('offline') ? (
+                <CloudOff size={16} />
+              ) : (
+                <RefreshCw size={16} />
+              ))}
+            {syncStatus.status === 'syncing'
+              ? 'Syncing projects…'
+              : syncStatus.status === 'error'
+                ? syncStatus.lastError?.toLowerCase().includes('offline')
+                  ? 'Working offline — sync paused.'
+                  : `Sync error: ${syncStatus.lastError ?? 'unknown'}`
+                : null}
+          </span>
+          {syncStatus.status === 'error' && !syncStatus.lastError?.toLowerCase().includes('offline') && (
+            <Button variant="ghost" size="sm" onClick={() => void fetchProjects()}>
+              Retry
+            </Button>
+          )}
         </div>
       )}
 
@@ -1083,6 +1209,8 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
               <div className="relative w-full sm:w-64">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <Input
+                  id="project-search"
+                  name="project-search"
                   placeholder="Search reference or client..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -1230,63 +1358,6 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
         </form>
       </DialogTemplate>
 
-      {/* New Project */}
-      <DialogTemplate
-        open={showNewModal}
-        onOpenChange={(open) => { if (!open) setShowNewModal(false); }}
-        title="Initialize Project"
-        description="Create a new project environment."
-        size="lg"
-        footer={
-          <Button type="submit" form="new-project-form" className="w-full sm:w-auto" disabled={saving}>{saving ? 'Creating...' : 'Launch Environment'}</Button>
-        }
-      >
-        <form id="new-project-form" className="space-y-4" onSubmit={handleCreateProject}>
-          <div className="space-y-1.5">
-            <Label htmlFor="new-name">Project Name *</Label>
-            <Input id="new-name" value={newName} onChange={e => setNewName(e.target.value)} required autoFocus />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Client (Organization)</Label>
-            <Select value={newOrgId} onValueChange={(val) => { setNewOrgId(val); if (val) setNewOrgName(''); }}>
-              <SelectTrigger><SelectValue placeholder="Select or create new..." /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Create new...</SelectItem>
-                {organizations.map(org => <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            {!newOrgId && (
-              <Input placeholder="Or type a new organization name..." value={newOrgName} onChange={e => setNewOrgName(e.target.value)} className="mt-2" />
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="new-desc">Description</Label>
-            <textarea id="new-desc" value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Project notes, scope, and deliverables..." rows={3} className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 min-h-[84px] resize-y" />
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="new-phase">Phase</Label>
-              <Input id="new-phase" value={newPhase} onChange={e => setNewPhase(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Datum</Label>
-              <Select value={newDatum} onValueChange={setNewDatum}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="WGS84 / UTM 36S">WGS84 / UTM 36S</SelectItem>
-                  <SelectItem value="WGS84 / UTM 35S">WGS84 / UTM 35S</SelectItem>
-                  <SelectItem value="Arc 1950">Arc 1950</SelectItem>
-                  <SelectItem value="custom">Custom EPSG...</SelectItem>
-                </SelectContent>
-              </Select>
-              {newDatum === 'custom' && (
-                <Input value={customDatum} onChange={e => setCustomDatum(e.target.value)} placeholder="e.g. EPSG:4326" className="mt-2" autoFocus />
-              )}
-            </div>
-          </div>
-        </form>
-      </DialogTemplate>
-
       {/* Project Details */}
       <DialogTemplate
         open={selectedProject !== null}
@@ -1383,7 +1454,7 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
               <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-3">
                 <p className="text-sm font-semibold text-destructive">Are you sure you want to PERMANENTLY DELETE this project?</p>
                 <p className="text-sm text-destructive">This will destroy all related field data. Type <strong>{selectedProject.name}</strong> to confirm.</p>
-                <Input value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} placeholder="Type project name to confirm..." autoFocus />
+                <Input id="delete-project-confirm" name="delete-project-confirm" value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} placeholder="Type project name to confirm..." autoFocus />
                 <div className="flex flex-col-reverse sm:flex-row justify-end gap-2">
                   <Button variant="outline" size="sm" onClick={() => { setShowPermanentDeleteConfirm(false); setDeleteConfirmText(''); }}>Cancel</Button>
                   <Button size="sm" variant="destructive" disabled={deleteConfirmText !== selectedProject.name} onClick={() => handlePermanentDeleteProject(selectedProject.dbId)}>Delete Project Permanently</Button>
@@ -1393,7 +1464,7 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
               <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 space-y-3">
                 <p className="text-sm font-semibold text-destructive">Are you sure you want to archive this project?</p>
                 <p className="text-sm text-destructive">Type <strong>{selectedProject.name}</strong> to confirm.</p>
-                <Input value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} placeholder="Type project name to confirm..." autoFocus />
+                <Input id="archive-project-confirm" name="archive-project-confirm" value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} placeholder="Type project name to confirm..." autoFocus />
                 <div className="flex flex-col-reverse sm:flex-row justify-end gap-2">
                   <Button variant="outline" size="sm" onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(''); }}>Cancel</Button>
                   <Button size="sm" variant="destructive" disabled={deleteConfirmText !== selectedProject.name} onClick={() => handleArchiveProject(selectedProject.dbId)}>Archive Project</Button>
@@ -1506,7 +1577,7 @@ function ToolCategoryView({
         <h3 className="text-base font-semibold">{query ? 'Search results' : activeCat}</h3>
         <div className="relative w-full sm:w-64">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input placeholder="Search tools..." value={toolSearchQuery} onChange={(e) => setToolSearchQuery(e.target.value)} aria-label="Search tools" className="h-9 pl-8 pr-7 text-sm" />
+          <Input id="tool-search" name="tool-search" placeholder="Search tools..." value={toolSearchQuery} onChange={(e) => setToolSearchQuery(e.target.value)} aria-label="Search tools" className="h-9 pl-8 pr-7 text-sm" />
           {toolSearchQuery && (
             <button type="button" onClick={() => setToolSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label="Clear search">
               <X size={14} />

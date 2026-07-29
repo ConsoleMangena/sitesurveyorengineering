@@ -17,6 +17,13 @@ if (typeof globalAny.global === 'undefined') {
 }
 import App from './App.tsx'
 import { registerSW } from 'virtual:pwa-register'
+import { clearSiteData } from './lib/clearSiteData.ts'
+
+declare global {
+  interface Window {
+    clearSiteSurveyorCache?: () => Promise<void>
+  }
+}
 
 // Register the generated service worker in production builds so the app shell
 // (HTML, JS, CSS, assets) is cached for offline use.
@@ -32,6 +39,11 @@ if (import.meta.env.PROD) {
     },
   })
 }
+
+// Expose a console helper for support / troubleshooting: running
+// `await window.clearSiteSurveyorCache()` wipes PWA caches, IndexedDB,
+// localStorage and service workers, then reloads to the login screen.
+window.clearSiteSurveyorCache = () => clearSiteData()
 
 // Tauri mobile builds run edge-to-edge under the system status/navigation bars.
 // Add a class so CSS can apply safe-area fallbacks on devices that do not

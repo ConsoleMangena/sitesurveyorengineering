@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DialogTemplate } from "@/components/templates/DialogTemplate.tsx";
+import { PageForm } from "@/components/templates/PageForm.tsx";
 import {
   Select,
   SelectContent,
@@ -397,6 +397,130 @@ export default function BillingPage({
       return new Date(b.paid_on).getTime() - new Date(a.paid_on).getTime();
     });
 
+  if (isRecordPaymentOpen) {
+    return (
+      <PageForm
+        title="Record Payment"
+        description="Record an offline payment or pay on-chain with Solana."
+        onBack={() => setIsRecordPaymentOpen(false)}
+        footer={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => setIsRecordPaymentOpen(false)}
+              disabled={recordingPayment || solanaBusy}
+            >
+              Cancel
+            </Button>
+            <Button onClick={submitRecordPayment} disabled={recordingPayment || solanaBusy}>
+              {recordingPayment && <Loader2 size={14} className="mr-2 animate-spin" />}
+              {recordingPayment ? "Saving..." : "Save Payment"}
+            </Button>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2 space-y-1.5">
+            <Label>Invoice</Label>
+            <Select value={paymentInvoiceId} onValueChange={setPaymentInvoiceId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select invoice" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Select invoice</SelectItem>
+                {invoices.map((inv) => (
+                  <SelectItem key={inv.id} value={inv.id}>
+                    {inv.invoice_number} - {formatCurrency(inv.total)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="payment-date">Date</Label>
+            <Input
+              id="payment-date"
+              type="date"
+              value={paymentDate}
+              onChange={(e) => setPaymentDate(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="payment-amount">Amount</Label>
+            <Input
+              id="payment-amount"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="Amount"
+              value={paymentAmount}
+              onChange={(e) => setPaymentAmount(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="payment-method">Method</Label>
+            <Input
+              id="payment-method"
+              placeholder="Payment method (optional)"
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="payment-reference">Reference</Label>
+            <Input
+              id="payment-reference"
+              placeholder="Reference (optional)"
+              value={paymentReference}
+              onChange={(e) => setPaymentReference(e.target.value)}
+            />
+          </div>
+          <div className="sm:col-span-2 space-y-1.5">
+            <Label htmlFor="payment-notes">Notes</Label>
+            <Input
+              id="payment-notes"
+              placeholder="Notes (optional)"
+              value={paymentNotes}
+              onChange={(e) => setPaymentNotes(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {recordPaymentError && (
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {recordPaymentError}
+          </div>
+        )}
+
+        {solanaConfigured && (
+          <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-2"
+              onClick={payWithSolana}
+              disabled={solanaBusy || recordingPayment || !selectedInvoice || !embeddedWallet.unlocked}
+              aria-busy={solanaBusy}
+            >
+              {solanaBusy && <Loader2 size={16} className="animate-spin" />}
+              <SolanaLogo size={18} />
+              {solanaButtonLabel}
+            </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              {!embeddedWallet.unlocked
+                ? "Unlock your embedded wallet to pay invoices on-chain."
+                : selectedInvoice
+                  ? `Pays ${formatCurrency(selectedInvoice.total)} in USDC to the workspace treasury. Verified on-chain before recording.${
+                      solanaFeeEstimate ? ` Estimated network fee: ${solanaFeeEstimate}.` : ""
+                    }`
+                  : "Select an invoice to pay it directly with a Solana wallet."}
+            </p>
+          </div>
+        )}
+      </PageForm>
+    );
+  }
+
   return (
     <DashboardShell className="hub-body billing-page finance-page">
       <DashboardHeader
@@ -670,127 +794,6 @@ export default function BillingPage({
         </DashboardCard>
       </Tabs>
 
-      <DialogTemplate
-        open={isRecordPaymentOpen}
-        onOpenChange={(open) => !open && setIsRecordPaymentOpen(false)}
-        title="Record Payment"
-        description="Record an offline payment or pay on-chain with Solana."
-        size="lg"
-        footer={
-          <>
-            <Button
-              variant="outline"
-              onClick={() => setIsRecordPaymentOpen(false)}
-              disabled={recordingPayment || solanaBusy}
-            >
-              Cancel
-            </Button>
-            <Button onClick={submitRecordPayment} disabled={recordingPayment || solanaBusy}>
-              {recordingPayment && <Loader2 size={14} className="animate-spin mr-2" />}
-              {recordingPayment ? "Saving..." : "Save Payment"}
-            </Button>
-          </>
-        }
-      >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="sm:col-span-2 space-y-1.5">
-            <Label>Invoice</Label>
-            <Select value={paymentInvoiceId} onValueChange={setPaymentInvoiceId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select invoice" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Select invoice</SelectItem>
-                {invoices.map((inv) => (
-                  <SelectItem key={inv.id} value={inv.id}>
-                    {inv.invoice_number} - {formatCurrency(inv.total)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="payment-date">Date</Label>
-            <Input
-              id="payment-date"
-              type="date"
-              value={paymentDate}
-              onChange={(e) => setPaymentDate(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="payment-amount">Amount</Label>
-            <Input
-              id="payment-amount"
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder="Amount"
-              value={paymentAmount}
-              onChange={(e) => setPaymentAmount(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="payment-method">Method</Label>
-            <Input
-              id="payment-method"
-              placeholder="Payment method (optional)"
-              value={paymentMethod}
-              onChange={(e) => setPaymentMethod(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="payment-reference">Reference</Label>
-            <Input
-              id="payment-reference"
-              placeholder="Reference (optional)"
-              value={paymentReference}
-              onChange={(e) => setPaymentReference(e.target.value)}
-            />
-          </div>
-          <div className="sm:col-span-2 space-y-1.5">
-            <Label htmlFor="payment-notes">Notes</Label>
-            <Input
-              id="payment-notes"
-              placeholder="Notes (optional)"
-              value={paymentNotes}
-              onChange={(e) => setPaymentNotes(e.target.value)}
-            />
-          </div>
-        </div>
-
-        {recordPaymentError && (
-          <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            {recordPaymentError}
-          </div>
-        )}
-
-        {solanaConfigured && (
-          <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full gap-2"
-              onClick={payWithSolana}
-              disabled={solanaBusy || recordingPayment || !selectedInvoice || !embeddedWallet.unlocked}
-              aria-busy={solanaBusy}
-            >
-              {solanaBusy && <Loader2 size={16} className="animate-spin" />}
-              <SolanaLogo size={18} />
-              {solanaButtonLabel}
-            </Button>
-            <p className="text-xs text-muted-foreground text-center">
-              {!embeddedWallet.unlocked
-                ? "Unlock your embedded wallet to pay invoices on-chain."
-                : selectedInvoice
-                  ? `Pays ${formatCurrency(selectedInvoice.total)} in USDC to the workspace treasury. Verified on-chain before recording.${
-                      solanaFeeEstimate ? ` Estimated network fee: ${solanaFeeEstimate}.` : ""
-                    }`
-                  : "Select an invoice to pay it directly with a Solana wallet."}
-            </p>
-          </div>
-        )}
-      </DialogTemplate>
     </DashboardShell>
   );
 }

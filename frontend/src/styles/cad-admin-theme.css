@@ -19,8 +19,10 @@
   --secondary-foreground: #18181b;
   --muted: #e4e4e7;
   --muted-foreground: #52525b;
-  --accent: #e4e4e7;
-  --accent-foreground: #18181b;
+  /* Keep shadcn primary/accent utilities mapped to the CAD blue so buttons,
+     selected checkboxes and focused rings read as blue inside the CAD. */
+  --accent: #1473e6;
+  --accent-foreground: #ffffff;
   --destructive: #d32f2f;
   --destructive-foreground: #ffffff;
   --border: rgba(0, 0, 0, 0.09);
