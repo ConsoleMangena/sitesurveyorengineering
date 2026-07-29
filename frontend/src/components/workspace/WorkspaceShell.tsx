@@ -834,6 +834,8 @@ function WorkspaceSearch({
             <SearchIcon />
             <input
               ref={inputRef}
+              id="workspace-search-input"
+              name="workspace-search-input"
               className="hub-search-input"
               type="text"
               value={query}

@@ -13,7 +13,6 @@ permissions:
 env:
   VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
   VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-  SITESURVEYOR_LICENSE_PUBLIC_KEY: ${{ secrets.SITESURVEYOR_LICENSE_PUBLIC_KEY }}
 
 jobs:
   cleanup-release:
@@ -71,16 +70,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Verify licensing public key
-        shell: bash
-        run: |
-          KEY="${SITESURVEYOR_LICENSE_PUBLIC_KEY:-}"
-          if ! printf '%s' "$KEY" | grep -Eq '^[0-9a-fA-F]{64}$'; then
-            echo "::error::SITESURVEYOR_LICENSE_PUBLIC_KEY secret is missing or not 64 hex chars. Release builds will reject every license."
-            exit 1
-          fi
-          echo "Licensing public key present (64 hex chars)."
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -145,14 +134,6 @@ jobs:
             printf 'VITE_SUPABASE_URL=%s\n' "$VITE_SUPABASE_URL"
             printf 'VITE_SUPABASE_ANON_KEY=%s\n' "$VITE_SUPABASE_ANON_KEY"
           } > .env
-
-      - name: Write licensing public key
-        shell: bash
-        working-directory: backend
-        run: |
-          set -euo pipefail
-          : "${SITESURVEYOR_LICENSE_PUBLIC_KEY:?SITESURVEYOR_LICENSE_PUBLIC_KEY secret is not set}"
-          printf 'SITESURVEYOR_LICENSE_PUBLIC_KEY=%s\n' "$SITESURVEYOR_LICENSE_PUBLIC_KEY" > .env.licensing
 
       - name: Detect Apple signing secrets
         id: apple
@@ -233,16 +214,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify licensing public key
-        shell: bash
-        run: |
-          KEY="${SITESURVEYOR_LICENSE_PUBLIC_KEY:-}"
-          if ! printf '%s' "$KEY" | grep -Eq '^[0-9a-fA-F]{64}$'; then
-            echo "::error::SITESURVEYOR_LICENSE_PUBLIC_KEY secret is missing or not 64 hex chars. Release builds will reject every license."
-            exit 1
-          fi
-          echo "Licensing public key present (64 hex chars)."
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -318,14 +289,6 @@ jobs:
             printf 'VITE_SUPABASE_URL=%s\n' "$VITE_SUPABASE_URL"
             printf 'VITE_SUPABASE_ANON_KEY=%s\n' "$VITE_SUPABASE_ANON_KEY"
           } > .env
-
-      - name: Write licensing public key
-        shell: bash
-        working-directory: backend
-        run: |
-          set -euo pipefail
-          : "${SITESURVEYOR_LICENSE_PUBLIC_KEY:?SITESURVEYOR_LICENSE_PUBLIC_KEY secret is not set}"
-          printf 'SITESURVEYOR_LICENSE_PUBLIC_KEY=%s\n' "$SITESURVEYOR_LICENSE_PUBLIC_KEY" > .env.licensing
 
       - name: Initialize Android project
         working-directory: backend

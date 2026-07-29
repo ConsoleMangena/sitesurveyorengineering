@@ -134,7 +134,7 @@ export default function ProfileSettingsPage() {
         <div>
           <h1>Profile Settings</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Manage your personal information, licensing, and account security
+            Manage your personal information, billing, and account security
           </p>
         </div>
         <Button onClick={handleSave} disabled={saving} className="w-full sm:w-auto">
