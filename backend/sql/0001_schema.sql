@@ -4394,5 +4394,12 @@ create index if not exists idx_job_assignment_assets_workspace_updated
 
 select private.add_table_to_realtime('job_assignment_assets');
 
+-- Solana wallet addresses for marketplace listings and workspaces.
+alter table public.marketplace_listings
+  add column if not exists seller_wallet_address text;
+
+alter table public.workspaces
+  add column if not exists marketplace_wallet_address text;
+
 commit;
 
