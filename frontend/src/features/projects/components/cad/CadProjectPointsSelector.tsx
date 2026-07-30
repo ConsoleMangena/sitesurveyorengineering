@@ -113,7 +113,7 @@ export function CadProjectPointsSelector({ projectId, onImport, onClose }: CadPr
         </span>
       }
       description="Select coordinates from the project workspace to bring into the CAD drawing. Duplicates are skipped."
-      className="!flex h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-none flex-col !overflow-hidden"
+      className="flex! h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-none flex-col overflow-hidden!"
       contentClassName="flex flex-1 flex-col overflow-hidden"
       footer={
         <>

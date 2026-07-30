@@ -511,7 +511,7 @@ export default function BillingPage({
                 ? "Unlock your embedded wallet to pay invoices on-chain."
                 : selectedInvoice
                   ? `Pays ${formatCurrency(selectedInvoice.total)} in USDC to the workspace treasury. Verified on-chain before recording.${
-                      solanaFeeEstimate ? ` Estimated network fee: ${solanaFeeEstimate}.` : ""
+                      solanaFeeEstimate ? ` Estimated network cost: ${solanaFeeEstimate}.` : ""
                     }`
                   : "Select an invoice to pay it directly with a Solana wallet."}
             </p>

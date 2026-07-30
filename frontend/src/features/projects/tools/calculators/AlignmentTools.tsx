@@ -19,6 +19,13 @@ const num = (v: string) => {
   return Number.isFinite(n) ? n : NaN;
 };
 
+/**
+ * Parse an optional RL/elevation field: null when blank, the number when
+ * valid, or NaN for invalid text (so callers can reject instead of silently
+ * propagating NaN into results and CSV exports).
+ */
+const parseRl = (raw: string): number | null => (raw.trim() === "" ? null : num(raw));
+
 /** Parse a direction that may be a decimal degree or a bearing string. */
 function parseAz(raw: string): number {
   const b = parseBearing(raw);
@@ -187,8 +194,11 @@ export function StakeOutTool({ projectId }: StakeOutToolProps) {
     if (![occupied.n, occupied.e, bs.n, bs.e, target.n, target.e].every(Number.isFinite)) {
       return setRes(`⚠ Enter valid ${ax.first}, ${ax.second} for the occupied, backsight and target points.`);
     }
-    const ozv = oz.trim() === "" ? null : num(oz);
-    const tzv = tz.trim() === "" ? null : num(tz);
+    const ozv = parseRl(oz);
+    const tzv = parseRl(tz);
+    if ((ozv !== null && !Number.isFinite(ozv)) || (tzv !== null && !Number.isFinite(tzv))) {
+      return setRes("⚠ Enter a valid RL/elevation value, or leave it blank.");
+    }
     const r = stakeOut(occupied, bs, target, ozv, tzv);
     setRes(
       `Angle right (from BS): ${fmtBearing(r.angleRight)} (${r.angleRight.toFixed(4)}°)\n` +
@@ -197,7 +207,7 @@ export function StakeOutTool({ projectId }: StakeOutToolProps) {
         `Distance:              ${r.distance.toFixed(3)} m\n` +
         `Along line:            ${r.along.toFixed(3)} m\n` +
         `Offset (+R / −L):      ${r.offset.toFixed(3)} m` +
-        (r.deltaZ != null ? `\nΔH (cut +/fill −):     ${r.deltaZ.toFixed(3)} m` : ""),
+        (r.deltaZ != null ? `\nΔH (target − occ):     ${r.deltaZ.toFixed(3)} m` : ""),
     );
   };
 
@@ -207,14 +217,20 @@ export function StakeOutTool({ projectId }: StakeOutToolProps) {
     if (![occupied.n, occupied.e, bs.n, bs.e].every(Number.isFinite)) {
       return setRes(`⚠ Enter valid ${ax.first}, ${ax.second} for the occupied and backsight points.`);
     }
-    const occZ = occ.z.trim() === "" ? null : num(occ.z);
+    const occZ = parseRl(occ.z);
+    if (occZ !== null && !Number.isFinite(occZ)) {
+      return setRes("⚠ Enter a valid RL for the occupied point, or leave it blank.");
+    }
 
     const computed = targets.map((row) => {
       const target: NE = { n: num(row.x), e: num(row.y) };
       if (![target.n, target.e].every(Number.isFinite)) {
         return { ...row, result: null as StakeOutResult | null, error: `Enter valid ${ax.first}, ${ax.second}.` };
       }
-      const tzv = row.z.trim() === "" ? null : num(row.z);
+      const tzv = parseRl(row.z);
+      if (tzv !== null && !Number.isFinite(tzv)) {
+        return { ...row, result: null as StakeOutResult | null, error: "Enter a valid RL (or leave blank)." };
+      }
       return { ...row, result: stakeOut(occupied, bs, target, occZ, tzv), error: null as string | null };
     });
     setTargets(computed);
@@ -474,10 +490,19 @@ export function HorizontalCurveTool({ projectId }: HorizontalCurveToolProps) {
 
   const exportCsv = () => {
     if (!curveResult) return;
+    // The capped final station is already the PT — don't emit it twice.
+    const lastStation = curveResult.stations[curveResult.stations.length - 1];
+    const lastIsPt = lastStation
+      && Math.hypot(
+        lastStation.point.e - curveResult.curve.pt.e,
+        lastStation.point.n - curveResult.curve.pt.n,
+      ) < 1e-6;
     const rows = [
       { pointNo: "PC", e: curveResult.curve.pc.e, n: curveResult.curve.pc.n, z: null, code: "PC" },
       ...curveResult.stations.map((s, i) => ({ pointNo: `S${i + 1}`, e: s.point.e, n: s.point.n, z: null, code: "" })),
-      { pointNo: "PT", e: curveResult.curve.pt.e, n: curveResult.curve.pt.n, z: null, code: "PT" },
+      ...(lastIsPt
+        ? []
+        : [{ pointNo: "PT", e: curveResult.curve.pt.e, n: curveResult.curve.pt.n, z: null, code: "PT" }]),
     ];
     const csv = ["Point,Easting,Northing,RL,Code", ...rows.map((r) => [r.pointNo, r.e.toFixed(3), r.n.toFixed(3), r.z == null ? "" : String(r.z), r.code].join(","))].join("\n");
     downloadCsv("horizontal-curve-stations.csv", csv);

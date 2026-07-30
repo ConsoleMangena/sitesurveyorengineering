@@ -121,7 +121,9 @@ export function grade(distance: number, dz: number): { ratio: number; percent: n
 
 /**
  * Bearing-bearing intersection. Returns the point where a ray from p1 at
- * az1 meets a ray from p2 at az2, or null if (near) parallel.
+ * az1 meets a ray from p2 at az2, or null if the lines are (near) parallel
+ * or the crossing point lies BEHIND either observing station (the rays never
+ * meet — the line solution would be a false fix).
  */
 export function intersectionBearingBearing(
   p1: NE,
@@ -139,6 +141,10 @@ export function intersectionBearingBearing(
   const denom = d1e * d2n - d1n * d2e;
   if (Math.abs(denom) < 1e-12) return null;
   const t = ((p2.e - p1.e) * d2n - (p2.n - p1.n) * d2e) / denom;
+  const u = ((p2.e - p1.e) * d1n - (p2.n - p1.n) * d1e) / denom;
+  // Ray parameters along both sights must be non-negative (small tolerance
+  // lets a fix exactly ON a station pass).
+  if (t < -1e-9 || u < -1e-9) return null;
   return { n: p1.n + t * d1n, e: p1.e + t * d1e };
 }
 
@@ -152,6 +158,7 @@ export function intersectionDistanceDistance(
   p2: NE,
   r2: number,
 ): NE[] {
+  if (!Number.isFinite(r1) || !Number.isFinite(r2) || r1 < 0 || r2 < 0) return [];
   const dn = p2.n - p1.n;
   const de = p2.e - p1.e;
   const d = Math.hypot(dn, de);
@@ -335,6 +342,14 @@ export function computeTraverse(
 //   - "deflection": deflection angles (+right / −left). next = prev + defl.
 //   - "angle-right": angle turned clockwise from the back station to the
 //     foreward station. next = prev + angleRight − 180.
+//
+// Loop direction: field crews sometimes run the loop the other way than the
+// convention assumes (angles then sum to the *other* theoretical value —
+// e.g. exterior angles (n+2)·180 instead of interior (n−2)·180). When the
+// observed sum is closer to the mirrored theoretical sum, the mirrored
+// convention is used automatically and `mirrored` is set on the result, so a
+// reverse loop still balances correctly instead of producing garbage
+// corrections or a reflected polygon.
 
 export type TraverseAngleMode = "interior" | "deflection" | "angle-right";
 
@@ -360,6 +375,12 @@ export interface AngularTraverseResult {
   perAngleCorrection: number;
   /** Whether a closure condition applies (closed loop of angles). */
   hasAngularClosure: boolean;
+  /**
+   * True when the angular observations closed better against the mirrored
+   * loop convention (angles observed on the opposite side / loop run in the
+   * reverse direction) and the mirrored azimuth recursion was applied.
+   */
+  mirrored: boolean;
 }
 
 /**
@@ -382,30 +403,49 @@ export function reduceAngularTraverse(
   const n = observations.length;
   const angleSum = observations.reduce((s, o) => s + o.angle, 0);
 
-  // Theoretical sum and misclosure only apply to a closed angular loop.
+  // Theoretical sum and misclosure only apply to a closed angular loop. The
+  // loop direction is not assumed: pick the convention whose theoretical sum
+  // is closest to the observed sum (see header notes on mirrored loops).
   let theoreticalSum = 0;
   let hasAngularClosure = false;
+  let mirrored = false;
   if (closed && n >= 3) {
     hasAngularClosure = true;
-    if (mode === "interior") theoreticalSum = (n - 2) * 180;
-    else if (mode === "deflection") theoreticalSum = 360;
-    else theoreticalSum = (n + 2) * 180; // angle-right closed loop
+    if (mode === "deflection") {
+      // Signed deflections sum to ±360 on a loop; the recursion itself uses
+      // the signed angle, so only the closure target depends on direction.
+      const cw = 360;
+      const ccw = -360;
+      theoreticalSum =
+        Math.abs(angleSum - ccw) < Math.abs(angleSum - cw) ? ccw : cw;
+    } else {
+      const standard = mode === "interior" ? (n - 2) * 180 : (n + 2) * 180;
+      const reversed = mode === "interior" ? (n + 2) * 180 : (n - 2) * 180;
+      if (Math.abs(angleSum - reversed) < Math.abs(angleSum - standard)) {
+        theoreticalSum = reversed;
+        mirrored = true;
+      } else {
+        theoreticalSum = standard;
+      }
+    }
   }
 
   const angularMisclosure = hasAngularClosure ? angleSum - theoreticalSum : 0;
   const perAngleCorrection = hasAngularClosure && n > 0 ? -angularMisclosure / n : 0;
 
-  // Apply the per-angle correction and roll forward the azimuths.
+  // Apply the per-angle correction and roll forward the azimuths. A mirrored
+  // loop needs the mirrored recursion, otherwise the polygon closes to a
+  // reflection of the truth.
   const azimuths: number[] = [];
   let az = normalizeAzimuth(startAzimuth);
   for (let i = 0; i < n; i++) {
     const corrected = observations[i].angle + perAngleCorrection;
     if (mode === "interior") {
-      az = normalizeAzimuth(az + 180 - corrected);
+      az = normalizeAzimuth(mirrored ? az - 180 + corrected : az + 180 - corrected);
     } else if (mode === "deflection") {
       az = normalizeAzimuth(az + corrected);
     } else {
-      az = normalizeAzimuth(az + corrected - 180);
+      az = normalizeAzimuth(mirrored ? az - corrected + 180 : az + corrected - 180);
     }
     azimuths.push(az);
   }
@@ -423,6 +463,7 @@ export function reduceAngularTraverse(
     angularMisclosure,
     perAngleCorrection,
     hasAngularClosure,
+    mirrored,
   };
 }
 
@@ -1008,6 +1049,11 @@ export function volumeGrid(
   cellSizeY: number,
   baseLevel: number,
 ): GridVolumeResult {
+  // A negative cell size would silently invert the cut/fill sign; a zero cell
+  // would yield a meaningless zero volume. Reject both explicitly.
+  if (!Number.isFinite(cellSizeX) || !Number.isFinite(cellSizeY) || cellSizeX <= 0 || cellSizeY <= 0) {
+    throw new Error("Grid cell sizes must be positive, finite numbers.");
+  }
   const cellArea = cellSizeX * cellSizeY;
   let cut = 0;
   let fill = 0;
@@ -1412,7 +1458,8 @@ export function freeStation(
     position: pos,
     iterations: MAX_ITER,
     sumSquaredResiduals: lastSsr,
-    rmse: Math.sqrt(lastSsr) / observations.length,
+    // Same definition as the converged path: sqrt(SSR / n).
+    rmse: Math.sqrt(lastSsr / observations.length),
   };
 }
 
@@ -1554,8 +1601,12 @@ export interface CircularArcParams {
 }
 
 /**
- * Compute the centre, radius and start/end angles (degrees, CCW from the
- * northing axis) of the circular arc through three planar points.
+ * Compute the centre, radius and start/end angles of the circular arc through
+ * three planar points. Angles are degrees, **counter-clockwise from the
+ * +E (Easting) axis** — the same convention the CAD model, renderer and DXF
+ * exporter use — and sweeping counter-clockwise from `startAngle` to
+ * `endAngle` always passes through `mid` (start/end are swapped when the
+ * picked points run clockwise).
  * Returns null if the points are collinear or coincident.
  */
 export function circularArcParams(start: NE, mid: NE, end: NE): CircularArcParams | null {
@@ -1571,21 +1622,32 @@ export function circularArcParams(start: NE, mid: NE, end: NE): CircularArcParam
   const radius = Math.hypot(start.e - cenE, start.n - cenN);
   if (radius < 1e-9) return null;
 
-  const angle = (p: NE) => Math.atan2(p.e - cenE, p.n - cenN);
-  const a0 = angle(start);
+  // CCW-from-+E in the (e,n) plane: atan2(Δn, Δe).
+  const angle = (p: NE) => Math.atan2(p.n - cenN, p.e - cenE);
+  let a0 = angle(start);
   const aMid = angle(mid);
   let aEnd = angle(end);
 
-  let diff = aEnd - a0;
-  while (diff <= -Math.PI) diff += TWO_PI;
-  while (diff > Math.PI) diff -= TWO_PI;
-  let midDiff = aMid - a0;
-  while (midDiff <= -Math.PI) midDiff += TWO_PI;
-  while (midDiff > Math.PI) midDiff -= TWO_PI;
-  if ((diff > 0 && midDiff < 0) || (diff < 0 && midDiff > 0)) {
-    aEnd += diff > 0 ? -TWO_PI : TWO_PI;
+  // Counter-clockwise separation b − a in [0, 2π).
+  const ccwSep = (from: number, to: number) => {
+    let d = (to - from) % TWO_PI;
+    if (d < 0) d += TWO_PI;
+    return d;
+  };
+
+  // The CCW sweep from start to end must contain the mid point; otherwise the
+  // three points run clockwise and the true arc is expressed from `end`.
+  if (ccwSep(a0, aMid) > ccwSep(a0, aEnd)) {
+    const tmp = a0;
+    a0 = aEnd;
+    aEnd = tmp;
   }
 
   const toDeg = (rad: number) => rad * (180 / Math.PI);
-  return { center: { n: cenN, e: cenE }, radius, startAngle: toDeg(a0), endAngle: toDeg(aEnd) };
+  return {
+    center: { n: cenN, e: cenE },
+    radius,
+    startAngle: toDeg(a0),
+    endAngle: toDeg(aEnd),
+  };
 }

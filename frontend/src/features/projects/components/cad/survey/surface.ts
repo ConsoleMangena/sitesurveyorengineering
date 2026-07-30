@@ -438,7 +438,22 @@ function contourSegmentsAt(tin: SurfaceTin, level: number): Seg[] {
       const v = edgeCrossing(p, q, level);
       if (v) crossings.push(v);
     }
-    if (crossings.length === 2) segments.push([crossings[0], crossings[1]]);
+    if (crossings.length < 2) continue;
+    // A TIN vertex exactly on the contour level makes EACH incident edge of
+    // the triangle report a crossing at that vertex (3 crossings total)
+    // — dedupe them, otherwise the segment is silently dropped and contours
+    // through exact-RL spot levels get holes.
+    const deduped: SurfaceVertex[] = [];
+    for (const v of crossings) {
+      if (
+        !deduped.some(
+          (u) => Math.abs(u.n - v.n) < 1e-9 && Math.abs(u.e - v.e) < 1e-9,
+        )
+      ) {
+        deduped.push(v);
+      }
+    }
+    if (deduped.length >= 2) segments.push([deduped[0], deduped[1]]);
   }
   return segments;
 }
@@ -504,7 +519,19 @@ export function volumeToElevation(
 export function volumeBetween(
   top: SurfaceTin,
   base: SurfaceTin,
+  /** `overlap` (default): top points outside the base footprint contribute
+   * nothing; `strict`: error out — never silently compute a wrong area. */
+  mode: "strict" | "overlap" = "overlap",
 ): SurfaceVolumeResult {
+  if (mode === "strict") {
+    for (const p of top.points) {
+      if (sampleZ(base, p.n, p.e) === null) {
+        throw new Error(
+          "Surface-to-surface volume (strict): a top-surface point lies outside the base footprint. Re-run with the overlap option to compute over the shared area only.",
+        );
+      }
+    }
+  }
   const acc = { cut: 0, fill: 0 };
   let area = 0;
   for (const t of top.triangles) {

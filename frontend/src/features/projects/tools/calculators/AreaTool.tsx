@@ -32,7 +32,7 @@ const num = (v: string) => {
   return Number.isFinite(n) ? n : NaN;
 };
 
-type Mode = "area" | "tin" | "grid" | "cross-section";
+type Mode = "area" | "polyline" | "tin" | "grid" | "cross-section";
 
 interface AreaToolProps {
   projectId?: string;
@@ -47,6 +47,12 @@ export function AreaTool({ projectId }: AreaToolProps) {
       label: "Plan Area",
       blurb:
         `Boundary ${ax.first}, ${ax.second} in order. Area (Shoelace), perimeter and a plan preview update live.`,
+    },
+    {
+      id: "polyline",
+      label: "Polyline Length",
+      blurb:
+        `Open chain of ${ax.first}, ${ax.second} points (pipeline, fence line, centre line). Total length updates live.`,
     },
     {
       id: "tin",
@@ -96,6 +102,7 @@ export function AreaTool({ projectId }: AreaToolProps) {
       </div>
 
       {mode === "area" && <PlanAreaPanel projectId={projectId} />}
+      {mode === "polyline" && <PolylinePanel projectId={projectId} />}
       {mode === "tin" && <TinPanel />}
       {mode === "grid" && <GridPanel />}
       {mode === "cross-section" && <CrossSectionPanel />}
@@ -550,13 +557,150 @@ function CrossSectionPanel() {
   );
 }
 
+// ── Open polyline length (original chain behaviour) ─────────────────────────
+
+const POLYLINE_SAMPLE: Pt[] = [
+  newPt("1", "1000.00", "1000.00"),
+  newPt("2", "1050.00", "1010.00"),
+  newPt("3", "1100.00", "1000.00"),
+];
+
+function PolylinePanel({ projectId }: { projectId?: string }) {
+  const ax = useAxisLabels();
+  const [pts, setPts] = useState<Pt[]>(POLYLINE_SAMPLE);
+  const [pickedPno, setPickedPno] = useState("");
+  const update = (id: number, patch: Partial<Pt>) =>
+    setPts((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  const addPt = (label?: string, x?: string, y?: string) => setPts((ps) => [...ps, newPt(label ?? String(ps.length + 1), x, y)]);
+  const delPt = (id: number) => setPts((ps) => ps.filter((p) => p.id !== id));
+
+  const { coords, length, error } = useMemo(() => {
+    const c: NE[] = [];
+    let err: string | null = null;
+    for (const p of pts) {
+      if (!p.x.trim() && !p.y.trim()) continue;
+      const e = num(p.x),
+        n = num(p.y);
+      if (!Number.isFinite(e) || !Number.isFinite(n)) {
+        err = `Invalid ${ax.first}/${ax.second} coordinate for "${p.label || "?"}".`;
+        break;
+      }
+      c.push({ n, e });
+    }
+    if (!err && c.length < 2) err = "Need at least 2 points to form a polyline.";
+    return { coords: c, length: !err ? polylineLength(c) : 0, error: err };
+  }, [pts, ax.first, ax.second]);
+
+  return (
+    <>
+      {error && <div className="svt-error">⚠ {error}</div>}
+      <div className="svt-grid-layout">
+        <div className="svt-card">
+          <div className="svt-card-title">
+            <span>Chain coordinates (open)</span>
+            <span>{pts.length} points</span>
+          </div>
+          <div className="svt-table-wrap">
+            <table className="svt-table">
+              <thead>
+                <tr>
+                  <th>Point</th>
+                  <th>{ax.first} (Easting)</th>
+                  <th>{ax.second} (Northing)</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {pts.map((p) => (
+                  <tr key={p.id}>
+                    <td>
+                      <input className="svt-cell-input text" value={p.label} onChange={(e) => update(p.id, { label: e.target.value })} placeholder="pt" />
+                    </td>
+                    <td>
+                      <input className="svt-cell-input" value={p.x} onChange={(e) => update(p.id, { x: e.target.value })} />
+                    </td>
+                    <td>
+                      <input className="svt-cell-input" value={p.y} onChange={(e) => update(p.id, { y: e.target.value })} />
+                    </td>
+                    <td>
+                      <button className="svt-row-del" onClick={() => delPt(p.id)} aria-label="Delete point">×</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {projectId && (
+            <div style={{ padding: "0 14px 12px" }}>
+              <ProjectPointPicker
+                projectId={projectId}
+                value={pickedPno}
+                onChange={(pno, pt) => {
+                  setPickedPno(pno);
+                  if (pt) { addPt(pno || `P${pts.length + 1}`, String(pt.e), String(pt.n)); setPickedPno(""); }
+                }}
+                label="Add point from project"
+              />
+            </div>
+          )}
+          <div className="svt-grid-actions">
+            <button className="btn btn-outline btn-sm" onClick={() => addPt()}>+ Add point</button>
+            <button className="btn btn-outline btn-sm" onClick={() => setPts(POLYLINE_SAMPLE)}>Reset sample</button>
+            <button className="btn btn-outline btn-sm" onClick={() => setPts([newPt("1")])}>Clear</button>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gap: 16 }}>
+          <div className="svt-card">
+            <div className="svt-card-title">Results</div>
+            {!error ? (
+              <>
+                <div className="svt-summary">
+                  <div className="svt-summary-row"><span className="svt-summary-label">Total length</span><span className="svt-summary-val">{length.toFixed(3)} m</span></div>
+                  <div className="svt-summary-row"><span className="svt-summary-label">Segments</span><span className="svt-summary-val">{Math.max(0, coords.length - 1)}</span></div>
+                </div>
+                <div className="svt-actions">
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => {
+                    const header = "Point,Easting,Northing,Length(m)";
+                    const rows = pts.filter((p) => Number.isFinite(num(p.x)) && Number.isFinite(num(p.y))).map((p) => [p.label, p.x, p.y].join(","));
+                    const summary = `Total,,,${length.toFixed(3)}`;
+                    const content = [header, ...rows, summary].join("\n");
+                    downloadCsv("polyline-length.csv", content);
+                    if (projectId) {
+                      addProjectOutput(projectId, {
+                        label: "Polyline Length Report",
+                        description: `${coords.length} vertices`,
+                        fileName: `polyline-${projectId}.csv`,
+                        mimeType: "text/csv",
+                        content,
+                      });
+                    }
+                  }}>
+                    Export length report CSV
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p style={{ padding: 14, fontSize: 13, color: "var(--text-muted)" }}>Enter at least 2 points.</p>
+            )}
+          </div>
+          <div className="svt-card">
+            <div className="svt-card-title">Chain preview</div>
+            {coords.length >= 2 ? <Poly pts={coords} closed={false} /> : <p style={{ padding: 14, fontSize: 13, color: "var(--text-muted)" }}>No chain.</p>}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── Shared plan preview ─────────────────────────────────────────────────────
 
-function Poly({ pts }: { pts: NE[] }) {
+function Poly({ pts, closed = true }: { pts: NE[]; closed?: boolean }) {
   const W = 320,
     H = 240,
     pad = 20;
-  const ring = [...pts, pts[0]];
+  const ring = closed ? [...pts, pts[0]] : pts;
   const es = ring.map((p) => p.e),
     ns = ring.map((p) => p.n);
   const minE = Math.min(...es),
@@ -570,10 +714,15 @@ function Poly({ pts }: { pts: NE[] }) {
   const x = (e: number) => pad + ((e - minE) / spanE) * innerW;
   const y = (n: number) => pad + (1 - (n - minN) / spanN) * innerH;
   const path =
-    ring.map((p, i) => `${i === 0 ? "M" : "L"} ${x(p.e).toFixed(1)} ${y(p.n).toFixed(1)}`).join(" ") + " Z";
+    ring.map((p, i) => `${i === 0 ? "M" : "L"} ${x(p.e).toFixed(1)} ${y(p.n).toFixed(1)}`).join(" ") + (closed ? " Z" : "");
   return (
     <svg className="svt-plot" viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img" aria-label="Boundary plan">
-      <path d={path} fill="color-mix(in oklab, var(--accent) 14%, transparent)" stroke="var(--accent)" strokeWidth="2" />
+      <path
+        d={path}
+        fill={closed ? "color-mix(in oklab, var(--accent) 14%, transparent)" : "none"}
+        stroke="var(--accent)"
+        strokeWidth="2"
+      />
       {pts.map((p, i) => (
         <circle key={i} cx={x(p.e)} cy={y(p.n)} r="3" fill="var(--accent)" />
       ))}

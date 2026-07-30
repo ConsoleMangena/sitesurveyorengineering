@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAsyncAction } from "../../../../hooks/useAsyncAction.ts";
 import {
   cadStorageKey,
@@ -73,6 +73,89 @@ function nextId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${idCounter}`;
 }
 
+/**
+ * Attribute-side of ROTATE / SCALE / MIRROR for `mapSelection` (see
+ * UseCadModel). Positions are handled by the point-mapping `fn`; these
+ * operations carry the non-positional geometry (angles, radii, axes, text
+ * size) so arcs, ellipses, text and dimensions aren't corrupted by transforms.
+ */
+export interface SelectionMapOps {
+  /** Degrees added to arc start/end angles, ellipse rotations, text rotations, dimension angles and hatch pattern angles (CCW-from-E, the model convention). */
+  rotateDeg?: number;
+  /** Factor applied to circle/arc radii, ellipse axes and text heights. */
+  scaleFactor?: number;
+  /** Mirror-line direction in degrees (CCW-from-E). Flips attribute chirality; text stays readable (MIRRTEXT=0 behaviour). */
+  mirrorAngleDeg?: number;
+}
+
+const normDeg = (d: number) => ((d % 360) + 360) % 360;
+
+function mapArcAttrs(a: SurveyArc, ops?: SelectionMapOps): SurveyArc {
+  if (!ops) return a;
+  if (ops.mirrorAngleDeg !== undefined) {
+    const phi = ops.mirrorAngleDeg;
+    // Mirroring reverses sweep direction: swap the reflected ends so the
+    // CCW-from-start sweep keeps tracing the same geometric arc.
+    return {
+      ...a,
+      startAngle: normDeg(2 * phi - a.endAngle),
+      endAngle: normDeg(2 * phi - a.startAngle),
+    };
+  }
+  return {
+    ...a,
+    startAngle: normDeg(a.startAngle + (ops.rotateDeg ?? 0)),
+    endAngle: normDeg(a.endAngle + (ops.rotateDeg ?? 0)),
+    radius: ops.scaleFactor !== undefined ? a.radius * Math.abs(ops.scaleFactor) : a.radius,
+  };
+}
+
+function mapCircleAttrs(c: SurveyCircle, ops?: SelectionMapOps): SurveyCircle {
+  if (!ops || ops.scaleFactor === undefined) return c;
+  return { ...c, radius: c.radius * Math.abs(ops.scaleFactor) };
+}
+
+function mapEllipseAttrs(el: SurveyEllipse, ops?: SelectionMapOps): SurveyEllipse {
+  if (!ops) return el;
+  const rotation =
+    ops.mirrorAngleDeg !== undefined
+      ? normDeg(2 * ops.mirrorAngleDeg - el.rotation)
+      : normDeg(el.rotation + (ops.rotateDeg ?? 0));
+  const k = ops.scaleFactor !== undefined ? Math.abs(ops.scaleFactor) : 1;
+  return { ...el, rotation, semiMajor: el.semiMajor * k, semiMinor: el.semiMinor * k };
+}
+
+function mapTextAttrs(t: SurveyText, ops?: SelectionMapOps): SurveyText {
+  if (!ops) return t;
+  const out = { ...t };
+  // Rotation is not mirrored — text stays readable (AutoCAD MIRRTEXT=0).
+  if (ops.mirrorAngleDeg === undefined && ops.rotateDeg !== undefined && typeof out.rotation === "number") {
+    out.rotation = normDeg(out.rotation + ops.rotateDeg);
+  }
+  if (ops.scaleFactor !== undefined && typeof out.height === "number") {
+    out.height = out.height * Math.abs(ops.scaleFactor);
+  }
+  return out;
+}
+
+function mapDimensionAttrs(d: SurveyDimension, ops?: SelectionMapOps): SurveyDimension {
+  if (!ops || typeof d.angle !== "number" || d.angle == null) return d;
+  const angle =
+    ops.mirrorAngleDeg !== undefined
+      ? normDeg(2 * ops.mirrorAngleDeg - d.angle)
+      : normDeg(d.angle + (ops.rotateDeg ?? 0));
+  return { ...d, angle };
+}
+
+function mapHatchAttrs(h: SurveyHatch, ops?: SelectionMapOps): SurveyHatch {
+  if (!ops || h.patternAngle == null) return h;
+  const patternAngle =
+    ops.mirrorAngleDeg !== undefined
+      ? normDeg(2 * ops.mirrorAngleDeg - h.patternAngle)
+      : normDeg(h.patternAngle + (ops.rotateDeg ?? 0));
+  return { ...h, patternAngle };
+}
+
 export interface UseCadModel {
   model: CadModelState;
   selection: CadSelection;
@@ -142,19 +225,35 @@ export interface UseCadModel {
   /**
    * Apply an arbitrary 2D transform to every point in the selection. When
    * `asCopy` is true the originals are kept and transformed copies are created
-   * and selected. Returns the number of objects affected.
+   * and selected. `ops` carries the attribute-side of ROTATE/SCALE/MIRROR so
+   * arc angles, radii, ellipse axes, text and dimension rotations transform
+   * with the geometry instead of being corrupted. Returns the count affected.
    */
-  mapSelection: (fn: (p: { n: number; e: number }) => { n: number; e: number }, asCopy: boolean) => number;
+  mapSelection: (
+    fn: (p: { n: number; e: number }) => { n: number; e: number },
+    asCopy: boolean,
+    ops?: SelectionMapOps,
+  ) => number;
   /** Create a parallel offset copy of a polyline/boundary. Positive distance is to the left. */
   offsetLinework: (id: string, distance: number) => SurveyLinework | null;
   clearAll: () => void;
-  /** Undo the last drawing change. Returns true if anything was undone. */
+  /** Delete the last drawing change. Returns true if anything was undone. */
   undo: () => boolean;
   /** Redo the last undone change. Returns true if anything was redone. */
   redo: () => boolean;
   /** Whether an undo / redo is currently available (for toolbar enabling). */
   canUndo: boolean;
   canRedo: boolean;
+  /**
+   * Group the following commits into ONE undo step (for multi-entity
+   * operations: selection delete, explode, import, contour generation).
+   * No nesting — a second begin while open is a no-op.
+   */
+  beginTransaction: () => void;
+  /** Close the group; everything since `beginTransaction` undoes as one step. */
+  endTransaction: () => void;
+  /** Close the group AND restore the model from before it (Esc-cancel). */
+  discardTransaction: () => void;
   nextPointNo: () => string;
   layerById: (id: LayerId) => CadLayer | undefined;
   /** Backend synchronisation state for the drawing. */
@@ -209,15 +308,46 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
    * current model and returns the next one. The pre-mutation model is pushed
    * onto the undo stack and the redo stack is cleared (standard editor model).
    */
+  const transactionRef = useRef<{ entriesPushed: number; base: CadModelState } | null>(null);
+
   const commit = useCallback((updater: (m: CadModelState) => CadModelState) => {
     const prev = modelRef.current;
     const next = updater(prev);
     if (next === prev) return; // no-op guard
-    pastRef.current.push(prev);
-    if (pastRef.current.length > HISTORY_LIMIT) pastRef.current.shift();
+    const tx = transactionRef.current;
+    // Inside a transaction every commit collapses into ONE history entry;
+    // outside, each commit is its own step.
+    if (!tx || tx.entriesPushed === 0) {
+      pastRef.current.push(prev);
+      if (pastRef.current.length > HISTORY_LIMIT) pastRef.current.shift();
+      if (tx) tx.entriesPushed = 1;
+    }
     futureRef.current = [];
     modelRef.current = next;
     setModel(next);
+    syncHistoryFlags();
+  }, [syncHistoryFlags]);
+
+  /** Group the following commits into a single undo step (no nesting). */
+  const beginTransaction = useCallback(() => {
+    if (transactionRef.current) return;
+    transactionRef.current = { entriesPushed: 0, base: modelRef.current };
+  }, []);
+
+  /** Close the current transaction; everything since `beginTransaction` undoes as one step. */
+  const endTransaction = useCallback(() => {
+    transactionRef.current = null;
+  }, []);
+
+  /** Close the current transaction AND restore the model from before it (cancel). */
+  const discardTransaction = useCallback(() => {
+    const tx = transactionRef.current;
+    transactionRef.current = null;
+    if (!tx) return;
+    if (tx.entriesPushed > 0) pastRef.current.pop();
+    futureRef.current = [];
+    modelRef.current = tx.base;
+    setModel(tx.base);
     syncHistoryFlags();
   }, [syncHistoryFlags]);
 
@@ -229,11 +359,22 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
     setLoadedProject(projectId);
     setModel(loadCachedModel(projectId));
     setSelection(EMPTY_SELECTION);
-    // History is cleared via resetHistory() once the backend copy loads; here
-    // we only flag the buttons as disabled for the new project.
     setCanUndo(false);
     setCanRedo(false);
   }
+
+  // Clear the undo stacks on project switch — in a layout effect because refs
+  // may not be mutated during render. Layout effects complete synchronously
+  // before paint and before any keyboard event can fire, so Ctrl+Z can never
+  // pop the previous project's model into the new one.
+  useLayoutEffect(() => {
+    pastRef.current = [];
+    futureRef.current = [];
+  }, [projectId]);
+
+  // Generation guard: a backend load for project A that resolves after the
+  // user has already switched to project B must never overwrite B's model.
+  const loadGenerationRef = useRef(0);
 
   // Guards so we never persist before the backend copy has loaded (which would
   // clobber team work with a fresh empty model), and to debounce writes.
@@ -269,6 +410,7 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
   // If the browser reports it is offline, stay hydrated from the local cache
   // so drafting never stalls waiting for a network request.
   const loadFromBackend = useCallback(async () => {
+    const generation = ++loadGenerationRef.current;
     hydratedRef.current = false;
     // Start each project with a clean undo history.
     resetHistory();
@@ -283,6 +425,9 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
 
     try {
       const record = await getCadDrawing(projectId);
+      // Superseded by a newer project load while this request was in flight —
+      // drop the stale response instead of writing A's model into B.
+      if (generation !== loadGenerationRef.current) return;
       if (record?.model) {
         const remote = normalizeModel(record.model as Partial<CadModelState>);
         setModel(remote);
@@ -294,6 +439,7 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
       hydratedRef.current = true;
       setSyncStatus("idle");
     } catch (err) {
+      if (generation !== loadGenerationRef.current) return;
       hydratedRef.current = true;
       if (!isCadOnline()) {
         // Network is down — the local cache is already loaded and usable.
@@ -307,6 +453,29 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
   }, [projectId, resetHistory]);
 
   useAsyncAction(loadFromBackend, [loadFromBackend]);
+
+  // Flush any pending debounced writes when leaving — edits made in the last
+  // CACHE_DEBOUNCE_MS/SAVE_DEBOUNCE_MS would otherwise be silently dropped
+  // when the workspace unmounts or the tab closes.
+  useEffect(() => {
+    const flush = () => {
+      if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current);
+      cacheModel(projectId, modelRef.current);
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        if (hydratedRef.current && workspaceId && isCadOnline()) {
+          void saveToBackend(modelRef.current);
+        }
+      }
+    };
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      flush();
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+    };
+  }, [projectId, workspaceId, saveToBackend]);
 
   // Persist on change: debounce both the local cache write and the backend upsert
   // so rapid edits (imports, drag ops, contour generation) do not block the main
@@ -372,10 +541,13 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
   }, []);
 
   const nextPointNo = useCallback(() => {
-    const nums = model.points
-      .map((p) => parseInt(p.pointNo, 10))
-      .filter((n) => Number.isFinite(n));
-    const max = nums.length ? Math.max(...nums) : 1000;
+    // Running max — a spread-over-array overflows the call stack on large
+    // point sets.
+    let max = 1000;
+    for (const p of model.points) {
+      const n = parseInt(p.pointNo, 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
     return String(max + 1);
   }, [model.points]);
 
@@ -996,7 +1168,7 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
     return newItems.length;
   }, [selection, commit]);
 
-  const mapSelection = useCallback<UseCadModel["mapSelection"]>((fn, asCopy) => {
+  const mapSelection = useCallback<UseCadModel["mapSelection"]>((fn, asCopy, ops) => {
     const sel = selection;
     const items = sel.items && sel.items.length
       ? sel.items
@@ -1023,18 +1195,18 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
             ? { ...l, vertices: l.vertices.map((v) => fn({ n: v.n, e: v.e })) }
             : l,
         ),
-        texts: m.texts.map((t) => (txIds.has(t.id) ? { ...t, ...fn({ n: t.n, e: t.e }) } : t)),
-        arcs: m.arcs.map((a) => (arcIds.has(a.id) ? { ...a, center: fn(a.center) } : a)),
-        circles: m.circles.map((c) => (cirIds.has(c.id) ? { ...c, center: fn(c.center) } : c)),
-        ellipses: m.ellipses.map((el) => (ellIds.has(el.id) ? { ...el, center: fn(el.center) } : el)),
+        texts: m.texts.map((t) => (txIds.has(t.id) ? mapTextAttrs({ ...t, ...fn({ n: t.n, e: t.e }) }, ops) : t)),
+        arcs: m.arcs.map((a) => (arcIds.has(a.id) ? mapArcAttrs({ ...a, center: fn(a.center) }, ops) : a)),
+        circles: m.circles.map((c) => (cirIds.has(c.id) ? mapCircleAttrs({ ...c, center: fn(c.center) }, ops) : c)),
+        ellipses: m.ellipses.map((el) => (ellIds.has(el.id) ? mapEllipseAttrs({ ...el, center: fn(el.center) }, ops) : el)),
         dimensions: m.dimensions.map((d) =>
           dimIds.has(d.id)
-            ? { ...d, textPosition: fn(d.textPosition), defPoints: d.defPoints.map(fn) }
+            ? mapDimensionAttrs({ ...d, textPosition: fn(d.textPosition), defPoints: d.defPoints.map(fn) }, ops)
             : d,
         ),
         hatches: m.hatches.map((h) =>
           hatchIds.has(h.id)
-            ? { ...h, vertices: h.vertices.map(fn), holes: h.holes?.map((hole) => hole.map(fn)) }
+            ? mapHatchAttrs({ ...h, vertices: h.vertices.map(fn), holes: h.holes?.map((hole) => hole.map(fn)) }, ops)
             : h,
         ),
       }));
@@ -1065,52 +1237,52 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
       for (const t of m.texts) {
         if (!txIds.has(t.id)) continue;
         const pos = fn({ n: t.n, e: t.e });
-        const copy: SurveyText = { ...t, id: nextId("tx"), n: pos.n, e: pos.e };
+        const copy: SurveyText = mapTextAttrs({ ...t, id: nextId("tx"), n: pos.n, e: pos.e }, ops);
         newTexts.push(copy);
         newItems.push({ type: "text", id: newTexts[newTexts.length - 1].id });
       }
       const newArcs: SurveyArc[] = [];
       for (const a of m.arcs) {
         if (!arcIds.has(a.id)) continue;
-        const copy: SurveyArc = { ...a, id: nextId("arc"), center: fn(a.center) };
+        const copy: SurveyArc = mapArcAttrs({ ...a, id: nextId("arc"), center: fn(a.center) }, ops);
         newArcs.push(copy);
         newItems.push({ type: "arc", id: copy.id });
       }
       const newCircles: SurveyCircle[] = [];
       for (const c of m.circles) {
         if (!cirIds.has(c.id)) continue;
-        const copy: SurveyCircle = { ...c, id: nextId("cir"), center: fn(c.center) };
+        const copy: SurveyCircle = mapCircleAttrs({ ...c, id: nextId("cir"), center: fn(c.center) }, ops);
         newCircles.push(copy);
         newItems.push({ type: "circle", id: copy.id });
       }
       const newEllipses: SurveyEllipse[] = [];
       for (const el of m.ellipses) {
         if (!ellIds.has(el.id)) continue;
-        const copy: SurveyEllipse = { ...el, id: nextId("ell"), center: fn(el.center) };
+        const copy: SurveyEllipse = mapEllipseAttrs({ ...el, id: nextId("ell"), center: fn(el.center) }, ops);
         newEllipses.push(copy);
         newItems.push({ type: "ellipse", id: copy.id });
       }
       const newDimensions: SurveyDimension[] = [];
       for (const d of m.dimensions) {
         if (!dimIds.has(d.id)) continue;
-        const copy: SurveyDimension = {
+        const copy: SurveyDimension = mapDimensionAttrs({
           ...d,
           id: nextId("dim"),
           textPosition: fn(d.textPosition),
           defPoints: d.defPoints.map(fn),
-        };
+        }, ops);
         newDimensions.push(copy);
         newItems.push({ type: "dimension", id: copy.id });
       }
       const newHatches: SurveyHatch[] = [];
       for (const h of m.hatches) {
         if (!hatchIds.has(h.id)) continue;
-        const copy: SurveyHatch = {
+        const copy: SurveyHatch = mapHatchAttrs({
           ...h,
           id: nextId("hatch"),
           vertices: h.vertices.map(fn),
           holes: h.holes?.map((hole) => hole.map(fn)),
-        };
+        }, ops);
         newHatches.push(copy);
         newItems.push({ type: "hatch", id: copy.id });
       }
@@ -1198,10 +1370,11 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
     }
 
     const copy: SurveyLinework = { ...lw, id: nextId("lw"), vertices: offsetVerts };
+    // NOTE: there is no `selection` field on CadModelState — adding one here
+    // would persist junk into the model JSON. The caller selects the copy.
     commit((m) => ({
       ...m,
       linework: [...m.linework, copy],
-      selection: { type: "linework", id: copy.id, items: [] },
     }));
     return copy;
   }, [model.linework, commit]);
@@ -1296,6 +1469,9 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
       redo,
       canUndo,
       canRedo,
+      beginTransaction,
+      endTransaction,
+      discardTransaction,
       nextPointNo,
       layerById,
       syncStatus,
@@ -1308,6 +1484,9 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
       syncError,
       canUndo,
       canRedo,
+      beginTransaction,
+      endTransaction,
+      discardTransaction,
       setActiveLayer,
       addPoint,
       updatePoint,

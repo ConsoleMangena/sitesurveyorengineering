@@ -92,8 +92,12 @@ export function mergeActivities(
   queue: ActivityQueue,
 ): ActivityWithMeta[] {
   const deleteSet = new Set(queue.deletes);
+  // Pending creates are ALSO prepended to the persistent cache by the offline
+  // add-note/quick-action flows, so `remote` may already contain them —
+  // exclude those ids or the same pending entry renders twice.
+  const pendingIds = new Set(queue.creates.map((c) => c.tempId));
   const base = remote
-    .filter((a) => !deleteSet.has(a.id))
+    .filter((a) => !deleteSet.has(a.id) && !pendingIds.has(a.id))
     .map((a) => ({ ...a, queued: false }));
 
   const pending = queue.creates.map((c) =>

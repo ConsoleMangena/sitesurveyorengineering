@@ -490,20 +490,60 @@ fn parse_cad_file_gdal_impl(bytes: &[u8], file_name: &str) -> Result<CadImportRe
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
+    /// DXF `$INSUNITS` drawing-unit codes converted to a metres multiplier.
+    /// The code is an enum, NOT a scale factor: mm (4) → 0.001, not ×4.
+    fn insunits_to_metres(code: i64) -> f64 {
+        match code {
+            1 => 0.0254,                      // inches
+            2 => 0.3048,                      // feet
+            3 => 1609.344,                    // miles
+            4 => 0.001,                       // millimetres
+            5 => 0.01,                        // centimetres
+            6 => 1.0,                         // metres
+            7 => 1_000.0,                     // kilometres
+            8 => 0.000_025_4,                 // microinches
+            9 => 0.001,                       // mils (≈mm)
+            10 => 0.9144,                     // yards
+            11 => 1e-10,                      // ångströms
+            12 => 1e-9,                       // nanometres
+            13 => 1e-6,                       // micrometres
+            14 => 0.1,                        // decimetres
+            15 => 10.0,                       // decametres
+            16 => 100.0,                      // hectometres
+            18 => 149_597_870_700.0,          // astronomical units
+            21 => 0.304_800_609_6,            // US survey feet
+            22 => 0.025_400_050_8,            // US survey inches
+            _ => 1.0,                         // 0 unitless / unknown → metres
+        }
+    }
+
+    /// True when the OGR geometry carries Z coordinates. Legacy WKB encodes
+    /// 25D geometries with bit 31 set (e.g. wkbPoint25D = 0x80000001); ISO WKB
+    /// encodes the dimension family in the thousands digit (1 = Z, 3 = ZM).
+    fn geometry_has_z(geom: &gdal::vector::Geometry) -> bool {
+        let gt = geom.geometry_type() as u32;
+        (gt & 0x8000_0000) != 0 || ((gt / 1000) % 10) == 1 || ((gt / 1000) % 10) == 3
+    }
+
     /// Convert an OGR point to survey (Easting, Northing, Elevation). DXF drawing
-    /// coordinates map directly: X → E, Y → N, Z → elevation.
-    fn vertex((x, y, z): (f64, f64, f64)) -> CadImportVertex {
+    /// coordinates map directly: X → E, Y → N, Z → elevation. A genuine 0.000
+    /// elevation must survive as Some(0.0) — a coastal benchmark is not "2D".
+    fn vertex((x, y, z): (f64, f64, f64), has_z: bool) -> CadImportVertex {
         CadImportVertex {
             e: x,
             n: y,
-            z: if z == 0.0 { None } else { Some(z) },
+            z: if has_z { Some(z) } else { None },
         }
     }
 
     fn ring_vertices(geom: &gdal::vector::Geometry) -> Vec<CadImportVertex> {
+        // Query the dimension family ONCE per geometry, not per vertex: z is 0.0
+        // in OGR tuples even when the geometry is 2D, and stripping z == 0.0
+        // would silently demote every sea-level elevation in a 3D file.
+        let has_z = geometry_has_z(geom);
         let count = geom.point_count();
         (0..count)
-            .map(|i| vertex(geom.get_point(i as i32)))
+            .map(|i| vertex(geom.get_point(i as i32), has_z))
             .collect()
     }
 
@@ -605,8 +645,16 @@ fn parse_cad_file_gdal_impl(bytes: &[u8], file_name: &str) -> Result<CadImportRe
         }
     }
 
-    fn scaled_point((x, y, z): (f64, f64, f64), scale: f64) -> (f64, f64, Option<f64>) {
-        (x * scale, y * scale, if z == 0.0 { None } else { Some(z * scale) })
+    fn scaled_point(
+        (x, y, z): (f64, f64, f64),
+        scale: f64,
+        has_elevation: bool,
+    ) -> (f64, f64, Option<f64>) {
+        (
+            x * scale,
+            y * scale,
+            if has_elevation { Some(z * scale) } else { None },
+        )
     }
 
     fn add_linestring(
@@ -655,7 +703,7 @@ fn parse_cad_file_gdal_impl(bytes: &[u8], file_name: &str) -> Result<CadImportRe
         unit_scale: f64,
     ) {
         let (x, y, z) = geom.get_point(0);
-        let (e, n, z) = scaled_point((x, y, z), unit_scale);
+        let (e, n, z) = scaled_point((x, y, z), unit_scale, geometry_has_z(geom));
         if let Some(text) = geom_text(feature) {
             result.texts.push(CadImportText {
                 e,
@@ -700,35 +748,6 @@ fn parse_cad_file_gdal_impl(bytes: &[u8], file_name: &str) -> Result<CadImportRe
         Some((ux, uy, r))
     }
 
-    /// Discretise an arc or circle into a polyline. For a full circle start/end
-    /// should differ by 360°. Returns vertices in arc order.
-    fn arc_to_vertices(
-        center_e: f64,
-        center_n: f64,
-        radius: f64,
-        start_deg: f64,
-        end_deg: f64,
-        steps: usize,
-    ) -> Vec<CadImportVertex> {
-        let mut verts = Vec::with_capacity(steps + 1);
-        let sweep = if (end_deg - start_deg).abs() < 1e-9 {
-            360.0
-        } else {
-            end_deg - start_deg
-        };
-        for i in 0..=steps {
-            let t = i as f64 / steps as f64;
-            let deg = start_deg + sweep * t;
-            let rad = deg.to_radians();
-            verts.push(CadImportVertex {
-                e: center_e + radius * rad.cos(),
-                n: center_n + radius * rad.sin(),
-                z: None,
-            });
-        }
-        verts
-    }
-
     fn add_arc(
         result: &mut CadImportResult,
         center_e: f64,
@@ -743,20 +762,9 @@ fn parse_cad_file_gdal_impl(bytes: &[u8], file_name: &str) -> Result<CadImportRe
         metadata: &HashMap<String, String>,
         unit_scale: f64,
     ) {
-        let steps = ((end_deg - start_deg).abs() / 5.0).max(4.0).min(72.0) as usize;
-        let mut verts = arc_to_vertices(center_e * unit_scale, center_n * unit_scale, radius * unit_scale, start_deg, end_deg, steps);
-        for v in &mut verts {
-            v.z = center_z.map(|z| z * unit_scale);
-        }
-        result.linework.push(CadImportLinework {
-            kind: "polyline".to_string(),
-            vertices: verts,
-            closed: false,
-            layer_name: layer_name.to_string(),
-            paper_space,
-            style: style.clone(),
-            metadata: metadata.clone(),
-        });
+        // Structured entity ONLY — rendering a duplicate 72-segment polyline
+        // approximation alongside made every imported arc/circle/ellipse
+        // appear twice on the canvas.
         result.arcs.push(CadImportArc {
             center_e: center_e * unit_scale,
             center_n: center_n * unit_scale,
@@ -783,20 +791,7 @@ fn parse_cad_file_gdal_impl(bytes: &[u8], file_name: &str) -> Result<CadImportRe
         metadata: &HashMap<String, String>,
         unit_scale: f64,
     ) {
-        let steps = 72;
-        let mut verts = arc_to_vertices(center_e * unit_scale, center_n * unit_scale, radius * unit_scale, 0.0, 360.0, steps);
-        for v in &mut verts {
-            v.z = center_z.map(|z| z * unit_scale);
-        }
-        result.linework.push(CadImportLinework {
-            kind: "polyline".to_string(),
-            vertices: verts,
-            closed: true,
-            layer_name: layer_name.to_string(),
-            paper_space,
-            style: style.clone(),
-            metadata: metadata.clone(),
-        });
+        // Structured circle only (no polyline duplicate — see add_arc).
         result.circles.push(CadImportCircle {
             center_e: center_e * unit_scale,
             center_n: center_n * unit_scale,
@@ -809,7 +804,7 @@ fn parse_cad_file_gdal_impl(bytes: &[u8], file_name: &str) -> Result<CadImportRe
         });
     }
 
-    /// Add an ellipse as a closed polyline approximation plus structured data.
+    /// Add an ellipse as structured data only.
     fn add_ellipse(
         result: &mut CadImportResult,
         center_e: f64,
@@ -824,31 +819,8 @@ fn parse_cad_file_gdal_impl(bytes: &[u8], file_name: &str) -> Result<CadImportRe
         metadata: &HashMap<String, String>,
         unit_scale: f64,
     ) {
-        let steps = 72;
-        let rot = rotation_deg.to_radians();
-        let (cos_r, sin_r) = (rot.cos(), rot.sin());
-        let mut verts = Vec::with_capacity(steps + 1);
-        for i in 0..=steps {
-            let t = i as f64 / steps as f64 * 2.0 * std::f64::consts::PI;
-            let lx = semi_major * t.cos();
-            let ly = semi_minor * t.sin();
-            let e = center_e + lx * cos_r - ly * sin_r;
-            let n = center_n + lx * sin_r + ly * cos_r;
-            verts.push(CadImportVertex {
-                e: e * unit_scale,
-                n: n * unit_scale,
-                z: center_z.map(|z| z * unit_scale),
-            });
-        }
-        result.linework.push(CadImportLinework {
-            kind: "polyline".to_string(),
-            vertices: verts,
-            closed: true,
-            layer_name: layer_name.to_string(),
-            paper_space,
-            style: style.clone(),
-            metadata: metadata.clone(),
-        });
+        // Structured entity only — the frontend renders ellipses natively
+        // (a polyline approximation alongside made imports appear twice).
         result.ellipses.push(CadImportEllipse {
             center_e: center_e * unit_scale,
             center_n: center_n * unit_scale,
@@ -925,18 +897,8 @@ fn parse_cad_file_gdal_impl(bytes: &[u8], file_name: &str) -> Result<CadImportRe
             style: style.clone(),
             metadata: metadata.clone(),
         });
-        // Also bring the hatch boundary into the viewport as closed linework.
-        if outer.len() >= 3 {
-            result.linework.push(CadImportLinework {
-                kind: "boundary".to_string(),
-                vertices: outer,
-                closed: true,
-                layer_name: layer_name.to_string(),
-                paper_space,
-                style: style.clone(),
-                metadata: metadata.clone(),
-            });
-        }
+        // Rendered natively by the frontend (fill + holes) — no boundary
+        // linework duplicate.
     }
 
     fn add_dimension(
@@ -957,7 +919,13 @@ fn parse_cad_file_gdal_impl(bytes: &[u8], file_name: &str) -> Result<CadImportRe
         let text_e = field_real(feature, "TextX").or_else(|| def_points.first().map(|v| v.e)).unwrap_or(0.0);
         let text_n = field_real(feature, "TextY").or_else(|| def_points.first().map(|v| v.n)).unwrap_or(0.0);
         let text_z = field_real(feature, "TextZ");
-        let (text_e, text_n, text_z) = scaled_point((text_e, text_n, text_z.unwrap_or(0.0)), unit_scale);
+        // Field-sourced Z stays None when the field is absent; a stored 0.000
+        // is a real elevation and must be scaled, not stripped.
+        let (text_e, text_n, text_z) = (
+            text_e * unit_scale,
+            text_n * unit_scale,
+            text_z.map(|z| z * unit_scale),
+        );
         let kind = field_string(feature, "DimensionType")
             .or_else(|| field_string(feature, "DimType"))
             .unwrap_or_else(|| "linear".to_string());
@@ -974,32 +942,8 @@ fn parse_cad_file_gdal_impl(bytes: &[u8], file_name: &str) -> Result<CadImportRe
             style: style.clone(),
             metadata: metadata.clone(),
         });
-        // Show the dimension text and a polyline through its definition points.
-        if !text.is_empty() {
-            result.texts.push(CadImportText {
-                e: text_e,
-                n: text_n,
-                z: text_z,
-                text,
-                layer_name: layer_name.to_string(),
-                height: field_real(feature, "TextHeight"),
-                rotation: field_real(feature, "TextRotation"),
-                paper_space,
-                style: style.clone(),
-                metadata: metadata.clone(),
-            });
-        }
-        if def_points.len() >= 2 {
-            result.linework.push(CadImportLinework {
-                kind: "polyline".to_string(),
-                vertices: def_points,
-                closed: false,
-                layer_name: layer_name.to_string(),
-                paper_space,
-                style: style.clone(),
-                metadata: metadata.clone(),
-            });
-        }
+        // Rendered natively by the frontend (extension lines + text) — no
+        // separate text/polyline duplicates.
     }
 
     fn add_insert(
@@ -1014,7 +958,7 @@ fn parse_cad_file_gdal_impl(bytes: &[u8], file_name: &str) -> Result<CadImportRe
         unit_scale: f64,
     ) {
         let (x, y, z) = geom.get_point(0);
-        let (e, n, z) = scaled_point((x, y, z), unit_scale);
+        let (e, n, z) = scaled_point((x, y, z), unit_scale, geometry_has_z(geom));
         let block_name = field_string(feature, "BlockName").unwrap_or_else(|| "BLOCK".to_string());
         let scale_x = field_real_any(feature, &["BlockScaleX", "ScaleX"]).unwrap_or(1.0);
         let scale_y = field_real_any(feature, &["BlockScaleY", "ScaleY"]).unwrap_or(1.0);
@@ -1034,19 +978,8 @@ fn parse_cad_file_gdal_impl(bytes: &[u8], file_name: &str) -> Result<CadImportRe
             style: style.clone(),
             metadata: metadata.clone(),
         });
-        // Represent the insertion as a labelled point so it appears in the viewport.
-        *counter += 1;
-        result.points.push(CadImportPoint {
-            point_no: counter.to_string(),
-            e,
-            n,
-            z,
-            code: block_name.clone(),
-            layer_name: layer_name.to_string(),
-            paper_space,
-            style: style.clone(),
-            metadata: metadata.clone(),
-        });
+        // The frontend represents the insert as a text label — a duplicate
+        // reference point made it appear twice.
     }
 
     /// Detect a roughly circular polygon by checking that all vertices lie close
@@ -1121,16 +1054,20 @@ fn parse_cad_file_gdal_impl(bytes: &[u8], file_name: &str) -> Result<CadImportRe
 
         // Field-based detection for CIRCLE / ARC / ELLIPSE.
         if let Some(radius) = field_real_any(feature, &["Radius", "R"]) {
-            let (x, y, z) = if geom.point_count() > 0 {
-                geom.get_point(0)
+            let (x, y, center_z) = if geom.point_count() > 0 {
+                let (x, y, z) = geom.get_point(0);
+                (
+                    x,
+                    y,
+                    if geometry_has_z(geom) { Some(z) } else { None },
+                )
             } else {
                 (
                     field_real(feature, "CenterX").unwrap_or(0.0),
                     field_real(feature, "CenterY").unwrap_or(0.0),
-                    field_real(feature, "CenterZ").unwrap_or(0.0),
+                    field_real(feature, "CenterZ"),
                 )
             };
-            let center_z = if z == 0.0 { None } else { Some(z) };
             let start = field_real_any(feature, &["StartAngle", "Start_Angle"]);
             let end = field_real_any(feature, &["EndAngle", "End_Angle"]);
 
@@ -1150,8 +1087,8 @@ fn parse_cad_file_gdal_impl(bytes: &[u8], file_name: &str) -> Result<CadImportRe
         if field_real_any(feature, &["SemiMajor", "MajorRadius", "RadiusRatio"]).is_some() {
             let x = field_real(feature, "CenterX").unwrap_or(0.0);
             let y = field_real(feature, "CenterY").unwrap_or(0.0);
-            let z = field_real(feature, "CenterZ").unwrap_or(0.0);
-            let center_z = if z == 0.0 { None } else { Some(z) };
+            // Keep the field Option — a stored 0.000 is a real elevation.
+            let center_z = field_real(feature, "CenterZ");
             let ratio = field_real_any(feature, &["RadiusRatio", "SemiMinorRatio"]).unwrap_or(1.0);
             let a = field_real_any(feature, &["SemiMajor", "MajorRadius"]).unwrap_or(0.0);
             let b = a * ratio;
@@ -1275,9 +1212,12 @@ fn parse_cad_file_gdal_impl(bytes: &[u8], file_name: &str) -> Result<CadImportRe
 
         // Try to read DXF INSUNITS. GDAL exposes it in the dataset metadata in
         // some form depending on the build; fall back to 1.0 (no scaling).
+        // IMPORTANT: INSUNITS is a unit CODE (4=mm, 6=m, 2=ft...) — never a
+        // multiplier, so code 4 must scale a drawing DOWN (0.001), not ×4.
         let unit_scale: f64 = ds
             .metadata_item("INSUNITS", "DXF")
-            .and_then(|v| v.parse::<f64>().ok())
+            .and_then(|v| v.trim().parse::<i64>().ok())
+            .map(insunits_to_metres)
             .unwrap_or(1.0);
 
         let mut result = CadImportResult {

@@ -477,7 +477,7 @@ export default function TeamPage({ workspaceId }: TeamPageProps) {
               <SelectTrigger id="invite-role" className="w-full">
                 <SelectValue placeholder="Select a role…" />
               </SelectTrigger>
-              <SelectContent position="popper" sideOffset={4} className="z-[1400]">
+              <SelectContent position="popper" sideOffset={4}>
                 <SelectItem value="viewer">Viewer</SelectItem>
                 <SelectItem value="technician">Technician</SelectItem>
                 <SelectItem value="sales">Sales</SelectItem>

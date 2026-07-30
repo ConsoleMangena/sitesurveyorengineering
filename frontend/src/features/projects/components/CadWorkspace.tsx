@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAsyncAction } from "../../../hooks/useAsyncAction.ts";
 import type { HubProject } from "../../../pages/shared/ProjectHubPage.tsx";
 import "../../../styles/cad.css";
@@ -48,7 +48,7 @@ import { pointsToCsv } from "./cad/io/csv.ts";
 import { modelToDxf, downloadText } from "./cad/io/dxf.ts";
 import { addProjectOutput } from "../tools/calculators/projectOutputs.ts";
 import { buildSurveyReport, buildCutFillReport, openReportWindow } from "./cad/io/report.ts";
-import { toGeoModel } from "./cad/io/geojson.ts";
+import { modelFromGeoJson, toGeoModel } from "./cad/io/geojson.ts";
 import {
   modelToGeoJson,
   convexHull,
@@ -246,6 +246,8 @@ function CadWorkspaceContent({
    * polyline while the command is active.
    */
   const [runningLineId, setRunningLineId] = useState<string | null>(null);
+  /** True while the running-LINE transaction (single undo step) is open. */
+  const lineTxActiveRef = useRef(false);
   const [projectPointsOpen, setProjectPointsOpen] = useState(false);
   const [importDxfOpen, setImportDxfOpen] = useState(false);
   const [reportDialog, setReportDialog] = useState<{ open: boolean; title: string; html: string } | null>(null);
@@ -258,17 +260,26 @@ function CadWorkspaceContent({
   /** Keep the LINE tool's running polyline in sync with pending vertices. */
   const syncRunningLine = useCallback(async () => {
     if (tool !== "line") {
+      // Tool switched away mid-draw: discard the open transaction instead of
+      // leaving committed chain fragments behind.
+      if (lineTxActiveRef.current) {
+        cad.discardTransaction();
+        lineTxActiveRef.current = false;
+      }
       setRunningLineId(null);
       return;
     }
     if (pendingVertices.length < 2) {
-      if (runningLineId) {
-        cad.deleteLinework(runningLineId);
+      if (lineTxActiveRef.current) {
+        cad.discardTransaction();
+        lineTxActiveRef.current = false;
         setRunningLineId(null);
       }
       return;
     }
     if (runningLineId == null) {
+      cad.beginTransaction();
+      lineTxActiveRef.current = true;
       const created = cad.addLinework({
         kind: "polyline",
         vertices: pendingVertices,
@@ -441,12 +452,20 @@ function CadWorkspaceContent({
         setPendingVertices((verts) => {
           if (verts.length < 2) {
             if (verts.length > 0) log("Cancelled (a line needs at least 2 points).", "info");
+            if (lineTxActiveRef.current) {
+              cad.discardTransaction();
+              lineTxActiveRef.current = false;
+            }
           } else if (runningLineId) {
             log(`Line created (${verts.length} vertices).`);
             cad.setSelection({ type: "linework", id: runningLineId });
           }
           return [];
         });
+        if (lineTxActiveRef.current) {
+          cad.endTransaction();
+          lineTxActiveRef.current = false;
+        }
         setRunningLineId(null);
         return;
       }
@@ -493,7 +512,13 @@ function CadWorkspaceContent({
   );
 
   const cancelPending = useCallback(() => {
-    if (tool === "line" && runningLineId) {
+    if (tool === "line" && lineTxActiveRef.current) {
+      // Discard restores the model from before the chain was started — no
+      // "ghost" polyline can be resurrected by the next undo.
+      cad.discardTransaction();
+      lineTxActiveRef.current = false;
+      log("Line cancelled.");
+    } else if (tool === "line" && runningLineId) {
       cad.deleteLinework(runningLineId);
       log("Line cancelled.");
     } else {
@@ -649,7 +674,7 @@ function CadWorkspaceContent({
               const dx = p.e - base.e;
               const dy = p.n - base.n;
               return { e: base.e + dx * cos - dy * sin, n: base.n + dx * sin + dy * cos };
-            }, false);
+            }, false, { rotateDeg: (angle * 180) / Math.PI });
             log(`Rotated ${count} object${count === 1 ? "" : "s"} ${((angle * 180) / Math.PI).toFixed(3)}° around base.`);
             return [];
           }
@@ -684,7 +709,7 @@ function CadWorkspaceContent({
         const count = cad.mapSelection((p) => ({
           e: base.e + (p.e - base.e) * factor,
           n: base.n + (p.n - base.n) * factor,
-        }), false);
+        }), false, { scaleFactor: factor });
         log(`Scaled ${count} object${count === 1 ? "" : "s"} by ${factor.toFixed(3)}x.`);
         return;
       }
@@ -709,7 +734,7 @@ function CadWorkspaceContent({
               const projE = a.e + t * dx;
               const projN = a.n + t * dy;
               return { e: projE * 2 - p.e, n: projN * 2 - p.n };
-            }, false);
+            }, false, { mirrorAngleDeg: (Math.atan2(dy, dx) * 180) / Math.PI });
             log(`Mirrored ${count} object${count === 1 ? "" : "s"} across mirror line.`);
             return [];
           }
@@ -776,9 +801,13 @@ function CadWorkspaceContent({
         cad.ensureLayerById("SPOT_HEIGHTS");
         let z: number | undefined;
 
-        // 1) Prefer sampling the most recent TIN surface.
+        // 1) Prefer sampling a TIN surface — chosen explicitly when more than
+        // one exists (was silently the LAST surface in the list).
         if (model.surfaces.length > 0) {
-          const surface = model.surfaces[model.surfaces.length - 1];
+          const surface = model.surfaces.length === 1
+            ? model.surfaces[0]
+            : await pickSurface(model.surfaces, dialog, "Choose surface to sample for the spot height");
+          if (!surface) return;
           const sampled = sampleZ({ points: surface.points, triangles: surface.triangles }, world.n, world.e);
           if (sampled !== null) z = sampled;
         }
@@ -888,16 +917,22 @@ function CadWorkspaceContent({
       log("Nothing selected to delete.", "error");
       return;
     }
-    for (const it of items) {
-      if (it.type === "point") cad.deletePoint(it.id);
-      else if (it.type === "linework") cad.deleteLinework(it.id);
-      else if (it.type === "text") cad.deleteText(it.id);
-      else if (it.type === "surface") cad.deleteSurface(it.id);
-      else if (it.type === "arc") cad.deleteArc(it.id);
-      else if (it.type === "circle") cad.deleteCircle(it.id);
-      else if (it.type === "ellipse") cad.deleteEllipse(it.id);
-      else if (it.type === "dimension") cad.deleteDimension(it.id);
-      else if (it.type === "hatch") cad.deleteHatch(it.id);
+    // One logical delete = one undo step (batch into a transaction).
+    cad.beginTransaction();
+    try {
+      for (const it of items) {
+        if (it.type === "point") cad.deletePoint(it.id);
+        else if (it.type === "linework") cad.deleteLinework(it.id);
+        else if (it.type === "text") cad.deleteText(it.id);
+        else if (it.type === "surface") cad.deleteSurface(it.id);
+        else if (it.type === "arc") cad.deleteArc(it.id);
+        else if (it.type === "circle") cad.deleteCircle(it.id);
+        else if (it.type === "ellipse") cad.deleteEllipse(it.id);
+        else if (it.type === "dimension") cad.deleteDimension(it.id);
+        else if (it.type === "hatch") cad.deleteHatch(it.id);
+      }
+    } finally {
+      cad.endTransaction();
     }
     log(`Deleted ${items.length} object${items.length === 1 ? "" : "s"}.`);
   }, [cad, log]);
@@ -917,25 +952,32 @@ function CadWorkspaceContent({
     }
     let created = 0;
     const newIds: string[] = [];
-    for (const id of lwIds) {
-      const lw = model.linework.find((l) => l.id === id);
-      if (!lw || lw.vertices.length < 2) continue;
-      const segCount = lw.closed ? lw.vertices.length : lw.vertices.length - 1;
-      for (let i = 0; i < segCount; i++) {
-        const a = lw.vertices[i];
-        const b = lw.vertices[(i + 1) % lw.vertices.length];
-        const seg = cad.addLinework({
-          kind: "line",
-          vertices: [a, b],
-          closed: false,
-          layerId: lw.layerId,
-          color: lw.color,
-          label: lw.label,
-        });
-        newIds.push(seg.id);
-        created += 1;
+    cad.beginTransaction();
+    try {
+      for (const id of lwIds) {
+        const lw = model.linework.find((l) => l.id === id);
+        if (!lw || lw.vertices.length < 2) continue;
+        const segCount = lw.closed ? lw.vertices.length : lw.vertices.length - 1;
+        for (let i = 0; i < segCount; i++) {
+          const a = lw.vertices[i];
+          const b = lw.vertices[(i + 1) % lw.vertices.length];
+          const seg = cad.addLinework({
+            kind: "line",
+            vertices: [a, b],
+            closed: false,
+            layerId: lw.layerId,
+            color: lw.color,
+            // Only the first segment carries the parent's label (contour RL
+            // etc.) — copying it to every segment spams the drawing.
+            label: i === 0 ? lw.label : undefined,
+          });
+          newIds.push(seg.id);
+          created += 1;
+        }
+        cad.deleteLinework(id);
       }
-      cad.deleteLinework(id);
+    } finally {
+      cad.endTransaction();
     }
     if (created > 0) {
       cad.setSelection({
@@ -1000,14 +1042,25 @@ function CadWorkspaceContent({
       if (!p1 || !p2 || r1 == null || r2 == null) { log("Intersection: invalid input.", "error"); return; }
       const sols = intersectionDistanceDistance(p1, parseFloat(r1), p2, parseFloat(r2));
       if (!sols.length) { log("Intersection: circles do not intersect.", "error"); return; }
+      // Batch-created points must not share a number — count locally from the
+      // model snapshot (nextPointNo() would report the same base for both
+      // solutions because state hasn't updated between the two creations).
+      let solPtNo = (() => {
+        let max = 1000;
+        for (const p of model.points) {
+          const n = parseInt(p.pointNo, 10);
+          if (Number.isFinite(n) && n > max) max = n;
+        }
+        return max + 1;
+      })();
       for (const s of sols) {
-        const created = cad.addPoint({ pointNo: cad.nextPointNo(), n: s.n, e: s.e, z: null, code: "INT", color: activeColor });
+        const created = cad.addPoint({ pointNo: String(solPtNo++), n: s.n, e: s.e, z: null, code: "INT", color: activeColor });
         log(`Intersection point ${created.pointNo}: N ${s.n.toFixed(3)} E ${s.e.toFixed(3)}`);
       }
     } else {
       log("Intersection: choose BB or DD.", "error");
     }
-  }, [cad, dialog, findPoint, log, activeColor]);
+  }, [cad, dialog, findPoint, log, activeColor, model.points]);
 
   /** COGO inverse: needs exactly two selected points. */
   const runInverse = useCallback(() => {
@@ -1065,7 +1118,7 @@ function CadWorkspaceContent({
     const dxf = modelToDxf(model);
     const safe = activeProject.id.replace(/[^a-z0-9_-]/gi, "_");
     downloadText(`${safe}.dxf`, dxf, "application/dxf");
-    addProjectOutput(activeProject.id, {
+    addProjectOutput(activeProject.dbId, {
       label: "CAD DXF Export",
       description: `${model.points.length} point(s), ${model.linework.length} line object(s)`,
       fileName: `${safe}.dxf`,
@@ -1073,14 +1126,14 @@ function CadWorkspaceContent({
       content: dxf,
     });
     log("Exported DXF.");
-  }, [model, activeProject.id, log]);
+  }, [model, activeProject.id, activeProject.dbId, log]);
 
   const exportCsv = useCallback(() => {
     if (!model.points.length) { log("No points to export.", "error"); return; }
     const csv = pointsToCsv(model.points);
     const safe = activeProject.id.replace(/[^a-z0-9_-]/gi, "_");
     downloadText(`${safe}_points.csv`, csv, "text/csv");
-    addProjectOutput(activeProject.id, {
+    addProjectOutput(activeProject.dbId, {
       label: "CAD Points CSV",
       description: `${model.points.length} point(s)`,
       fileName: `${safe}_points.csv`,
@@ -1088,7 +1141,7 @@ function CadWorkspaceContent({
       content: csv,
     });
     log(`Exported ${model.points.length} point(s) to CSV.`);
-  }, [model, activeProject.id, log]);
+  }, [model, activeProject.id, activeProject.dbId, log]);
 
   const exportReport = useCallback(() => {
     const body = buildSurveyReport(activeProject.name, activeProject.id, model, settings.axisConvention);
@@ -1117,7 +1170,7 @@ function CadWorkspaceContent({
     const geojson = await modelToGeoJson(toGeoModel(model.points, model.linework));
     const safe = activeProject.id.replace(/[^a-z0-9_-]/gi, "_");
     downloadText(`${safe}.geojson`, geojson, "application/geo+json");
-    addProjectOutput(activeProject.id, {
+    addProjectOutput(activeProject.dbId, {
       label: "CAD GeoJSON Export",
       description: `${model.points.length} point(s), ${model.linework.length} line object(s)`,
       fileName: `${safe}.geojson`,
@@ -1127,12 +1180,77 @@ function CadWorkspaceContent({
     log(
       `Exported ${model.points.length} point(s) and ${model.linework.length} line(s) to GeoJSON (${lastGeomBackend()}).`,
     );
-  }, [model, activeProject.id, log]);
+  }, [model, activeProject.id, activeProject.dbId, log]);
+
+  // ── GeoJSON import ────────────────────────────────────────────────────────
+
+  const importGeoJson = useCallback(() => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".geojson,.json,application/geo+json,application/json";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      void (async () => {
+        try {
+          const text = await file.text();
+          const parsed = modelFromGeoJson(text);
+          for (const w of parsed.warnings) log(`GeoJSON: ${w}`, "info");
+          for (const e of parsed.errors) log(`GeoJSON: ${e}`, "error");
+          const entityCount = parsed.points.length + parsed.linework.length;
+          if (entityCount === 0) return;
+
+          cad.beginTransaction();
+          try {
+            let pNo = (() => {
+              let max = 1000;
+              for (const p of model.points) {
+                const n = parseInt(p.pointNo, 10);
+                if (Number.isFinite(n) && n > max) max = n;
+              }
+              return max + 1;
+            })();
+            const gjLayerOf = (raw: string) => {
+              const slug = raw.replace(/[^a-zA-Z0-9_-]/g, "_").toUpperCase();
+              return slug ? cad.ensureLayerById(slug).id : cad.ensureLayerById("GJ_IMPORT").id;
+            };
+            for (const p of parsed.points) {
+              const pno = p.pointNo && !findPoint(p.pointNo) ? p.pointNo : String(pNo++);
+              cad.addPoint({
+                pointNo: pno,
+                n: p.n,
+                e: p.e,
+                z: p.z ?? null,
+                code: p.code ?? "",
+                layerId: gjLayerOf(p.layerId ?? ""),
+              });
+            }
+            for (const lw of parsed.linework) {
+              if (lw.vertices.length < 2) continue;
+              cad.addLinework({
+                kind: lw.closed ? "boundary" : "polyline",
+                vertices: lw.vertices.map((v) => ({ n: v.n, e: v.e })),
+                closed: lw.closed,
+                layerId: gjLayerOf(lw.layerId ?? ""),
+              });
+            }
+          } finally {
+            cad.endTransaction();
+          }
+          fitExtents();
+          log(`GeoJSON import (${file.name}): ${parsed.points.length} point(s), ${parsed.linework.length} line object(s).`);
+        } catch (err) {
+          log(err instanceof Error ? err.message : "GeoJSON import failed.", "error");
+        }
+      })();
+    };
+    input.click();
+  }, [cad, model.points, findPoint, fitExtents, log]);
 
   // ── DXF / DWG import from workspace files ─────────────────────────────────
-
   const importCadFile = useCallback(
     async (file: File) => {
+      cad.beginTransaction();
       try {
         const result = await parseCadFile(file);
         const layerIdByName = new Map<string, string>();
@@ -1170,6 +1288,18 @@ function CadWorkspaceContent({
           return c.toLowerCase() === "#ffffff" ? "#000000" : c;
         };
 
+        // Batch-created points must not share a number: cad.nextPointNo() is
+        // a stale closure that reports the pre-import maximum for every new
+        // point. Count locally from the model snapshot.
+        let importedPtNo = (() => {
+          let max = 1000;
+          for (const p of model.points) {
+            const n = parseInt(p.pointNo, 10);
+            if (Number.isFinite(n) && n > max) max = n;
+          }
+          return max + 1;
+        })();
+
         for (const p of result.points) {
           if (p.paperSpace) {
             skippedPaper++;
@@ -1177,7 +1307,7 @@ function CadWorkspaceContent({
           }
           if (!Number.isFinite(p.n) || !Number.isFinite(p.e)) continue;
           cad.addPoint({
-            pointNo: cad.nextPointNo(),
+            pointNo: String(importedPtNo++),
             n: p.n,
             e: p.e,
             z: p.z,
@@ -1354,11 +1484,22 @@ function CadWorkspaceContent({
           .concat(result.ellipses.map((el) => el.centerE))
           .concat(result.inserts.map((ins) => ins.e));
         if (nVals.length > 0 && eVals.length > 0) {
-          const nFinite = nVals.filter(Number.isFinite);
-          const eFinite = eVals.filter(Number.isFinite);
-          if (nFinite.length > 0 && eFinite.length > 0) {
+          // Running min/max — spreading a large import's coordinates into
+          // Math.min(...vals) overflows the call stack.
+          let minN = Infinity, maxN = -Infinity, minE = Infinity, maxE = -Infinity;
+          for (const v of nVals) {
+            if (!Number.isFinite(v)) continue;
+            if (v < minN) minN = v;
+            if (v > maxN) maxN = v;
+          }
+          for (const v of eVals) {
+            if (!Number.isFinite(v)) continue;
+            if (v < minE) minE = v;
+            if (v > maxE) maxE = v;
+          }
+          if (Number.isFinite(minN) && Number.isFinite(minE)) {
             log(
-              `Extents: N ${Math.min(...nFinite).toFixed(2)}..${Math.max(...nFinite).toFixed(2)} · E ${Math.min(...eFinite).toFixed(2)}..${Math.max(...eFinite).toFixed(2)}`,
+              `Extents: N ${minN.toFixed(2)}..${maxN.toFixed(2)} · E ${minE.toFixed(2)}..${maxE.toFixed(2)}`,
               "info",
             );
           }
@@ -1373,9 +1514,11 @@ function CadWorkspaceContent({
         }
       } catch (err) {
         log(err instanceof Error ? err.message : "Failed to parse CAD file.", "error");
+      } finally {
+        cad.endTransaction();
       }
     },
-    [cad, fitExtents, log],
+    [cad, fitExtents, log, model.points],
   );
 
   // ── Geometry (GeoRust geo) ─────────────────────────────────────────────────
@@ -1673,8 +1816,8 @@ function CadWorkspaceContent({
       .map((p) => p.z)
       .filter((z): z is number => z != null && Number.isFinite(z));
     if (zValues.length === 0) { log("Contours: selected surface has no valid elevations.", "error"); return; }
-    const zMin = Math.min(...zValues);
-    const zMax = Math.max(...zValues);
+    let zMin = Infinity, zMax = -Infinity;
+    for (const z of zValues) { if (z < zMin) zMin = z; if (z > zMax) zMax = z; }
     const defaultInterval = autoContourInterval(zMax - zMin);
 
     const intervalRaw = await dialog.prompt(
@@ -1690,9 +1833,10 @@ function CadWorkspaceContent({
 
     // Every Nth contour is an "index" contour — drawn heavier and labelled,
     // exactly like a topographic sheet. Default 5 (the survey convention).
-    const everyRaw = await dialog.prompt("Index contour every N intervals (heavier + labelled):", "5");
+    // 0 disables index contours entirely (all intermediate).
+    const everyRaw = await dialog.prompt("Index contour every N intervals (heavier + labelled; 0 = none):", "5");
     if (everyRaw == null) return;
-    const indexEvery = Math.max(1, Math.round(parseFloat(everyRaw) || 5));
+    const indexEvery = Math.max(0, Math.round(parseFloat(everyRaw) ?? 5));
 
     const suggestedBase = Math.floor(zMin / interval) * interval;
     const baseRaw = await dialog.prompt(
@@ -1724,26 +1868,35 @@ function CadWorkspaceContent({
     let indexCount = 0;
     cad.ensureLayerById("CONTOURS");
     cad.ensureLayerById("CONTOURS_INDEX");
-    for (const line of lines) {
-      // A contour is an index contour when its elevation is a whole multiple of
-      // (interval × indexEvery). Rounded comparison avoids float drift.
-      const steps = Math.round(line.elevation / interval);
-      const isIndex = steps % indexEvery === 0;
-      if (isIndex) indexCount += 1;
-      cad.addLinework({
-        kind: "polyline",
-        vertices: line.vertices.map((v) => ({ n: v.n, e: v.e })),
-        closed: false,
-        layerId: isIndex ? "CONTOURS_INDEX" : "CONTOURS",
-        // Every contour records its elevation in `label` so the 3D view can
-        // lift it to the correct RL. The 2D renderer only *shows* the label on
-        // index contours (CONTOURS_INDEX layer), matching topo cartography.
-        label: `${line.elevation.toFixed(2)}`,
-      });
+    cad.beginTransaction();
+    try {
+      for (const line of lines) {
+        // A contour is an index contour when its step from the base is a whole
+        // multiple of indexEvery. Rounded comparison avoids float drift. The
+        // base must be subtracted first — a non-integral base shifts ALL
+        // contours off the index elevations otherwise.
+        const steps = Math.round((line.elevation - base) / interval);
+        const isIndex = indexEvery > 0 && steps % indexEvery === 0;
+        if (isIndex) indexCount += 1;
+        cad.addLinework({
+          kind: "polyline",
+          vertices: line.vertices.map((v) => ({ n: v.n, e: v.e })),
+          closed: false,
+          layerId: isIndex ? "CONTOURS_INDEX" : "CONTOURS",
+          // Every contour records its elevation in `label` so the 3D view can
+          // lift it to the correct RL. The 2D renderer only *shows* the label on
+          // index contours (CONTOURS_INDEX layer), matching topo cartography.
+          label: `${line.elevation.toFixed(2)}`,
+        });
+      }
+    } finally {
+      cad.endTransaction();
     }
     log(
       `Generated ${lines.length} contour(s) at ${interval} m — ` +
-        `${indexCount} index (every ${indexEvery}) labelled, ${lines.length - indexCount} intermediate (${lastBackend()}).`,
+        (indexEvery > 0
+          ? `${indexCount} index (every ${indexEvery}) labelled, ${lines.length - indexCount} intermediate (${lastBackend()}).`
+          : `no index contours (${lastBackend()}).`),
     );
   }, [model.surfaces, cad, dialog, log]);
 
@@ -1754,8 +1907,8 @@ function CadWorkspaceContent({
 
     const zValues = surface.points.map((p) => p.z).filter((z): z is number => z != null && Number.isFinite(z));
     if (zValues.length === 0) { log("Volume: selected surface has no valid elevations.", "error"); return; }
-    const zMin = Math.min(...zValues);
-    const zMax = Math.max(...zValues);
+    let zMin = Infinity, zMax = -Infinity;
+    for (const z of zValues) { if (z < zMin) zMin = z; if (z > zMax) zMax = z; }
     const zMean = zValues.reduce((a, b) => a + b, 0) / zValues.length;
 
     const optionValues: Record<string, number> = {
@@ -1817,9 +1970,24 @@ function CadWorkspaceContent({
       "Choose the BASE (comparison) surface",
     );
     if (!base) return;
+    const modeChoice = await dialog.select(
+      "Footprint handling where the top surface extends beyond the base surface:",
+      [
+        "Overlap only — compute over the shared area (top points outside base are ignored)",
+        "Strict — report an error if any top point lies outside the base footprint",
+      ],
+    );
+    if (modeChoice == null) return;
+    const footprintMode = modeChoice.startsWith("Strict") ? "strict" as const : "overlap" as const;
     const topTin = { points: top.points, triangles: top.triangles };
     const baseTin = { points: base.points, triangles: base.triangles };
-    const v = await volumeBetween(topTin, baseTin);
+    let v;
+    try {
+      v = await volumeBetween(topTin, baseTin, footprintMode);
+    } catch (err) {
+      log(err instanceof Error ? err.message : "Volume Δ failed.", "error");
+      return;
+    }
     // Coloured 3D earthworks model on the top surface (red = cut, blue = fill).
     const cf = cutFillBetween(topTin, baseTin);
     cad.ensureLayerById("CUT_FILL");
@@ -1839,6 +2007,25 @@ function CadWorkspaceContent({
     );
   }, [model.surfaces, cad, dialog, settingsApi, fitExtents, log]);
 
+// ── Aspect shading palette (8-wind sector, conventional N…NW ramp) ──────────
+
+function aspectColor(aspectDeg: number | null): string {
+  // Flat triangles (null aspect) render neutral grey.
+  if (aspectDeg == null || !Number.isFinite(aspectDeg)) return "#64748b";
+  const ASPECT_COLORS = [
+    "#dc2626", // N
+    "#f97316", // NE
+    "#eab308", // E
+    "#84cc16", // SE
+    "#16a34a", // S
+    "#0d9488", // SW
+    "#3b82f6", // W
+    "#8b5cf6", // NW
+  ];
+  const sector = Math.floor((((aspectDeg % 360) + 360) % 360 + 22.5) / 45) % 8;
+  return ASPECT_COLORS[sector];
+}
+
   // ── Terrain analysis (slope / aspect / 3D area) ────────────────────────────
 
   const analyseSurfaceTerrain = useCallback(async () => {
@@ -1849,6 +2036,13 @@ function CadWorkspaceContent({
       return;
     }
     const tin = { points: surface.points, triangles: surface.triangles };
+    const mode = await dialog.select(
+      "Terrain shading mode:",
+      ["Slope shading (steepness ramp)", "Aspect shading (8-wind sector)"],
+    );
+    if (mode == null) return;
+    const asAspect = mode.startsWith("Aspect");
+
     log("Analysing terrain…");
     const [tris, stats] = await Promise.all([analyseTerrain(tin), terrainStats(tin)]);
     if (!stats || tris.length === 0) {
@@ -1863,11 +2057,11 @@ function CadWorkspaceContent({
         b: tri.b,
         c: tri.c,
         slopeDeg: t.slopeDeg,
-        color: slopeColor(t.slopeDeg, maxSlope),
+        color: asAspect ? aspectColor(t.aspectDeg) : slopeColor(t.slopeDeg, maxSlope),
       };
     });
     cad.addSurface({
-      name: `Slope shade — ${surface.name}`,
+      name: `${asAspect ? "Aspect" : "Slope"} shade — ${surface.name}`,
       points: surface.points,
       triangles: surface.triangles,
       layerId: surface.layerId,
@@ -1883,7 +2077,139 @@ function CadWorkspaceContent({
     );
     const body = buildTerrainReport(activeProject.name, activeProject.id, surface.name, stats);
     openReportWindow(`Terrain Analysis — ${activeProject.name}`, body);
-  }, [model.surfaces, cad, settingsApi, fitExtents, log, activeProject.name, activeProject.id]);
+  }, [model.surfaces, cad, dialog, settingsApi, fitExtents, log, activeProject.name, activeProject.id]);
+
+  // ── Long-section (chainage / level profile) extraction ────────────────────
+
+  const extractProfile = useCallback(async () => {
+    if (model.surfaces.length === 0) { log("Profile: build a TIN surface first (Surface ▸ Build TIN).", "error"); return; }
+    const sel = cad.selection;
+    const lw = sel.type === "linework" && sel.id
+      ? model.linework.find((l) => l.id === sel.id)
+      : undefined;
+    if (!lw || lw.vertices.length < 2) {
+      log("Profile: select a polyline or boundary to section along.", "error");
+      return;
+    }
+    const surface = model.surfaces.length === 1
+      ? model.surfaces[0]
+      : await pickSurface(model.surfaces, dialog, "Choose surface to sample for the long section");
+    if (!surface) return;
+    const tin = { points: surface.points, triangles: surface.triangles };
+
+    const totalLen = polylineLength(lw.vertices);
+    const defInterval = Math.max(1, Math.round(totalLen / 60));
+    const intRaw = await dialog.prompt(
+      `Sampling interval (m). Chain length ${totalLen.toFixed(2)} m:`,
+      String(defInterval),
+    );
+    if (intRaw == null) return;
+    const interval = parseFloat(intRaw);
+    if (!Number.isFinite(interval) || interval <= 0) {
+      log("Profile: invalid interval.", "error");
+      return;
+    }
+
+    // Walk the chain: sample at every even interval AND at every vertex
+    // chainage (bends must appear in the profile).
+    const stations: { ch: number; z: number | null }[] = [];
+    let chain = 0;
+    for (let i = 0; i < lw.vertices.length; i++) {
+      if (i > 0) chain += inverse(lw.vertices[i - 1], lw.vertices[i]).distance;
+      stations.push({ ch: chain, z: sampleZ(tin, lw.vertices[i].n, lw.vertices[i].e) });
+      if (i + 1 < lw.vertices.length) {
+        const segLen = inverse(lw.vertices[i], lw.vertices[i + 1]).distance;
+        if (segLen <= 0) continue;
+        for (let s = Math.ceil((chain + 1e-6) / interval) * interval; s < chain + segLen - 1e-9; s += interval) {
+          const t = (s - chain) / segLen;
+          const vx = lw.vertices[i];
+          const vy = lw.vertices[i + 1];
+          stations.push({ ch: s, z: sampleZ(tin, vx.n + (vy.n - vx.n) * t, vx.e + (vy.e - vx.e) * t) });
+        }
+      }
+    }
+    stations.sort((a, b) => a.ch - b.ch);
+    const sampled = stations.filter((s) => s.z != null);
+    if (sampled.length < 2) {
+      log("Profile: the section line falls (mostly) outside the surface — fewer than 2 samples.", "error");
+      return;
+    }
+
+    let zMin = Infinity, zMax = -Infinity, chMax = 0;
+    for (const s of sampled) {
+      if (s.z! < zMin) zMin = s.z!;
+      if (s.z! > zMax) zMax = s.z!;
+      if (s.ch > chMax) chMax = s.ch;
+    }
+    const zPad = Math.max(0.5, (zMax - zMin) * 0.1);
+    zMin -= zPad; zMax += zPad;
+
+    // Build a long-section chart as inline SVG for the report window.
+    const W = 960, H = 360, ml = 70, mr = 24, mt = 26, mb = 46;
+    const px = (ch: number) => ml + (chMax > 0 ? (ch / chMax) : 0) * (W - ml - mr);
+    const py = (z: number) => mt + (1 - (z - zMin) / (zMax - zMin)) * (H - mt - mb);
+    const zTicks: number[] = [];
+    const zStep = (zMax - zMin) / 5;
+    for (let i = 0; i <= 5; i++) zTicks.push(zMin + i * zStep);
+    const grid = zTicks.map((z) =>
+      `<line x1="${ml}" y1="${py(z)}" x2="${W - mr}" y2="${py(z)}" stroke="#d7dde5" stroke-width="0.8"/>` +
+      `<text x="${ml - 8}" y="${py(z) + 3.5}" text-anchor="end" font-size="10" fill="#475569">${z.toFixed(2)}</text>`
+    ).join("");
+    const chTickStep = Math.max(interval * 2, chMax / 8);
+    const chTicks: string[] = [];
+    for (let ch = 0; ch <= chMax + 1e-6; ch += chTickStep) {
+      chTicks.push(
+        `<line x1="${px(ch)}" y1="${H - mb}" x2="${px(ch)}" y2="${H - mb + 5}" stroke="#94a3b8" stroke-width="1"/>` +
+        `<text x="${px(ch)}" y="${H - mb + 18}" text-anchor="middle" font-size="10" fill="#475569">${ch.toFixed(0)}</text>`,
+      );
+    }
+    // Break the chain into runs of valid samples (gaps stay gaps).
+    const runs: string[] = [];
+    let run: string[] = [];
+    const flush = () => { if (run.length >= 2) runs.push(run.join(" ")); run = []; };
+    for (const s of stations) {
+      if (s.z == null || s.ch > chMax + 1) { flush(); continue; }
+      run.push(`${px(s.ch).toFixed(1)},${py(s.z).toFixed(1)}`);
+    }
+    flush();
+    const paths = runs
+      .map((r) => `<polyline points="${r}" fill="none" stroke="#0369a1" stroke-width="1.8" stroke-linejoin="round"/>`)
+      .join("");
+    const svg =
+      `<svg viewBox="0 0 ${W} ${H}" width="100%" style="background:#fff;border:1px solid #d7dde5;border-radius:8px">` +
+      grid + chTicks.join("") +
+      `<line x1="${ml}" y1="${H - mb}" x2="${W - mr}" y2="${H - mb}" stroke="#334155" stroke-width="1"/>` +
+      `<line x1="${ml}" y1="${mt}" x2="${ml}" y2="${H - mb}" stroke="#334155" stroke-width="1"/>` +
+      paths +
+      `<text x="${ml - 46}" y="${mt - 8}" font-size="11" font-weight="bold" fill="#0f172a">RL (m)</text>` +
+      `<text x="${W - mr}" y="${H - mb + 32}" text-anchor="end" font-size="11" font-weight="bold" fill="#0f172a">Chainage (m)</text>` +
+      `</svg>`;
+
+    const name = `Long Section — "${surface.name}"`;
+    const body =
+      `<h1>${name}</h1>` +
+      `<p class="muted">Surface: ${surface.name} · interval ${interval} m · ${sampled.length} of ${stations.length} samples inside footprint · ` +
+      `RL range ${zMin.toFixed(3)}–${zMax.toFixed(3)} m · chainage ${chMax.toFixed(3)} m</p>` +
+      svg +
+      `<table><thead><tr><th>Chainage (m)</th><th>RL (m)</th></tr></thead><tbody>` +
+      stations
+        .map((s) => `<tr><td>${s.ch.toFixed(3)}</td><td>${s.z == null ? "—" : s.z.toFixed(3)}</td></tr>`)
+        .join("") +
+      `</tbody></table>`;
+    openReportWindow(name, body);
+
+    // CSV via the project outputs store (and a direct download).
+    const csv = ["Chainage,RL", ...stations.map((s) => `${s.ch.toFixed(3)},${s.z == null ? "" : s.z.toFixed(3)}`)].join("\n");
+    downloadText("long-section.csv", csv, "text/csv");
+    addProjectOutput(activeProject.dbId, {
+      label: "Long Section (Chainage/Level)",
+      description: `${stations.length} stations, interval ${interval} m`,
+      fileName: `long-section-${activeProject.dbId}.csv`,
+      mimeType: "text/csv",
+      content: csv,
+    });
+    log(`Long section: ${sampled.length}/${stations.length} samples, RL ${zMin.toFixed(2)}–${zMax.toFixed(2)} m — chart opened + CSV saved.`);
+  }, [model.surfaces, model.linework, cad, dialog, log, activeProject.dbId]);
 
   // ── Annotation (boundary labels, area label) ────────────────────────────────
 
@@ -1899,16 +2225,21 @@ function CadWorkspaceContent({
     const verts = lw.vertices;
     const segs = lw.closed ? verts.length : verts.length - 1;
     let placed = 0;
-    for (let i = 0; i < segs; i++) {
-      const a = verts[i];
-      const b = verts[(i + 1) % verts.length];
-      const r = inverse(a, b);
-      const midN = (a.n + b.n) / 2;
-      const midE = (a.e + b.e) / 2;
-      const text = `${fmtBearing(r.azimuth, bearingFormat)}  ${fmtDistance(r.distance)} m`;
-      cad.ensureLayerById("TEXT");
-    cad.addText({ n: midN, e: midE, text, layerId: "TEXT" });
-      placed += 1;
+    cad.beginTransaction();
+    try {
+      for (let i = 0; i < segs; i++) {
+        const a = verts[i];
+        const b = verts[(i + 1) % verts.length];
+        const r = inverse(a, b);
+        const midN = (a.n + b.n) / 2;
+        const midE = (a.e + b.e) / 2;
+        const text = `${fmtBearing(r.azimuth, bearingFormat)}  ${fmtDistance(r.distance)} m`;
+        cad.ensureLayerById("TEXT");
+        cad.addText({ n: midN, e: midE, text, layerId: "TEXT" });
+        placed += 1;
+      }
+    } finally {
+      cad.endTransaction();
     }
     log(`Labelled ${placed} segment(s) with bearing & distance.`);
   }, [cad, model.linework, bearingFormat, log]);
@@ -2030,18 +2361,29 @@ function CadWorkspaceContent({
           else if (sub === "volume-elevation") void computeVolumeToElevation();
           else if (sub === "volume-between") void computeVolumeBetween();
           else if (sub === "terrain") void analyseSurfaceTerrain();
+          else if (sub === "profile") void extractProfile();
           else if (sub === "cutfill-report") void exportCutFillReport();
           else if (sub === "clear-contours") {
             const contours = model.linework.filter(
               (lw) => lw.layerId === "CONTOURS" || lw.layerId === "CONTOURS_INDEX",
             );
             if (contours.length === 0) { log("No contours to clear.", "info"); break; }
-            for (const lw of contours) cad.deleteLinework(lw.id);
+            cad.beginTransaction();
+            try {
+              for (const lw of contours) cad.deleteLinework(lw.id);
+            } finally {
+              cad.endTransaction();
+            }
             log(`Cleared ${contours.length} contour line(s).`);
           } else if (sub === "clear-surfaces") {
             const surfaces = [...model.surfaces];
             if (surfaces.length === 0) { log("No surfaces to clear.", "info"); break; }
-            for (const s of surfaces) cad.deleteSurface(s.id);
+            cad.beginTransaction();
+            try {
+              for (const s of surfaces) cad.deleteSurface(s.id);
+            } finally {
+              cad.endTransaction();
+            }
             log(`Cleared ${surfaces.length} surface(s).`);
           }
           else log(`Unhandled action: ${actionId}`, "error");
@@ -2065,7 +2407,7 @@ function CadWorkspaceContent({
       exportGeoJson, computeConvexHull, simplifySelection, reprojectDrawing,
       runIntersection, runInverse, runArea, buildSurface, buildSurfaceWithBreaklines, buildBoundarySurface, processLinework,
       buildContours, computeVolumeToElevation,
-      computeVolumeBetween, exportCutFillReport, analyseSurfaceTerrain,
+      computeVolumeBetween, exportCutFillReport, analyseSurfaceTerrain, extractProfile,
       labelBoundarySegments, labelArea, labelCoordinates, log, cad, openLayout,
       model.linework, model.surfaces, commandCtx,
     ],
@@ -2115,6 +2457,9 @@ function CadWorkspaceContent({
         case "file:export-dxf":
           exportDxf();
           break;
+        case "file:import-geojson":
+          importGeoJson();
+          break;
         case "file:export-csv":
           exportCsv();
           break;
@@ -2158,7 +2503,7 @@ function CadWorkspaceContent({
           break;
       }
     },
-    [cad, deleteSelection, exportCsv, exportDxf, exportGeoJson, fitExtents, handleToggle, log, openLayout, settingsApi],
+    [cad, deleteSelection, exportCsv, exportDxf, exportGeoJson, fitExtents, handleToggle, importGeoJson, log, openLayout, settingsApi],
   );
 
   const handleKeyDown = useCallback(
@@ -2294,7 +2639,7 @@ function CadWorkspaceContent({
     >
       {projectPointsOpen && (
         <CadProjectPointsSelector
-          projectId={activeProject.id}
+          projectId={activeProject.dbId}
           onImport={importProjectPoints}
           onClose={() => setProjectPointsOpen(false)}
         />
@@ -2303,7 +2648,7 @@ function CadWorkspaceContent({
       <CadImportDxfDialog
         open={importDxfOpen}
         workspaceId={workspaceId}
-        projectId={activeProject.id}
+        projectId={activeProject.dbId}
         onClose={() => setImportDxfOpen(false)}
         onImport={importCadFile}
       />
@@ -2471,7 +2816,7 @@ function CadWorkspaceContent({
             fitSignal={fitSignal}
             selection={selection}
             tool={tool}
-            projectId={activeProject.id}
+            projectId={activeProject.dbId}
             onCursorMove={(w) => setCursor({ n: w.n, e: w.e })}
           />
         ) : (
@@ -2489,6 +2834,7 @@ function CadWorkspaceContent({
             coordDecimals={settings.coordDecimals}
             axisConvention={settings.axisConvention}
             showPointLabels={settings.showPointLabels}
+            showPointElevations={settings.showPointElevations}
             showSegmentLabels={settings.showSegmentLabels}
             scaleSignal={scaleSignal}
             scaleTarget={scaleTarget}

@@ -194,19 +194,29 @@ export async function volumeToElevation(
 export async function volumeBetween(
   top: SurfaceTin,
   base: SurfaceTin,
+  mode: "strict" | "overlap" = "overlap",
 ): Promise<SurfaceVolumeResult> {
-  const api = await loadWasm();
-  if (api) {
-    try {
-      const result = api.volume_between({ top, base });
-      activeBackend = "wasm";
-      return result;
-    } catch {
-      /* fall through to TS */
+  // The WASM `volume_between` binding is STRICT. In strict mode prefer it;
+  // on overlap the deterministic TS engine is the only correct path.
+  if (mode === "strict") {
+    const api = await loadWasm();
+    if (api) {
+      try {
+        const result = api.volume_between({ top, base });
+        activeBackend = "wasm";
+        return result;
+      } catch (err) {
+        // Footprint violations must reach the user in strict mode — never
+        // silently recompute with different (overlap) semantics.
+        if (err instanceof Error && /outside|footprint|boundary/i.test(err.message)) throw err;
+        /* engine unavailable/failure — fall through to TS */
+      }
     }
+    activeBackend = "ts";
+    return ts.volumeBetween(top, base, "strict");
   }
   activeBackend = "ts";
-  return ts.volumeBetween(top, base);
+  return ts.volumeBetween(top, base, "overlap");
 }
 
 /**

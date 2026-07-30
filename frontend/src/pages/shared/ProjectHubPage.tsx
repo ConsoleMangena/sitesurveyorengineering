@@ -60,11 +60,12 @@ import {
   archiveProject,
   unarchiveProject,
   deleteProject,
-  listProjectMembers,
+  listProjectMembersForProjects,
   listProjectActivities,
   createProjectActivity,
   deleteProjectActivity,
   type ProjectActivity,
+  type ProjectMemberWithProfile,
   type ProjectUpdate,
 } from '../../lib/repositories/projects.ts'
 import { useProjects } from '../../lib/hooks/useProjects.ts'
@@ -81,7 +82,8 @@ import { ProjectSettings } from '../../features/projects/components/ProjectSetti
 import { ProjectPointsManager } from '../../features/projects/components/ProjectPointsManager.tsx'
 import { ProjectOutputsManager } from '../../features/projects/components/ProjectOutputsManager.tsx'
 import { ProjectFilesManager } from '../../features/projects/components/ProjectFilesManager.tsx'
-import { useProjectPoints } from '../../features/projects/tools/calculators/projectPoints.ts'
+import { migrateProjectPointsKey, useProjectPoints } from '../../features/projects/tools/calculators/projectPoints.ts'
+import { migrateProjectOutputsKey } from '../../features/projects/tools/calculators/projectOutputs.ts'
 import { useAsyncAction } from '../../hooks/useAsyncAction.ts'
 import { useOfflineSyncStatus } from '../../lib/hooks/useOfflineSyncStatus.ts'
 import {
@@ -307,26 +309,31 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
   }, [activeProjectId, projects, workspaceId])
 
   // Keep the HubProject list in sync with the local-first projectRows.
+  // Members are resolved in two bulk queries total — never one fetch per
+  // project row (which multiplied with every 15 s silent poll).
   useEffect(() => {
     let cancelled = false
     const map = async () => {
-      const mapped = await Promise.all(
-        projectRows.map(async (row) => {
-          try {
-            const members = await listProjectMembers(row.id)
-            return mapProjectRowToHubProject(
-              { ...row, organization_name: row.organization_name },
-              members.map(m => ({ full_name: m.full_name, email: m.email, role: m.role })),
-            )
-          } catch {
-            return mapProjectRowToHubProject(
-              { ...row, organization_name: row.organization_name },
-              [],
-            )
-          }
-        }),
+      let membersByProject = new Map<string, ProjectMemberWithProfile[]>()
+      try {
+        membersByProject = await listProjectMembersForProjects(
+          projectRows.map((row) => row.id),
+        )
+      } catch {
+        // Member resolution is best-effort; rows still render without names.
+      }
+      if (cancelled) return
+      const mapped = projectRows.map((row) =>
+        mapProjectRowToHubProject(
+          row,
+          (membersByProject.get(row.id) ?? []).map((m) => ({
+            full_name: m.full_name,
+            email: m.email,
+            role: m.role,
+          })),
+        ),
       )
-      if (!cancelled) setProjects(mapped)
+      setProjects(mapped)
     }
     void map()
     return () => { cancelled = true }
@@ -535,27 +542,51 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
     return () => window.removeEventListener('online', handleOnline)
   }, [flushActivityQueue])
 
+  // Also flush on mount / when opening a different project: the `online`
+  // event never fires when the app reloads while already online, so a
+  // non-empty queue would otherwise sit there indefinitely.
+  useAsyncAction(flushActivityQueue, [flushActivityQueue])
+
+  // Move locally stored project points/outputs written under the legacy
+  // display-id key onto the stable database id (one-time no-op afterwards).
+  const activeDbId = activeProject?.dbId
+  const activeDisplayId = activeProject?.id
   useEffect(() => {
-    if (!activeProject) return
+    if (!activeDbId) return
+    const legacyId = activeDisplayId && activeDisplayId !== activeDbId ? activeDisplayId : null
+    migrateProjectPointsKey(activeDbId, legacyId)
+    migrateProjectOutputsKey(activeDbId, legacyId)
+  }, [activeDbId, activeDisplayId])
+
+  // Re-seed the Settings form only when a DIFFERENT project is opened — an
+  // identity-based dependency on `activeProject` would clobber in-progress
+  // edits every 15 s, because the silent poll rebuilds the projects array.
+  const activeProjectRef = useRef(activeProject)
+  useEffect(() => {
+    activeProjectRef.current = activeProject
+  })
+  useEffect(() => {
+    const proj = activeProjectRef.current
+    if (!proj) return
     const id = window.setTimeout(() => {
-      setEditName(activeProject.name)
-      setEditClient(activeProject.client)
-      setEditOrgId(activeProject.organizationId ?? '')
-      setEditPhase(activeProject.phase)
-      setEditDatum(activeProject.datum)
-      setEditAxisConvention(activeProject.axisConvention === 'xy' ? 'xy' : 'yx')
-      setEditCrsType(activeProject.crsType)
-      setEditCrsEpsg(activeProject.crsEpsg)
-      setEditLocalOriginE(String(activeProject.localOriginE ?? 0))
-      setEditLocalOriginN(String(activeProject.localOriginN ?? 0))
-      setEditBearingFormat(activeProject.bearingFormat || 'azimuth')
-      setEditAngleEntry(activeProject.angleEntry || 'packed')
-      setEditCoordDecimals(String(activeProject.coordDecimals ?? 3))
-      setEditStatus(activeProject.status)
-      setEditDesc(activeProject.description)
+      setEditName(proj.name)
+      setEditClient(proj.client)
+      setEditOrgId(proj.organizationId ?? '')
+      setEditPhase(proj.phase)
+      setEditDatum(proj.datum)
+      setEditAxisConvention(proj.axisConvention === 'xy' ? 'xy' : 'yx')
+      setEditCrsType(proj.crsType)
+      setEditCrsEpsg(proj.crsEpsg)
+      setEditLocalOriginE(String(proj.localOriginE ?? 0))
+      setEditLocalOriginN(String(proj.localOriginN ?? 0))
+      setEditBearingFormat(proj.bearingFormat || 'azimuth')
+      setEditAngleEntry(proj.angleEntry || 'packed')
+      setEditCoordDecimals(String(proj.coordDecimals ?? 3))
+      setEditStatus(proj.status)
+      setEditDesc(proj.description)
     }, 0)
     return () => window.clearTimeout(id)
-  }, [activeProject])
+  }, [activeProjectId])
 
   const handleUpdateProject = async () => {
     if (!activeProject) return
@@ -658,6 +689,16 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
 
     const trimmedCache = previousActivities.filter((a) => a.id !== activityId)
     writeCachedActivities(activeProjectId, trimmedCache)
+
+    // A queued (never-synced) create has no server row to delete — remove it
+    // from the create queue so the next flush doesn't resurrect it (zombie).
+    const queue = readActivityQueue(activeProjectId)
+    if (queue.creates.some((c) => c.tempId === activityId)) {
+      queueActivityDelete(activeProjectId, activityId)
+      setNotice({ type: 'success', message: 'Activity deleted.' })
+      setDeletingActivityId(null)
+      return
+    }
 
     if (!navigator.onLine) {
       queueActivityDelete(activeProjectId, activityId)
@@ -780,7 +821,7 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
     }
   }
 
-  const projectPoints = useProjectPoints(activeProject?.id)
+  const projectPoints = useProjectPoints(activeProject?.dbId)
 
   const kpiData = activeProject ? [
     {
@@ -848,7 +889,14 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
 
   const handleUndeployAsset = async (assetId: string) => {
     try {
-      await updateAsset(assetId, { status: 'available', metadata: { current_project_name: null } })
+      // Merge into existing metadata — a whole-property replace would drop
+      // every other key the asset record carries (serials, notes, ...).
+      const asset = deployedAssets.find(a => a.id === assetId)
+      const metadata = {
+        ...((asset?.metadata ?? {}) as Record<string, unknown>),
+        current_project_name: null,
+      }
+      await updateAsset(assetId, { status: 'available', metadata })
       setDeployedAssets(prev => prev.filter(a => a.id !== assetId))
       setNotice({ type: 'success', message: 'Asset checked in successfully.' })
     } catch (err) {
@@ -890,10 +938,19 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
           </div>
           <div className="space-y-1.5">
             <Label>Client (Organization)</Label>
-            <Select value={newOrgId} onValueChange={(val) => { setNewOrgId(val); if (val) setNewOrgName(''); }}>
+            <Select
+              value={newOrgId || '__create_new__'}
+              onValueChange={(val) => {
+                // Radix Select items may not have an empty-string value; map
+                // the sentinel back to '' (meaning: create a new organization).
+                const id = val === '__create_new__' ? '' : val;
+                setNewOrgId(id);
+                if (id) setNewOrgName('');
+              }}
+            >
               <SelectTrigger><SelectValue placeholder="Select or create new..." /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Create new...</SelectItem>
+                <SelectItem value="__create_new__">Create new...</SelectItem>
                 {organizations.map(org => <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>)}
               </SelectContent>
             </Select>
@@ -1064,10 +1121,10 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
                 </header>
 
                 {effectiveProjectTab === 'points' ? (
-                  <ProjectPointsManager projectId={activeProject?.id} />
+                  <ProjectPointsManager projectId={activeProject?.dbId} />
                 ) : effectiveProjectTab === 'files' ? (
                   <ProjectFilesManager projectId={activeProject.dbId} workspaceId={workspaceId} onOpenInCad={openCadWorkspace} />
-                ) : activeProjectTab === 'overview' ? (
+                ) : effectiveProjectTab === 'overview' ? (
                   <ProjectDashboard
                     kpiData={kpiData}
                     activities={activities}
@@ -1090,7 +1147,7 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
                     onOpenTool={handleToolOpen}
                   />
                 ) : effectiveProjectTab === 'outputs' ? (
-                  <ProjectOutputsManager projectId={activeProject?.id} workspaceId={workspaceId} />
+                  <ProjectOutputsManager projectId={activeProject?.dbId} workspaceId={workspaceId} />
                 ) : effectiveProjectTab === 'settings' ? (
                   <ProjectSettings
                     activeProject={activeProject}

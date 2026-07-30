@@ -78,6 +78,29 @@ describe("surface contours", () => {
       expect(v.n).toBeCloseTo(5, 6);
     }
   });
+
+  it("does not drop segments when a TIN vertex lies exactly on the contour level", () => {
+    // Bowl surface: centre point at (5,5) EXACTLY on the level 5, corners
+    // above/below. Contours through exact-RL spot levels must connect
+    // through the vertex instead of gapping out.
+    const points: SurfacePoint3[] = [
+      { n: 0, e: 0, z: 10 },
+      { n: 0, e: 10, z: 10 },
+      { n: 10, e: 10, z: 10 },
+      { n: 10, e: 0, z: 10 },
+      { n: 5, e: 5, z: 5 }, // exactly on the level
+      { n: 0, e: 5, z: 0 }, // below, so the 5-level line is forced through the middle
+      { n: 10, e: 5, z: 0 },
+    ];
+    const contours = generateContours(buildTin(points), 5, 0);
+    const line = contours.find((c) => Math.abs(c.elevation - 5) < 1e-9);
+    expect(line).toBeDefined();
+    // Some segment endpoint must BE the on-level vertex (5,5).
+    const hitsVertex = line!.vertices.some(
+      (v) => Math.abs(v.n - 5) < 1e-6 && Math.abs(v.e - 5) < 1e-6,
+    );
+    expect(hitsVertex).toBe(true);
+  });
 });
 
 describe("contour smoothing (Chaikin)", () => {

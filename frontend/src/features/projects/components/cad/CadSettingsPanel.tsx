@@ -237,6 +237,11 @@ export function CadSettingsPopover({
             onChange={() => update({ showPointLabels: !settings.showPointLabels })}
           />
           <ToggleRow
+            label="Point spot elevations (RL)"
+            checked={settings.showPointElevations}
+            onChange={() => update({ showPointElevations: !settings.showPointElevations })}
+          />
+          <ToggleRow
             label="Segment bearing / distance labels"
             checked={settings.showSegmentLabels}
             onChange={() => update({ showSegmentLabels: !settings.showSegmentLabels })}

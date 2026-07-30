@@ -12,6 +12,7 @@ import {
   RotateCcw, Expand, FlipHorizontal, ArrowLeftRight,
   Circle,
   PaintBucket,
+  TrendingUp,
 } from "lucide-react";
 
 export interface RibbonAction {
@@ -125,6 +126,7 @@ const PANELS: Record<string, RibbonPanel[]> = {
       label: "Analysis",
       actions: [
         { id: "surface:terrain", label: "Slope / Aspect", hint: "Shade the TIN by slope and report terrain statistics (mean/min/max slope, 3D area)" },
+        { id: "surface:profile", label: "Long Section", hint: "Sample a chainage/level profile along the selected polyline or boundary — chart + CSV" },
       ],
     },
     {
@@ -213,6 +215,7 @@ const ICON_MAP: Record<string, ComponentType<{ size?: number | string }>> = {
   "surface:volume-between": Diff,
   "surface:cutfill-report": ClipboardList,
   "surface:terrain": Compass,
+  "surface:profile": TrendingUp,
   "surface:clear-contours": Trash2,
   "surface:clear-surfaces": Trash2,
   "annotate:label-boundary": Tag,

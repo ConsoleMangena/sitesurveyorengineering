@@ -233,6 +233,28 @@ export function useNotifications(
   return { notifications, unreadCount, loading, error, refresh, markRead, markAllRead };
 }
 
+/**
+ * Mark the current user's unread chat notifications as read — called when the
+ * chat panel is opened, so the bell doesn't keep flagging messages the user
+ * has already seen in the chat itself.
+ */
+export async function markChatNotificationsRead(
+  workspaceId: string,
+): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) return;
+
+  const { error } = await supabase
+    .from("notifications")
+    .update({ status: "read", read_at: new Date().toISOString() })
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", user.id)
+    .eq("status", "unread")
+    .eq("metadata->>type", "chat_message");
+
+  if (error) throw error;
+}
+
 export async function markAllNotificationsRead(
   workspaceId: string,
 ): Promise<void> {

@@ -15,26 +15,38 @@
  */
 import type { CadLayer, CadModelState, SurveyDimension, SurveyEllipse, SurveyHatch } from "../cadModel.ts";
 
-// Map a hex colour to the nearest of the 7 standard AutoCAD Color Indices.
+/**
+ * Map a hex colour to the nearest of the 9 standard AutoCAD Color Indices
+ * by RGB distance — a lookup table silently degrades every project layer
+ * colour to ACI 7 (white/black).
+ */
+const ACI_COLORS: [aci: number, rgb: [number, number, number]][] = [
+  [1, [255, 0, 0]],     // red
+  [2, [255, 255, 0]],   // yellow
+  [3, [0, 255, 0]],     // green
+  [4, [0, 255, 255]],   // cyan
+  [5, [0, 0, 255]],     // blue
+  [6, [255, 0, 255]],   // magenta
+  [7, [255, 255, 255]], // white (black on light backgrounds)
+  [8, [128, 128, 128]], // grey
+  [30, [255, 127, 0]],  // orange
+];
+
 function aci(hex: string): number {
-  const palette: Record<string, number> = {
-    "#f43f5e": 1, // red
-    "#ff0000": 1, // red
-    "#22c55e": 3, // green
-    "#38bdf8": 4, // cyan
-    "#22d3ee": 4, // cyan
-    "#a78bfa": 6, // magenta-ish
-    "#a855f7": 6, // magenta
-    "#eab308": 2, // yellow
-    "#ffff00": 2, // yellow
-    "#f97316": 30, // orange
-    "#ff7a00": 30, // orange
-    "#3b82f6": 5, // blue
-    "#94a3b8": 8, // grey
-    "#ffffff": 7, // white
-    "#e2e8f0": 7, // white
-  };
-  return palette[hex.toLowerCase()] ?? 7;
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return 7;
+  const v = parseInt(m[1], 16);
+  const r = (v >> 16) & 255, g = (v >> 8) & 255, b = v & 255;
+  let best = 7;
+  let bestDist = Infinity;
+  for (const [idx, [cr, cg, cb]] of ACI_COLORS) {
+    const dist = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = idx;
+    }
+  }
+  return best;
 }
 
 function group(code: number, value: string | number): string {
@@ -154,14 +166,17 @@ function dimensionEntity(d: SurveyDimension, layerName: string): string {
     return dxf;
   }
 
-  const angle = Math.atan2(p1.e - p0.e, p1.n - p0.n) * (180 / Math.PI);
+  // DXF rotated-dimension group 50 is CCW from the +X (Easting) axis, NOT a
+  // bearing — atan2(Δn, Δe), not atan2(Δe, Δn).
+  const angle = Math.atan2(p1.n - p0.n, p1.e - p0.e) * (180 / Math.PI);
   let dxf = "";
   dxf += group(0, "DIMENSION");
   dxf += group(100, "AcDbEntity");
   dxf += group(8, layerName);
   dxf += objColor(d.color);
   dxf += group(100, "AcDbDimension");
-  dxf += group(70, 0); // rotated/horizontal/vertical
+  // 70 = dimension type: 0 = rotated/linear, 1 = aligned.
+  dxf += group(70, d.kind === "aligned" ? 1 : 0);
   dxf += group(1, d.text ?? "");
   dxf += group(10, d.textPosition.e) + group(20, d.textPosition.n) + group(30, 0);
   dxf += group(11, d.textPosition.e) + group(21, d.textPosition.n) + group(31, 0);
@@ -175,9 +190,11 @@ export function modelToDxf(model: CadModelState): string {
   const L = model.layers;
   let dxf = "";
 
-  // HEADER (minimal).
+  // HEADER (minimal). $INSUNITS = 6 declares metres so downstream CAD/GIS
+  // does not read the drawing as unitless.
   dxf += group(0, "SECTION") + group(2, "HEADER");
   dxf += group(9, "$ACADVER") + group(1, "AC1015");
+  dxf += group(9, "$INSUNITS") + group(70, 6);
   dxf += group(0, "ENDSEC");
 
   // TABLES.
@@ -232,6 +249,21 @@ export function modelToDxf(model: CadModelState): string {
       for (const v of lw.vertices) {
         dxf += group(10, v.e) + group(20, v.n);
       }
+    }
+    // Linework labels (contour RL elevations, spot notes) are part of the
+    // deliverable — emit them as a TEXT at the polyline midpoint, or the
+    // exported sheet loses all contour annotation.
+    if (lw.label && lw.vertices.length > 0) {
+      const mid = lw.vertices[Math.floor(lw.vertices.length / 2)];
+      dxf +=
+        group(0, "TEXT") +
+        group(8, ln) +
+        objColor(lw.color) +
+        group(10, mid.e) +
+        group(20, mid.n) +
+        group(30, 0) +
+        group(40, 1.8) +
+        group(1, lw.label);
     }
   }
 

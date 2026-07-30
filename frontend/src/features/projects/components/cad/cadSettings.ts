@@ -61,6 +61,8 @@ export interface CadSettings {
   showGrid: boolean;
   /** Show point-number / code labels next to survey points. */
   showPointLabels: boolean;
+  /** Show spot elevations (RL) next to survey points (below the point number). */
+  showPointElevations: boolean;
   /** Show bearing/distance labels along linework segments. */
   showSegmentLabels: boolean;
   /** Default drawing scale denominator (e.g. 500 → 1:500), for the scale box. */
@@ -83,6 +85,7 @@ export const DEFAULT_SETTINGS: CadSettings = {
   ortho: false,
   showGrid: true,
   showPointLabels: true,
+  showPointElevations: false,
   showSegmentLabels: false,
   scaleDenominator: 500,
   view3d: false,
@@ -174,6 +177,7 @@ export function normalizeSettings(parsed: Partial<CadSettings> | null | undefine
     ortho: parsed.ortho ?? base.ortho,
     showGrid: parsed.showGrid ?? base.showGrid,
     showPointLabels: parsed.showPointLabels ?? base.showPointLabels,
+    showPointElevations: parsed.showPointElevations ?? base.showPointElevations,
     showSegmentLabels: parsed.showSegmentLabels ?? base.showSegmentLabels,
     scaleDenominator: clampScale(parsed.scaleDenominator),
     view3d: parsed.view3d ?? base.view3d,

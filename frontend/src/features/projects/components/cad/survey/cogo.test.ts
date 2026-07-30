@@ -11,6 +11,7 @@ import {
   arcArc,
   fitCircle,
   freeStation,
+  circularArcParams,
   polygonArea,
   polylineLength,
   computeTraverse,
@@ -101,9 +102,34 @@ describe("intersectionBearingBearing", () => {
     const p2: NE = { n: 10, e: 0 };
     expect(intersectionBearingBearing(p1, 90, p2, 90)).toBeNull();
   });
+
+  it("returns null when the crossing point lies behind one station", () => {
+    // p1 faces west (270°) — the lines of sight cross at (0,10), which is
+    // behind ray 1. Only the infinite LINES meet there; the rays do not.
+    const p1: NE = { n: 0, e: 0 };
+    const p2: NE = { n: 50, e: 10 };
+    expect(intersectionBearingBearing(p1, 270, p2, 180)).toBeNull();
+    // Turning p1 east (90°) puts the same crossing ahead of both rays.
+    const res = intersectionBearingBearing(p1, 90, p2, 180);
+    expect(res).not.toBeNull();
+    expect(res!.n).toBeCloseTo(0, 6);
+    expect(res!.e).toBeCloseTo(10, 6);
+  });
+
+  it("returns null when the observation rays run away from each other", () => {
+    const p1: NE = { n: 0, e: 0 };
+    const p2: NE = { n: 0, e: 100 };
+    // p1 heads west (270°), p2 heads east (90°): separated stations diverge.
+    expect(intersectionBearingBearing(p1, 270, p2, 90)).toBeNull();
+  });
 });
 
 describe("intersectionDistanceDistance", () => {
+  it("rejects negative or invalid radii", () => {
+    expect(intersectionDistanceDistance({ n: 0, e: 0 }, -5, { n: 0, e: 10 }, 5)).toEqual([]);
+    expect(intersectionDistanceDistance({ n: 0, e: 0 }, 5, { n: 0, e: 10 }, NaN)).toEqual([]);
+  });
+
   it("returns two symmetric solutions", () => {
     const p1: NE = { n: 0, e: 0 };
     const p2: NE = { n: 0, e: 10 };
@@ -693,6 +719,44 @@ describe("reduceAngularTraverse", () => {
     expect(r.azimuths[0]).toBeCloseTo(55, 6);
     expect(r.azimuths[1]).toBeCloseTo(75, 6);
   });
+
+  it("detects and balances a mirrored loop (exterior angles instead of interior)", () => {
+    // The same square as above, but the crew observed the angles on the
+    // opposite side (270° exterior instead of 90° interior): the sum closes
+    // to (n+2)·180, not (n−2)·180.
+    const obs = [
+      { angle: 270, distance: 100 },
+      { angle: 270, distance: 100 },
+      { angle: 270, distance: 100 },
+      { angle: 270.00556, distance: 100 },
+    ];
+    const r = reduceAngularTraverse(0, obs, "interior", true);
+    expect(r.mirrored).toBe(true);
+    expect(r.theoreticalSum).toBeCloseTo(1080, 9);
+    expect(r.angularMisclosure).toBeCloseTo(0.00556, 6);
+    // The mirrored recursion retraces the same square the interior angles do
+    // (azimuths 90, 180, 270, ~0), instead of producing a reflection.
+    expect(r.azimuths[0]).toBeCloseTo(90 - 0.00556 / 4, 4);
+    expect(r.azimuths[1]).toBeCloseTo(180 - 0.00556 / 2, 4);
+    expect(r.azimuths[2]).toBeCloseTo(270 - 0.00556 * 0.75, 4);
+    // The loop closes: final azimuth ≡ start azimuth (0 ≡ 360).
+    expect(Math.min(r.azimuths[3], Math.abs(360 - r.azimuths[3]))).toBeCloseTo(0, 4);
+  });
+
+  it("detects clockwise deflection loops (sum −360)", () => {
+    const obs = [
+      { angle: -90, distance: 100 },
+      { angle: -90, distance: 100 },
+      { angle: -90, distance: 100 },
+      { angle: -90.00556, distance: 100 },
+    ];
+    const r = reduceAngularTraverse(0, obs, "deflection", true);
+    expect(r.theoreticalSum).toBeCloseTo(-360, 9);
+    expect(r.angularMisclosure).toBeCloseTo(-0.00556, 6);
+    expect(r.hasAngularClosure).toBe(true);
+    // Signed deflections keep descending through azimuths.
+    expect(r.azimuths[0]).toBeCloseTo(270 + 0.00556 / 4, 4);
+  });
 });
 
 describe("lineLine", () => {
@@ -763,6 +827,53 @@ describe("freeStation", () => {
     expect(res).not.toBeNull();
     expect(res!.position.n).toBeCloseTo(5, 6);
     expect(res!.position.e).toBeCloseTo(5, 6);
+  });
+});
+
+describe("circularArcParams", () => {
+  // Reconstruct a point on the arc from model-convention angles (degrees,
+  // CCW from +E) exactly as the viewport/DXF exporter do.
+  const arcPoint = (p: NonNullable<ReturnType<typeof circularArcParams>>, deg: number): NE => {
+    const a = (deg * Math.PI) / 180;
+    return { n: p.center.n + p.radius * Math.sin(a), e: p.center.e + p.radius * Math.cos(a) };
+  };
+  /** CCW separation b−a in [0,360). */
+  const ccwSep = (from: number, to: number) => ((to - from) % 360 + 360) % 360;
+
+  it("returns CCW-from-E starting angles that recover the start point", () => {
+    // Quarter arc in the first quadrant: centre (0,0), start=(0,10), mid, end
+    const start: NE = { n: 0, e: 10 };
+    const mid: NE = { n: 10 * Math.SQRT1_2, e: 10 * Math.SQRT1_2 };
+    const end: NE = { n: 10, e: 0 };
+    const p = circularArcParams(start, mid, end);
+    expect(p).not.toBeNull();
+    expect(p!.center.n).toBeCloseTo(0, 6);
+    expect(p!.center.e).toBeCloseTo(0, 6);
+    expect(p!.radius).toBeCloseTo(10, 6);
+    // CCW-from-E: +E is 0°, +N is 90°. Start sits at +E → 0°; end at +N → 90°.
+    expect(p!.startAngle % 360).toBeCloseTo(0, 6);
+    expect(p!.endAngle % 360).toBeCloseTo(90, 6);
+    const recovered = arcPoint(p!, p!.startAngle);
+    expect(recovered.e).toBeCloseTo(start.e, 6);
+    expect(recovered.n).toBeCloseTo(start.n, 6);
+  });
+
+  it("normalizes the sweep so it always passes through the mid point", () => {
+    // Clockwise pick order: start=(10,0)=90°, mid at 45°, end=(0,10)=0°.
+    const start: NE = { n: 10, e: 0 };
+    const mid: NE = { n: 10 * Math.SQRT1_2, e: 10 * Math.SQRT1_2 };
+    const end: NE = { n: 0, e: 10 };
+    const p = circularArcParams(start, mid, end);
+    expect(p).not.toBeNull();
+    // CCW sweep from startAngle to endAngle must contain the mid angle (45°).
+    const midAngle = (Math.atan2(mid.n - p!.center.n, mid.e - p!.center.e) * 180) / Math.PI;
+    expect(ccwSep(p!.startAngle, midAngle)).toBeLessThanOrEqual(ccwSep(p!.startAngle, p!.endAngle));
+    // The sweep must be the short quarter arc (±90°), not the 270° complement.
+    expect(ccwSep(p!.startAngle, p!.endAngle)).toBeCloseTo(90, 4);
+  });
+
+  it("returns null for collinear points", () => {
+    expect(circularArcParams({ n: 0, e: 0 }, { n: 1, e: 1 }, { n: 2, e: 2 })).toBeNull();
   });
 });
 

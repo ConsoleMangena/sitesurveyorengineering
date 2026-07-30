@@ -146,6 +146,61 @@ export async function notifyWorkspaceInvitation(params: {
   ]);
 }
 
+/**
+ * Throttle chat notifications: at most one per workspace per window from this
+ * client, so an active conversation doesn't flood every member's bell with a
+ * notification per message.
+ */
+const CHAT_NOTIFY_WINDOW_MS = 2 * 60 * 1000;
+const lastChatNotifyAt = new Map<string, number>();
+
+/** Notify other active workspace members about a new team chat message. */
+export async function notifyChatMessage(params: {
+  workspaceId: string;
+  senderName: string;
+  preview: string;
+}): Promise<void> {
+  const last = lastChatNotifyAt.get(params.workspaceId) ?? 0;
+  if (Date.now() - last < CHAT_NOTIFY_WINDOW_MS) return;
+  lastChatNotifyAt.set(params.workspaceId, Date.now());
+
+  const user = await getCurrentUser();
+
+  const { data: members, error } = await supabase
+    .from("workspace_members")
+    .select("user_id")
+    .eq("workspace_id", params.workspaceId)
+    .eq("status", "active");
+
+  if (error || !members || members.length === 0) return;
+
+  const recipientIds = [
+    ...new Set(
+      members
+        .map((m) => m.user_id)
+        .filter((id): id is string => Boolean(id) && id !== user?.id),
+    ),
+  ];
+  if (recipientIds.length === 0) return;
+
+  const snippet =
+    params.preview.length > 80
+      ? `${params.preview.slice(0, 80)}…`
+      : params.preview;
+
+  await emit(
+    recipientIds.map((userId) => ({
+      workspaceId: params.workspaceId,
+      userId,
+      title: "New team chat message",
+      body: `${params.senderName}: ${snippet}`,
+      metadata: {
+        type: "chat_message",
+      },
+    })),
+  );
+}
+
 /** Notify seller workspace admins/managers about a new marketplace request. */
 export async function notifyMarketplaceRequest(params: {
   sellerWorkspaceId: string;

@@ -100,10 +100,6 @@ function str(props: Record<string, unknown> | null, key: string): string {
   return typeof v === "string" ? v : "";
 }
 
-function num(v: unknown): number {
-  return typeof v === "number" && Number.isFinite(v) ? v : 0;
-}
-
 function detectCrs(root: unknown): string | undefined {
   const r = root as { crs?: { type?: string; properties?: { name?: string } } } | undefined;
   if (!r?.crs) return undefined;
@@ -124,6 +120,19 @@ export function modelFromGeoJson(text: string): GeoModelResult {
 
   const root = parsed as { type?: string; features?: GeoJsonFeature[]; geometry?: unknown; crs?: unknown };
   result.crs = detectCrs(parsed);
+
+  // CRS safety: RFC 7946 GeoJSON is implicitly WGS84 lon/lat — importing its
+  // degrees as plan metres would silently put geometry ~thousands of km off.
+  // Any explicit projected reference is fine to import as-is.
+  if (!result.crs) {
+    result.warnings.push(
+      "GeoJSON has no CRS metadata (RFC 7946 files are WGS84 lon/lat). Coordinates were imported as numeric plan values — if this file was lon/lat, REPROJECT it to your local grid first.",
+    );
+  } else if (/4326|wgs[\s_-]?84|crs84|lonlat|longitude/i.test(result.crs)) {
+    result.warnings.push(
+      `GeoJSON declares geographic CRS "${result.crs}" (lon/lat degrees). Coordinates were imported as numeric values and WILL be misplaced — reproject to your local grid first.`,
+    );
+  }
 
   let features: GeoJsonFeature[] = [];
   if (root?.type === "FeatureCollection" && Array.isArray(root.features)) {
@@ -156,13 +165,17 @@ export function modelFromGeoJson(text: string): GeoModelResult {
         result.errors.push(`${prefix}: Point has fewer than 2 coordinates.`);
         continue;
       }
+      if (typeof c[0] !== "number" || !Number.isFinite(c[0]) || typeof c[1] !== "number" || !Number.isFinite(c[1])) {
+        result.errors.push(`${prefix}: Point has non-numeric coordinates — skipped (no silent (0,0) placement).`);
+        continue;
+      }
       const z = c.length > 2 && typeof c[2] === "number" && Number.isFinite(c[2])
         ? c[2]
         : (typeof props?.z === "number" ? props.z : null);
       result.points.push({
         pointNo: str(props, "pointNo") || str(props, "name") || String(i + 1),
-        e: num(c[0]),
-        n: num(c[1]),
+        e: c[0],
+        n: c[1],
         z,
         code: str(props, "code"),
         layerId: str(props, "layer"),
@@ -173,13 +186,18 @@ export function modelFromGeoJson(text: string): GeoModelResult {
         result.warnings.push(`${prefix}: LineString has fewer than 2 vertices — skipped.`);
         continue;
       }
+      let invalid = false;
+      for (let ci = 0; ci < cs.length; ci++) {
+        const c = cs[ci];
+        if (!Array.isArray(c) || c.length < 2 || typeof c[0] !== "number" || !Number.isFinite(c[0]) || typeof c[1] !== "number" || !Number.isFinite(c[1])) {
+          result.errors.push(`${prefix}: LineString vertex ${ci + 1} has invalid coordinates — feature skipped.`);
+          invalid = true;
+          break;
+        }
+      }
+      if (invalid) continue;
       result.linework.push({
-        vertices: cs.map((c, ci) => {
-          if (!Array.isArray(c) || c.length < 2 || typeof c[0] !== "number" || typeof c[1] !== "number") {
-            result.errors.push(`${prefix}: LineString vertex ${ci + 1} has invalid coordinates.`);
-          }
-          return { e: num(c[0]), n: num(c[1]) };
-        }),
+        vertices: cs.map((c) => ({ e: c[0], n: c[1] })),
         closed: false,
         layerId: str(props, "layer"),
       });
@@ -197,12 +215,17 @@ export function modelFromGeoJson(text: string): GeoModelResult {
         result.warnings.push(`${prefix}: Polygon outer ring has fewer than 3 vertices — skipped.`);
         continue;
       }
-      const verts = outer.map((c, ci) => {
-        if (!Array.isArray(c) || c.length < 2 || typeof c[0] !== "number" || typeof c[1] !== "number") {
-          result.errors.push(`${prefix}: Polygon vertex ${ci + 1} has invalid coordinates.`);
+      let invalid = false;
+      for (let ci = 0; ci < outer.length; ci++) {
+        const c = outer[ci];
+        if (!Array.isArray(c) || c.length < 2 || typeof c[0] !== "number" || !Number.isFinite(c[0]) || typeof c[1] !== "number" || !Number.isFinite(c[1])) {
+          result.errors.push(`${prefix}: Polygon vertex ${ci + 1} has invalid coordinates — feature skipped.`);
+          invalid = true;
+          break;
         }
-        return { e: num(c[0]), n: num(c[1]) };
-      });
+      }
+      if (invalid) continue;
+      const verts = outer.map((c) => ({ e: c[0], n: c[1] }));
       if (
         verts.length > 1 &&
         verts[0].e === verts[verts.length - 1].e &&

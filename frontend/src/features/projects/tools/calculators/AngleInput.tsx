@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   angleEntryToDeg,
   dmsToDeg,
+  toDMS,
   type AngleEntryMode,
 } from "../../components/cad/survey/format.ts";
 
@@ -22,6 +23,31 @@ const MODE_LABELS: Record<AngleEntryMode, string> = {
   gon: "Gon",
 };
 
+/** Single-box text for a decimal-degree value in the given entry mode. */
+function seedText(mode: AngleEntryMode, deg: number | null): string {
+  if (deg == null || !Number.isFinite(deg)) return "";
+  if (mode === "decimal") return deg.toFixed(6);
+  if (mode === "gon") return ((deg / 360) * 400).toFixed(4);
+  if (mode !== "packed") return "";
+  // Packed DD.MMSS — reuse toDMS so 60-second carry rounding matches the rest
+  // of the app (e.g. 45.999999° → "45.6000000", never an invalid "45.5960").
+  const { d, m, s } = toDMS(deg);
+  const sign = d < 0 ? "-" : "";
+  // Seconds are zero-padded to SS.ss ("05.50" → "0550") so the packed string
+  // always reads DD.MMSS… like the field-calculator convention.
+  return `${sign}${Math.abs(d)}.${String(m).padStart(2, "0")}${s
+    .toFixed(2)
+    .padStart(5, "0")
+    .replace(".", "")}`;
+}
+
+/** Discrete D/M/S strings for a decimal-degree value. */
+function seedDms(deg: number | null): { d: string; m: string; s: string } {
+  if (deg == null || !Number.isFinite(deg)) return { d: "", m: "", s: "" };
+  const { d, m, s } = toDMS(deg);
+  return { d: String(d), m: String(m), s: s.toFixed(2) };
+}
+
 /**
  * Angle entry that mirrors professional field software: surveyors never type
  * °'" symbols. They pick a mode and key the numbers. Three discrete
@@ -33,12 +59,13 @@ const MODE_LABELS: Record<AngleEntryMode, string> = {
  */
 export function AngleInput({ label, valueDeg, onChange, defaultMode = "packed" }: AngleInputProps) {
   const [mode, setMode] = useState<AngleEntryMode>(defaultMode);
-  // Free text for single-box modes.
-  const [text, setText] = useState("");
+  // Free text for single-box modes — seeded from valueDeg so a pre-filled
+  // sample value is visible instead of computed invisibly.
+  const [text, setText] = useState(() => seedText(defaultMode, valueDeg));
   // Discrete components for DMS mode.
-  const [d, setD] = useState("");
-  const [m, setM] = useState("");
-  const [s, setS] = useState("");
+  const [d, setD] = useState(() => (defaultMode === "dms" ? seedDms(valueDeg).d : ""));
+  const [m, setM] = useState(() => (defaultMode === "dms" ? seedDms(valueDeg).m : ""));
+  const [s, setS] = useState(() => (defaultMode === "dms" ? seedDms(valueDeg).s : ""));
 
   const emitText = (next: string) => {
     setText(next);
@@ -61,32 +88,9 @@ export function AngleInput({ label, valueDeg, onChange, defaultMode = "packed" }
     setMode(next);
     // Re-seed the new mode's fields from the current canonical value so the
     // displayed angle is preserved across a mode switch.
-    if (valueDeg == null || !Number.isFinite(valueDeg)) {
-      setText("");
-      setD(""); setM(""); setS("");
-      return;
-    }
-    if (next === "decimal") {
-      setText(valueDeg.toFixed(6));
-    } else if (next === "gon") {
-      setText(((valueDeg / 360) * 400).toFixed(4));
-    } else if (next === "packed") {
-      const sign = valueDeg < 0 ? "-" : "";
-      const abs = Math.abs(valueDeg);
-      const deg = Math.floor(abs);
-      const minF = (abs - deg) * 60;
-      const min = Math.floor(minF);
-      const sec = Math.round((minF - min) * 60);
-      setText(`${sign}${deg}.${String(min).padStart(2, "0")}${String(sec).padStart(2, "0")}`);
-    } else {
-      const sign = valueDeg < 0 ? -1 : 1;
-      const abs = Math.abs(valueDeg);
-      const deg = Math.floor(abs);
-      const minF = (abs - deg) * 60;
-      const min = Math.floor(minF);
-      const sec = (minF - min) * 60;
-      setD(String(sign * deg)); setM(String(min)); setS(sec.toFixed(2));
-    }
+    setText(seedText(next, valueDeg));
+    const dms = seedDms(valueDeg);
+    setD(dms.d); setM(dms.m); setS(dms.s);
   };
 
   return (

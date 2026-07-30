@@ -1,4 +1,5 @@
 import { getCadDrawing } from "./cadDrawings.ts";
+import { supabase } from "../supabase/client.ts";
 import { cadStorageKey } from "../../features/projects/components/cad/cadModel.ts";
 
 /**
@@ -63,6 +64,30 @@ export async function getProjectMetrics(projectId: string): Promise<ProjectMetri
   // When offline, read from the same localStorage cache the CAD workspace uses.
   if (!isProjectMetricsOnline()) {
     return metricsFromShape(loadCachedCadShape(projectId));
+  }
+
+  // Fast path: counts computed server-side by the project_cad_metrics RPC,
+  // so the (potentially multi-MB) model JSONB never crosses the wire.
+  try {
+    const { data, error } = await supabase.rpc("project_cad_metrics", {
+      p_project_id: projectId,
+    });
+    if (!error && data && data.length > 0) {
+      const row = data[0];
+      return {
+        points: row.points,
+        linework: row.linework,
+        surfaces: row.surfaces,
+        qaFlags: row.qa_flags,
+      };
+    }
+    if (!error && data?.length === 0) {
+      // No server drawing yet, but there might be a local-only one.
+      return metricsFromShape(loadCachedCadShape(projectId));
+    }
+  } catch {
+    // Function not deployed yet (or network edge) — fall through to the
+    // JSONB download path below.
   }
 
   try {

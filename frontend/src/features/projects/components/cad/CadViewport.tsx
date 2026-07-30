@@ -40,6 +40,8 @@ interface CadViewportProps {
   axisConvention?: AxisConvention;
   /** Show point number/code labels next to survey points. */
   showPointLabels?: boolean;
+  /** Show spot elevations (RL) next to survey points. */
+  showPointElevations?: boolean;
   /** Show bearing/distance labels along linework segments. */
   showSegmentLabels?: boolean;
   onCursorMove: (world: { n: number; e: number }) => void;
@@ -125,6 +127,7 @@ const CadViewportComponent = memo(function CadViewport({
   coordDecimals = 3,
   axisConvention = "yx",
   showPointLabels = true,
+  showPointElevations = false,
   showSegmentLabels = false,
   onCursorMove,
   onPickPoint,
@@ -176,12 +179,15 @@ const CadViewportComponent = memo(function CadViewport({
   }, []);
 
   const bbox = useMemo<BBox | null>(() => {
-    const ns: number[] = [];
-    const es: number[] = [];
+    // Running min/max — spreading millions of vertices into Math.min(...ns)
+    // overflows the call stack on any sizeable topographic model.
+    let minN = Infinity, maxN = -Infinity, minE = Infinity, maxE = -Infinity;
     const push = (n: number, e: number) => {
       if (!Number.isFinite(n) || !Number.isFinite(e)) return;
-      ns.push(n);
-      es.push(e);
+      if (n < minN) minN = n;
+      if (n > maxN) maxN = n;
+      if (e < minE) minE = e;
+      if (e > maxE) maxE = e;
     };
     for (const p of model.points) { push(p.n, p.e); }
     for (const lw of model.linework) {
@@ -235,11 +241,8 @@ const CadViewportComponent = memo(function CadViewport({
         for (const v of hole) push(v.n, v.e);
       }
     }
-    if (!ns.length) return null;
-    return {
-      minN: Math.min(...ns), maxN: Math.max(...ns),
-      minE: Math.min(...es), maxE: Math.max(...es),
-    };
+    if (!Number.isFinite(minN)) return null;
+    return { minN, maxN, minE, maxE };
   }, [model.points, model.linework, model.texts, model.surfaces, model.arcs, model.circles, model.ellipses, model.dimensions, model.hatches]);
 
   useEffect(() => {
@@ -1352,10 +1355,17 @@ const CadViewportComponent = memo(function CadViewport({
               {p.pointNo}{p.code ? ` ${p.code}` : ""}
             </text>
           )}
+          {showPointElevations && p.z != null && (
+            <text x={s.x + 7} y={s.y + (showPointLabels ? 8 : -5)} fill="var(--cad-entity-text)" stroke="var(--cad-entity-stroke)" strokeWidth={1.5}
+              paintOrder="stroke fill" fontSize={labelFontSize(vp.scale, 10)} opacity={0.85}
+              fontFamily="Arial, 'Helvetica Neue', Helvetica, 'Liberation Sans', sans-serif">
+              {p.z.toFixed(2)}
+            </text>
+          )}
         </g>
       );
     });
-  }, [model.points, model.layers, visibleLayer, selection, vp, size, showPointLabels]);
+  }, [model.points, model.layers, visibleLayer, selection, vp, size, showPointLabels, showPointElevations]);
 
   const textElements = useMemo(() => {
     return model.texts.map((t) => {

@@ -124,21 +124,72 @@ interface BBox {
 
 /** Bounding box (survey units) of all visible geometry, or null if empty. */
 function modelBounds(model: CadModelState): BBox | null {
-  const ns: number[] = [];
-  const es: number[] = [];
+  // Running min/max — a large model's vertices cannot be spread into
+  // Math.min(...arr) without overflowing the call stack.
+  let minN = Infinity, maxN = -Infinity, minE = Infinity, maxE = -Infinity;
+  const push = (n: number, e: number) => {
+    if (!Number.isFinite(n) || !Number.isFinite(e)) return;
+    if (n < minN) minN = n;
+    if (n > maxN) maxN = n;
+    if (e < minE) minE = e;
+    if (e > maxE) maxE = e;
+  };
   const visible = (layerId: string) => model.layers.find((l) => l.id === layerId)?.visible !== false;
-  for (const p of model.points) { if (visible(p.layerId)) { ns.push(p.n); es.push(p.e); } }
+  for (const p of model.points) { if (visible(p.layerId)) push(p.n, p.e); }
   for (const lw of model.linework) {
     if (!visible(lw.layerId)) continue;
-    for (const v of lw.vertices) { ns.push(v.n); es.push(v.e); }
+    for (const v of lw.vertices) push(v.n, v.e);
   }
-  for (const t of model.texts) { if (visible(t.layerId)) { ns.push(t.n); es.push(t.e); } }
+  for (const t of model.texts) { if (visible(t.layerId)) push(t.n, t.e); }
   for (const srf of model.surfaces) {
     if (!visible(srf.layerId)) continue;
-    for (const v of srf.points) { ns.push(v.n); es.push(v.e); }
+    for (const v of srf.points) push(v.n, v.e);
   }
-  if (!ns.length) return null;
-  return { minN: Math.min(...ns), maxN: Math.max(...ns), minE: Math.min(...es), maxE: Math.max(...es) };
+  // Native entities must take part in the fit — otherwise a drawing that is
+  // only circles/arcs is framed by nothing (and clipped off the sheet).
+  for (const a of model.arcs) {
+    if (!visible(a.layerId) || !Number.isFinite(a.radius)) continue;
+    let s = a.startAngle;
+    while (s < 0) s += 360;
+    let en = a.endAngle;
+    while (en < s) en += 360;
+    const steps = Math.max(2, Math.floor((en - s) / 30));
+    for (let i = 0; i <= steps; i++) {
+      const ang = (s + (en - s) * (i / steps)) * (Math.PI / 180);
+      push(a.center.n + Math.sin(ang) * a.radius, a.center.e + Math.cos(ang) * a.radius);
+    }
+    push(a.center.n, a.center.e);
+  }
+  for (const c of model.circles) {
+    if (!visible(c.layerId) || !Number.isFinite(c.radius)) continue;
+    push(c.center.n - c.radius, c.center.e - c.radius);
+    push(c.center.n + c.radius, c.center.e + c.radius);
+  }
+  for (const el of model.ellipses) {
+    if (!visible(el.layerId) || !Number.isFinite(el.semiMajor)) continue;
+    const rot = el.rotation * (Math.PI / 180);
+    const cosR = Math.cos(rot);
+    const sinR = Math.sin(rot);
+    for (let i = 0; i < 16; i++) {
+      const t = (i / 16) * Math.PI * 2;
+      const x = el.semiMajor * Math.cos(t);
+      const y = el.semiMinor * Math.sin(t);
+      push(el.center.n + x * sinR + y * cosR, el.center.e + x * cosR - y * sinR);
+    }
+    push(el.center.n, el.center.e);
+  }
+  for (const d of model.dimensions) {
+    if (!visible(d.layerId)) continue;
+    push(d.textPosition.n, d.textPosition.e);
+    for (const v of d.defPoints) push(v.n, v.e);
+  }
+  for (const h of model.hatches) {
+    if (!visible(h.layerId)) continue;
+    for (const v of h.vertices) push(v.n, v.e);
+    for (const hole of h.holes ?? []) for (const v of hole) push(v.n, v.e);
+  }
+  if (!Number.isFinite(minN)) return null;
+  return { minN, maxN, minE, maxE };
 }
 
 /** Title-block band height (mm) by paper size. */
@@ -203,20 +254,24 @@ function computeProjection(
   let denominator: number;
   if (opts.scaleDenominator === "fit") {
     // mm available / (survey units * 1000 mm per m) → fit both axes.
+    // AutoCAD "fit to paper": use the exact denominator so the drawing fills
+    // the frame. Rounding up to a conventional scale (the old behaviour)
+    // could leave the plan occupying barely half the sheet — pick an explicit
+    // preset scale instead when a conventional ratio is required.
     const denomE = (spanE * 1000) / areaW;
     const denomN = (spanN * 1000) / areaH;
-    denominator = Math.max(denomE, denomN);
-    denominator = niceScale(denominator);
+    denominator = Math.max(1, Math.ceil(Math.max(denomE, denomN)));
   } else {
     denominator = opts.scaleDenominator;
   }
 
   // Apply the saved layout zoom (AutoCAD viewport zoom inside paper space).
-  // Zooming in (zoom > 1) tightens the scale; the denominator shrinks. For a
-  // fit scale we re-round to a conventional value so the scale bar stays sane.
+  // Zooming in (zoom > 1) tightens the scale; the denominator shrinks.
   const zoom = view && Number.isFinite(view.zoom) && view.zoom > 0 ? view.zoom : 1;
   const effDenominator =
-    opts.scaleDenominator === "fit" ? niceScale(denominator / zoom) : denominator;
+    opts.scaleDenominator === "fit"
+      ? Math.max(1, Math.ceil(denominator / zoom))
+      : denominator;
 
   // 1 survey unit (metre) = (1000 / denominator) mm on paper.
   const mmPerUnit = 1000 / effDenominator;
@@ -224,17 +279,6 @@ function computeProjection(
   const originE = (bounds.minE + bounds.maxE) / 2 + (view?.offsetE ?? 0);
   const originN = (bounds.minN + bounds.maxN) / 2 + (view?.offsetN ?? 0);
   return { mmPerUnit, denominator: effDenominator, originE, originN, cx, cy };
-}
-
-/** Round a scale denominator up to a conventional surveying value. */
-function niceScale(raw: number): number {
-  const nice = [1, 2, 2.5, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000, 20000, 25000, 50000];
-  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
-  for (const base of nice) {
-    const cand = base * pow;
-    if (cand >= raw) return cand;
-  }
-  return Math.ceil(raw / pow) * pow;
 }
 
 export interface PlotResult {
@@ -285,12 +329,13 @@ export function buildPlotSvg(model: CadModelState, opts: PlotOptions): PlotResul
   );
 
   // ── Drawing content (clipped to frame) ────────────────────────────────────
-  parts.push(`<g clip-path="url(#frameClip)">`);
+  parts.push(`<g id="cadPlotDrawingGroup" clip-path="url(#frameClip)">`);
 
   if (opts.showGrid && bounds) {
     parts.push(renderGraticule(bounds, proj.denominator, toPaper, opts.axisConvention ?? "yx"));
   }
   parts.push(renderSurfaces(model, layerOf, layerVisible, toPaper));
+  parts.push(renderNativeEntities(model, layerOf, layerVisible, toPaper));
   parts.push(renderLinework(model, layerOf, layerVisible, toPaper, opts));
   parts.push(renderTexts(model, layerOf, layerVisible, toPaper));
   parts.push(renderPoints(model, layerOf, layerVisible, toPaper, opts));
@@ -390,6 +435,99 @@ function renderSurfaces(
   return out.join("");
 }
 
+function renderNativeEntities(
+  model: CadModelState,
+  layerOf: (id: string) => CadLayer | undefined,
+  layerVisible: (id: string) => boolean,
+  toPaper: ToPaper,
+): string {
+  const out: string[] = [];
+
+  // Hatches first — fills sit under linework and symbols.
+  for (const h of model.hatches) {
+    if (!layerVisible(h.layerId)) continue;
+    const color = resolveColor(h.color, layerOf(h.layerId)?.color, "#334155");
+    const ring = h.vertices.map((v) => toPaper(v.n, v.e));
+    if (ring.length < 3) continue;
+    const pathOf = (pts: { x: number; y: number }[]) =>
+      pts.map((p, i) => `${i === 0 ? "M" : "L"}${f(p.x)},${f(p.y)}`).join(" ") + " Z";
+    const d = pathOf(ring) + (h.holes ?? []).map((hole) => {
+      const hp = hole.map((v) => toPaper(v.n, v.e));
+      return hp.length >= 3 ? " " + pathOf(hp).slice(0) : "";
+    }).join("");
+    out.push(
+      `<path d="${d}" fill="${color}" fill-opacity="0.25" fill-rule="evenodd" stroke="${color}" stroke-width="0.25" />`,
+    );
+  }
+
+  for (const c of model.circles) {
+    if (!layerVisible(c.layerId) || !Number.isFinite(c.radius)) continue;
+    const color = resolveColor(c.color, layerOf(c.layerId)?.color, "#333");
+    const center = toPaper(c.center.n, c.center.e);
+    const rim = toPaper(c.center.n, c.center.e + c.radius);
+    const r = Math.hypot(rim.x - center.x, rim.y - center.y);
+    out.push(`<circle cx="${f(center.x)}" cy="${f(center.y)}" r="${f(r)}" fill="none" stroke="${color}" stroke-width="0.3" />`);
+  }
+
+  for (const a of model.arcs) {
+    if (!layerVisible(a.layerId) || !Number.isFinite(a.radius)) continue;
+    const color = resolveColor(a.color, layerOf(a.layerId)?.color, "#333");
+    const center = toPaper(a.center.n, a.center.e);
+    const rim = toPaper(a.center.n, a.center.e + a.radius);
+    const r = Math.hypot(rim.x - center.x, rim.y - center.y);
+    const p1 = toPaper(
+      a.center.n + Math.sin(a.startAngle * (Math.PI / 180)) * a.radius,
+      a.center.e + Math.cos(a.startAngle * (Math.PI / 180)) * a.radius,
+    );
+    const p2 = toPaper(
+      a.center.n + Math.sin(a.endAngle * (Math.PI / 180)) * a.radius,
+      a.center.e + Math.cos(a.endAngle * (Math.PI / 180)) * a.radius,
+    );
+    // Same sweep resolution the viewport uses (paper y grows downward).
+    const sweep = p2.x * (p1.y - center.y) + p1.x * (center.y - p2.y) + center.x * (p2.y - p1.y);
+    let span = a.endAngle - a.startAngle;
+    while (span < 0) span += 360;
+    out.push(
+      `<path d="M ${f(p1.x)} ${f(p1.y)} A ${f(r)} ${f(r)} 0 ${span > 180 ? 1 : 0} ${sweep > 0 ? 0 : 1} ${f(p2.x)} ${f(p2.y)}" ` +
+        `fill="none" stroke="${color}" stroke-width="0.3" />`,
+    );
+  }
+
+  for (const el of model.ellipses) {
+    if (!layerVisible(el.layerId) || !Number.isFinite(el.semiMajor) || !Number.isFinite(el.semiMinor)) continue;
+    const color = resolveColor(el.color, layerOf(el.layerId)?.color, "#333");
+    const rot = el.rotation * (Math.PI / 180);
+    const cosR = Math.cos(rot);
+    const sinR = Math.sin(rot);
+    const pts: string[] = [];
+    for (let i = 0; i <= 32; i++) {
+      const t = (i / 32) * Math.PI * 2;
+      const x = el.semiMajor * Math.cos(t);
+      const y = el.semiMinor * Math.sin(t);
+      const s = toPaper(
+        el.center.n + x * sinR + y * cosR,
+        el.center.e + x * cosR - y * sinR,
+      );
+      pts.push(`${i === 0 ? "M" : "L"}${f(s.x)},${f(s.y)}`);
+    }
+    out.push(`<path d="${pts.join(" ")} Z" fill="none" stroke="${color}" stroke-width="0.3" />`);
+  }
+
+  for (const d of model.dimensions) {
+    if (!layerVisible(d.layerId)) continue;
+    const color = resolveColor(d.color, layerOf(d.layerId)?.color, "#333");
+    const pts = d.defPoints.map((v) => toPaper(v.n, v.e));
+    if (pts.length >= 2) {
+      const path = pts.map((p, i) => `${i === 0 ? "M" : "L"}${f(p.x)},${f(p.y)}`).join(" ");
+      out.push(`<path d="${path}" fill="none" stroke="${color}" stroke-width="0.22" />`);
+    }
+    const t = toPaper(d.textPosition.n, d.textPosition.e);
+    out.push(`<text x="${f(t.x)}" y="${f(t.y)}" font-size="2.2" fill="${color}" text-anchor="middle">${esc(d.text)}</text>`);
+  }
+
+  return out.join("");
+}
+
 function renderLinework(
   model: CadModelState,
   layerOf: (id: string) => CadLayer | undefined,
@@ -406,6 +544,14 @@ function renderLinework(
     const d = pts.map((p, i) => `${i === 0 ? "M" : "L"}${f(p.x)},${f(p.y)}`).join(" ") + (lw.closed ? " Z" : "");
     const w = lw.kind === "boundary" ? 0.5 : lw.kind === "polyline" ? 0.35 : 0.3;
     out.push(`<path d="${d}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linejoin="round" />`);
+
+    // Linework labels (contour RLs, annotations) must appear on the printed
+    // sheet, not only in the interactive viewport.
+    if (lw.label) {
+      const mid = lw.vertices[Math.floor(lw.vertices.length / 2)];
+      const s = toPaper(mid.n, mid.e);
+      out.push(`<text x="${f(s.x)}" y="${f(s.y - 0.6)}" font-size="1.8" fill="${color}" text-anchor="middle">${esc(lw.label)}</text>`);
+    }
 
     if (opts.showSegmentLabels) {
       for (let i = 1; i < lw.vertices.length; i++) {
@@ -535,12 +681,17 @@ function renderLegend(model: CadModelState, layout: PlotLayout): string {
   for (const l of model.linework) used.add(l.layerId);
   for (const t of model.texts) used.add(t.layerId);
   for (const s of model.surfaces) used.add(s.layerId);
-  const layers = model.layers.filter((l) => l.visible && used.has(l.id));
-  if (!layers.length) return "";
+  const allLayers = model.layers.filter((l) => l.visible && used.has(l.id));
+  if (!allLayers.length) return "";
+
+  // Cap the rows so a layer-heavy drawing cannot run the legend off the sheet.
+  const MAX_ROWS = 12;
+  const layers = allLayers.slice(0, MAX_ROWS);
+  const overflow = allLayers.length - layers.length;
 
   const rowH = 5;
   const w = 44;
-  const h = 8 + layers.length * rowH;
+  const h = 8 + (layers.length + (overflow > 0 ? 1 : 0)) * rowH;
   const x = layout.frame.x + 6;
   const y = layout.frame.y + 6;
 
@@ -552,8 +703,12 @@ function renderLegend(model: CadModelState, layout: PlotLayout): string {
   layers.forEach((l, i) => {
     const ry = y + 8 + i * rowH + rowH / 2;
     out.push(`<line x1="${f(x + 3)}" y1="${f(ry)}" x2="${f(x + 12)}" y2="${f(ry)}" stroke="${l.color}" stroke-width="0.8" />`);
-    out.push(`<text x="${f(x + 14)}" y="${f(ry + 0.9)}">${esc(l.name)}</text>`);
+    out.push(`<text x="${f(x + 14)}" y="${f(ry + 0.9)}">${esc(fitText(l.name, w - 16, 2.4))}</text>`);
   });
+  if (overflow > 0) {
+    const ry = y + 8 + layers.length * rowH + rowH / 2;
+    out.push(`<text x="${f(x + 3)}" y="${f(ry + 0.9)}" fill="#666">+ ${overflow} more layer${overflow === 1 ? "" : "s"}</text>`);
+  }
   out.push(`</g>`);
   return out.join("");
 }
@@ -572,13 +727,26 @@ function renderSymbolLegend(model: CadModelState, layout: PlotLayout): string {
   }
   if (used.size === 0) return "";
 
-  const entries = [...used.values()];
+  const MAX_ROWS = 10;
+  const allEntries = [...used.values()];
+  const entries = allEntries.slice(0, MAX_ROWS);
+  const overflow = allEntries.length - entries.length;
+
   const rowH = 5;
   const w = 44;
-  const h = 8 + entries.length * rowH;
+  const h = 8 + (entries.length + (overflow > 0 ? 1 : 0)) * rowH;
   const x = layout.frame.x + 6;
-  // Position below the layer legend (approx height: 8 + layers*5, capped).
-  const y = layout.frame.y + 6 + Math.min(60, 8 + model.layers.length * 5) + 4;
+  // Position directly below the layer legend, using the same capped row
+  // count the layer legend actually renders (12 rows + overflow line max).
+  const usedLayerIds = new Set<string>();
+  for (const p of model.points) usedLayerIds.add(p.layerId);
+  for (const l of model.linework) usedLayerIds.add(l.layerId);
+  for (const t of model.texts) usedLayerIds.add(t.layerId);
+  for (const s of model.surfaces) usedLayerIds.add(s.layerId);
+  const legendLayerCount = model.layers.filter((l) => l.visible && usedLayerIds.has(l.id)).length;
+  const legendRows = Math.min(legendLayerCount, 12) + (legendLayerCount > 12 ? 1 : 0);
+  const legendH = legendLayerCount > 0 ? 8 + legendRows * rowH : 0;
+  const y = layout.frame.y + 6 + legendH + (legendH > 0 ? 4 : 0);
 
   const out: string[] = [
     `<g font-size="2.4" fill="#000">`,
@@ -591,10 +759,24 @@ function renderSymbolLegend(model: CadModelState, layout: PlotLayout): string {
       `<g transform="translate(${f(x + 7)} ${f(ry)})" stroke="#000" stroke-width="0.22" fill="#000">` +
         `${symbolMarkup(e.symbol, 1.3)}</g>`,
     );
-    out.push(`<text x="${f(x + 14)}" y="${f(ry + 0.9)}">${esc(e.label)}</text>`);
+    out.push(`<text x="${f(x + 14)}" y="${f(ry + 0.9)}">${esc(fitText(e.label, w - 16, 2.4))}</text>`);
   });
+  if (overflow > 0) {
+    const ry = y + 8 + entries.length * rowH + rowH / 2;
+    out.push(`<text x="${f(x + 3)}" y="${f(ry + 0.9)}" fill="#666">+ ${overflow} more</text>`);
+  }
   out.push(`</g>`);
   return out.join("");
+}
+
+/**
+ * Truncate a title-block value so it cannot spill outside its cell. Widths
+ * are approximate (Arial ≈ 0.52 em per character at these sizes).
+ */
+function fitText(value: string, cellWidthMm: number, fontSizeMm: number): string {
+  const maxChars = Math.max(4, Math.floor((cellWidthMm - 3) / (fontSizeMm * 0.52)));
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, maxChars - 1)}…`;
 }
 
 function renderTitleBlock(layout: PlotLayout, opts: PlotOptions, denom: number): string {
@@ -614,7 +796,7 @@ function renderTitleBlock(layout: PlotLayout, opts: PlotOptions, denom: number):
   out.push(`<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(headerH)}" fill="#f0f0f0" stroke="#000" stroke-width="0.3" />`);
   out.push(
     `<text x="${f(x + w / 2)}" y="${f(y + headerH / 2 + 1.5)}" text-anchor="middle" font-size="4.2" font-weight="bold">` +
-      `${esc(t.drawingTitle || "SURVEY PLAN")}</text>`,
+      `${esc(fitText(t.drawingTitle || "SURVEY PLAN", w, 4.2))}</text>`,
   );
 
   // Body: two columns of key/value cells.
@@ -631,9 +813,13 @@ function renderTitleBlock(layout: PlotLayout, opts: PlotOptions, denom: number):
     out.push(`<line x1="${f(x)}" y1="${f(ly)}" x2="${f(x + w)}" y2="${f(ly)}" stroke="#000" stroke-width="0.2" />`);
   }
 
+  const cellW = w / 2;
   const cell = (cx: number, ry: number, label: string, value: string) => {
     out.push(`<text x="${f(cx + 1.5)}" y="${f(ry + 2)}" font-size="1.8" fill="#666">${esc(label)}</text>`);
-    out.push(`<text x="${f(cx + 1.5)}" y="${f(ry + rowH - 1.2)}" font-size="2.6" font-weight="bold">${esc(value || "—")}</text>`);
+    out.push(
+      `<text x="${f(cx + 1.5)}" y="${f(ry + rowH - 1.2)}" font-size="2.6" font-weight="bold">` +
+        `${esc(fitText(value || "—", cellW, 2.6))}</text>`,
+    );
   };
 
   // Left column.
@@ -657,22 +843,79 @@ function f(v: number): string {
   return (Math.round(v * 1000) / 1000).toString();
 }
 
-/** Open the plot SVG in a new window sized to the sheet and trigger print. */
+/**
+ * Open the plot SVG in a new window sized to the sheet.
+ *
+ * On screen the sheet is scaled to fit the window (so A1/A0 sheets are fully
+ * visible instead of being cropped) with a small print/close toolbar; on paper
+ * it prints at true physical size via the matching `@page` rule.
+ */
 export function openPlotWindow(result: PlotResult, title: string): void {
   const win = window.open("", "_blank");
   if (!win) return;
   const html =
     `<!DOCTYPE html><html><head><title>${esc(title)}</title>` +
     `<style>` +
-    `@page { size: ${result.paper} ${result.orientation}; margin: 0; }` +
+    // Explicit mm page dimensions: keyword sizes ("A3 landscape") are handled
+    // inconsistently across browsers and can trigger shrink-to-fit, leaving
+    // the plan floating small on the page with white margins.
+    `@page { size: ${result.paperW}mm ${result.paperH}mm; margin: 0; }` +
     `* { box-sizing: border-box; }` +
-    `html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #525252; }` +
-    `body { display: flex; align-items: center; justify-content: center; -webkit-print-color-adjust: exact; print-color-adjust: exact; }` +
-    `.sheet { width: ${result.paperW}mm; height: ${result.paperH}mm; background: #fff; box-shadow: 0 0 12px rgba(0,0,0,0.5); overflow: hidden; }` +
+    `html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #404040; }` +
+    `body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }` +
+    `.stage { position: fixed; inset: 0; top: 44px; display: flex; align-items: center; justify-content: center; overflow: hidden; }` +
+    // On screen the sheet is sized in px by the fit script (largest size that
+    // fits the window, preserving the paper aspect ratio). Sizing the layout
+    // box directly — rather than transform-scaling a full-physical-size box —
+    // keeps flex centering correct, so the sheet is never clipped.
+    `.sheet { background: #fff; box-shadow: 0 4px 24px rgba(0,0,0,0.55); overflow: hidden; flex: none; }` +
     `.sheet svg { display: block; width: 100%; height: 100%; }` +
-    `@media print { html, body { background: #fff; } .sheet { box-shadow: none; margin: 0; width: 100%; height: 100%; } }` +
-    `</style></head><body><div class="sheet">${result.svg}</div>` +
-    `<script>window.onload=function(){setTimeout(function(){window.print();},300);};</script>` +
+    `.toolbar { position: fixed; top: 0; left: 0; right: 0; height: 44px; z-index: 10; ` +
+    `display: flex; align-items: center; gap: 8px; padding: 0 12px; background: #262626; ` +
+    `color: #e5e5e5; font: 13px/1 Arial, Helvetica, sans-serif; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }` +
+    `.toolbar .meta { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.85; }` +
+    `.toolbar button { border: 0; border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer; }` +
+    `.toolbar .print { background: #2563eb; color: #fff; font-weight: bold; }` +
+    `.toolbar .close { background: #404040; color: #e5e5e5; }` +
+    `.toolbar button:hover { filter: brightness(1.15); }` +
+    `@media print { ` +
+    `html, body { background: #fff; width: auto; height: auto; overflow: visible; margin: 0; padding: 0; } ` +
+    `.toolbar { display: none; } ` +
+    `.stage { position: static; inset: auto; display: block; width: auto; height: auto; overflow: visible; } ` +
+    `.sheet { box-shadow: none; margin: 0; width: ${result.paperW}mm !important; height: ${result.paperH}mm !important; ` +
+    `page-break-inside: avoid; break-inside: avoid; } ` +
+    `.sheet svg { width: ${result.paperW}mm !important; height: ${result.paperH}mm !important; } ` +
+    `}` +
+    `</style></head><body>` +
+    `<div class="toolbar">` +
+    `<span class="meta">${esc(title)} — ${result.paper} ${result.orientation}, scale 1:${result.denominator}</span>` +
+    `<button type="button" class="print" onclick="window.print()">Print / Save PDF</button>` +
+    `<button type="button" class="close" onclick="window.close()">Close</button>` +
+    `</div>` +
+    `<div class="stage"><div class="sheet" id="sheet">${result.svg}</div></div>` +
+    `<script>` +
+    `(function(){` +
+    `var sheet=document.getElementById("sheet");` +
+    `var ratio=${result.paperW}/${result.paperH};` +
+    `function fit(){` +
+    `var stage=sheet.parentElement;` +
+    `var pad=24;` +
+    `var sw=Math.max(stage.clientWidth-pad,50), sh=Math.max(stage.clientHeight-pad,50);` +
+    `var w=Math.min(sw, sh*ratio);` +
+    `var h=w/ratio;` +
+    `sheet.style.width=w+"px";` +
+    `sheet.style.height=h+"px";` +
+    `}` +
+    `window.addEventListener("resize",fit);` +
+    `window.addEventListener("beforeprint", function(){` +
+    `  sheet.style.width="${result.paperW}mm";` +
+    `  sheet.style.height="${result.paperH}mm";` +
+    `});` +
+    `window.addEventListener("afterprint", fit);` +
+    `fit();` +
+    `window.onload=function(){fit();};` +
+    `})();` +
+    `</script>` +
     `</body></html>`;
   win.document.open();
   win.document.write(html);

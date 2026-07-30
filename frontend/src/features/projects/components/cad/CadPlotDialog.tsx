@@ -152,26 +152,49 @@ export function CadPlotDialog({
 
   const result = useMemo(() => buildPlotSvg(model, opts), [model, opts]);
 
-  // ── Interactive preview pan / zoom ─────────────────────────────────────────
+  // ── Paper sheet canvas pan / zoom ──────────────────────────────────────────
   const previewWrapRef = useRef<HTMLDivElement>(null);
+  const [sheetPan, setSheetPan] = useState({ x: 0, y: 0 });
+  const [sheetZoom, setSheetZoom] = useState(1);
   const [dragging, setDragging] = useState(false);
-  const dragStart = useRef<{ x: number; y: number; offsetE: number; offsetN: number } | null>(null);
+  const dragStart = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
 
-  const toSurveyDelta = (dxPx: number, dyPx: number) => {
+  // Recenter paper sheet view whenever sheet paper size or orientation changes.
+  useEffect(() => {
+    setSheetPan({ x: 0, y: 0 });
+    setSheetZoom(1);
+  }, [opts.paper, opts.orientation]);
+
+  // Measure the preview pane so the sheet can be sized to the largest fit.
+  const [paneSize, setPaneSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+
+  useEffect(() => {
     const wrap = previewWrapRef.current;
-    if (!wrap || result.mmPerUnit <= 0) return { dE: 0, dN: 0 };
-    const rect = wrap.getBoundingClientRect();
-    const mmPerPx = result.paperW / rect.width;
-    return {
-      dE: (dxPx * mmPerPx) / result.mmPerUnit,
-      dN: (-dyPx * mmPerPx) / result.mmPerUnit,
-    };
-  };
+    if (!wrap) return;
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (rect) setPaneSize({ w: rect.width, h: rect.height });
+    });
+    observer.observe(wrap);
+    return () => observer.disconnect();
+  }, []);
+
+  const PREVIEW_PAD = 24; // px breathing room around the sheet
+  const fitScale = useMemo(() => {
+    if (paneSize.w <= 0 || paneSize.h <= 0) return 0;
+    return Math.max(
+      0,
+      Math.min(
+        (paneSize.w - PREVIEW_PAD) / result.paperW,
+        (paneSize.h - PREVIEW_PAD) / result.paperH,
+      ),
+    );
+  }, [paneSize, result.paperW, result.paperH]);
 
   const handlePreviewMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
-    dragStart.current = { x: e.clientX, y: e.clientY, offsetE: view.offsetE, offsetN: view.offsetN };
+    dragStart.current = { x: e.clientX, y: e.clientY, panX: sheetPan.x, panY: sheetPan.y };
     setDragging(true);
   };
 
@@ -179,10 +202,9 @@ export function CadPlotDialog({
     if (!dragStart.current) return;
     const dx = e.clientX - dragStart.current.x;
     const dy = e.clientY - dragStart.current.y;
-    const { dE, dN } = toSurveyDelta(dx, dy);
-    setView({
-      offsetE: dragStart.current.offsetE - dE,
-      offsetN: dragStart.current.offsetN - dN,
+    setSheetPan({
+      x: dragStart.current.panX + dx,
+      y: dragStart.current.panY + dy,
     });
   };
 
@@ -191,10 +213,44 @@ export function CadPlotDialog({
     setDragging(false);
   };
 
+  const zoomSheetBy = (factor: number, mx = 0, my = 0) => {
+    setSheetZoom((prev) => {
+      const next = Math.min(5, Math.max(0.2, prev * factor));
+      const actual = next / prev;
+      setSheetPan((p) => ({
+        x: p.x * actual + mx * (1 - actual),
+        y: p.y * actual + my * (1 - actual),
+      }));
+      return next;
+    });
+  };
+
   const handlePreviewWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    const factor = Math.exp(-e.deltaY * 0.0015);
-    zoomBy(factor);
+    if (e.ctrlKey) {
+      // Zoom at cursor (Pinch on trackpad, or Ctrl+Wheel)
+      const wrap = previewWrapRef.current;
+      if (!wrap) return;
+      const rect = wrap.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const mx = e.clientX - cx;
+      const my = e.clientY - cy;
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      zoomSheetBy(factor, mx, my);
+    } else {
+      // Pan/scroll the sheet (Standard mouse wheel or 2-finger swipe)
+      // Browsers often convert Shift+Wheel to deltaX automatically.
+      setSheetPan((p) => ({
+        x: p.x - e.deltaX,
+        y: p.y - e.deltaY,
+      }));
+    }
+  };
+
+  const resetSheetView = () => {
+    setSheetPan({ x: 0, y: 0 });
+    setSheetZoom(1);
   };
 
   const handleFitExtents = () => {
@@ -220,8 +276,8 @@ export function CadPlotDialog({
       onOpenChange={onClose}
       title={layoutName ? `${layoutName} — paper space` : "Plot layout — printed format"}
       description="Configure the sheet and drag or wheel the preview to position the drawing."
-      size="full"
-      className="h-[95vh] max-w-[calc(100vw-3rem)] p-0 overflow-hidden flex flex-col border border-border/50 bg-background"
+      size="screen"
+      className="p-0! gap-0 overflow-hidden border border-border/50 bg-background"
       contentClassName="p-0 overflow-hidden flex-1 min-h-0 flex flex-col"
       footer={
         <>
@@ -351,7 +407,7 @@ export function CadPlotDialog({
         <div className="flex-1 relative bg-[#0c0e12] flex flex-col min-w-0">
           <div
             ref={previewWrapRef}
-            className={`absolute inset-0 flex items-center justify-center overflow-hidden ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
+            className={`absolute inset-0 flex items-center justify-center overflow-hidden select-none ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
             onMouseDown={handlePreviewMouseDown}
             onMouseMove={handlePreviewMouseMove}
             onMouseUp={endPreviewDrag}
@@ -359,15 +415,54 @@ export function CadPlotDialog({
             onWheel={handlePreviewWheel}
           >
             <div
-              className="cad-plot-preview-sheet shadow-2xl"
+              className="cad-plot-preview-sheet shadow-2xl transition-transform duration-75 ease-out"
+              style={
+                fitScale > 0
+                  ? {
+                      width: result.paperW * fitScale * sheetZoom,
+                      height: result.paperH * fitScale * sheetZoom,
+                      transform: `translate3d(${sheetPan.x}px, ${sheetPan.y}px, 0)`,
+                    }
+                  : undefined
+              }
               dangerouslySetInnerHTML={{ __html: result.svg }}
             />
           </div>
-          <div className="absolute top-3 left-3 rounded-md bg-black/60 backdrop-blur-sm px-2.5 py-1 text-xs text-white/90 border border-white/10">
+          <div className="absolute top-3 left-3 rounded-md bg-black/60 backdrop-blur-sm px-2.5 py-1 text-xs text-white/90 border border-white/10 z-10">
             {opts.paper} · {opts.orientation} · 1:{result.denominator}
           </div>
-          <div className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-md bg-black/60 backdrop-blur-sm px-2.5 py-1 text-xs text-white/70 border border-white/10" aria-hidden="true">
-            <Hand size={12} /> Drag to pan · Wheel to zoom
+          <div className="absolute top-3 right-3 flex items-center gap-1 rounded-md bg-black/60 backdrop-blur-sm p-1 text-xs text-white/90 border border-white/10 z-10">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-white hover:bg-white/20"
+              title="Zoom out sheet"
+              onClick={() => zoomSheetBy(1 / 1.25)}
+            >
+              <ZoomOut size={12} />
+            </Button>
+            <button
+              type="button"
+              className="px-1.5 py-0.5 text-[11px] font-medium text-white/80 hover:text-white"
+              title="Reset sheet view"
+              onClick={resetSheetView}
+            >
+              {Math.round(sheetZoom * 100)}%
+            </button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-white hover:bg-white/20"
+              title="Zoom in sheet"
+              onClick={() => zoomSheetBy(1.25)}
+            >
+              <ZoomIn size={12} />
+            </Button>
+          </div>
+          <div className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-md bg-black/60 backdrop-blur-sm px-2.5 py-1 text-xs text-white/70 border border-white/10 z-10" aria-hidden="true">
+            <Hand size={12} /> Drag or scroll to pan · Ctrl+Scroll to zoom
           </div>
         </div>
       </div>

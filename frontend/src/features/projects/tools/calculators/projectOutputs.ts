@@ -32,6 +32,30 @@ function storageKey(projectId: string) {
   return `sse:project-outputs:${projectId}`;
 }
 
+/**
+ * One-time key migration (see projectPoints.migrateProjectPointsKey): move
+ * outputs stored under a legacy display id to the stable database id.
+ */
+export function migrateProjectOutputsKey(
+  projectId: string,
+  legacyId?: string | null,
+): void {
+  if (!legacyId || legacyId === projectId) return;
+  try {
+    const oldKey = storageKey(legacyId);
+    const newKey = storageKey(projectId);
+    const legacy = localStorage.getItem(oldKey);
+    if (legacy != null) {
+      if (localStorage.getItem(newKey) == null) {
+        localStorage.setItem(newKey, legacy);
+      }
+      localStorage.removeItem(oldKey);
+    }
+  } catch {
+    // Storage unavailable (private mode) — migration is best-effort.
+  }
+}
+
 function sanitizeFileName(name: string): string {
   return name
     .trim()

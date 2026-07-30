@@ -113,10 +113,11 @@ export function deleteCoordinateSection(projectId: string, id: string): void {
 }
 
 export function nextPointNo(points: ProjectPoint[], fallback = "1"): string {
-  const nums = points
-    .map((p) => parseInt(p.pointNo, 10))
-    .filter((n) => Number.isFinite(n));
-  const max = nums.length > 0 ? Math.max(...nums) : 0;
+  let max = 0;
+  for (const p of points) {
+    const n = parseInt(p.pointNo, 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
   return max > 0 ? String(max + 1) : fallback;
 }
 
@@ -125,9 +126,31 @@ export function addProjectPoint(
   partial: Omit<ProjectPoint, "id" | "createdAt" | "pointNo"> & { pointNo?: string },
 ): ProjectPoint {
   const points = loadProjectPoints(projectId);
+  const pointNo = partial.pointNo?.trim() || nextPointNo(points);
+
+  // Point numbers are the primary key in survey practice: saving a result
+  // under an existing number updates that point in place instead of creating
+  // a duplicate.
+  if (partial.pointNo) {
+    const idx = points.findIndex((p) => p.pointNo === pointNo);
+    if (idx >= 0) {
+      const updated: ProjectPoint = {
+        ...points[idx],
+        e: partial.e,
+        n: partial.n,
+        z: partial.z ?? null,
+        code: partial.code ?? points[idx].code,
+      };
+      const next = [...points];
+      next[idx] = updated;
+      saveProjectPoints(projectId, next);
+      return updated;
+    }
+  }
+
   const point: ProjectPoint = {
     id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    pointNo: partial.pointNo || nextPointNo(points),
+    pointNo,
     e: partial.e,
     n: partial.n,
     z: partial.z ?? null,
@@ -144,6 +167,34 @@ export function findProjectPoint(
 ): ProjectPoint | undefined {
   if (!projectId) return undefined;
   return loadProjectPoints(projectId).find((p) => p.pointNo === pointNo.trim());
+}
+
+/**
+ * One-time key migration: points were once stored under the project's short
+ * display id (`code ?? uuid-prefix`), which collides across projects. Move
+ * any legacy-key data under the stable database id. No-op when both keys
+ * match or nothing is stored.
+ */
+export function migrateProjectPointsKey(
+  projectId: string,
+  legacyId?: string | null,
+): void {
+  if (!legacyId || legacyId === projectId) return;
+  try {
+    for (const keyFn of [storageKey, sectionsKey]) {
+      const oldKey = keyFn(legacyId);
+      const newKey = keyFn(projectId);
+      const legacy = localStorage.getItem(oldKey);
+      if (legacy != null) {
+        if (localStorage.getItem(newKey) == null) {
+          localStorage.setItem(newKey, legacy);
+        }
+        localStorage.removeItem(oldKey);
+      }
+    }
+  } catch {
+    // Storage unavailable (private mode) — migration is best-effort.
+  }
 }
 
 export function exportPointsCsv(points: ProjectPoint[], decimals = 3): string {

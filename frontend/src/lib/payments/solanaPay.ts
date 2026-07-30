@@ -91,7 +91,12 @@ export function buildUsdcTransferInstruction(
   payer: PublicKey,
   treasury: PublicKey,
   amount: number,
-): { instruction: TransactionInstruction; reference: PublicKey } {
+): {
+  instruction: TransactionInstruction;
+  reference: PublicKey;
+  sourceAta: PublicKey;
+  destAta: PublicKey;
+} {
   const mint = new PublicKey(SOLANA_USDC_MINT);
   const sourceAta = getAssociatedTokenAddress(mint, payer);
   const destAta = getAssociatedTokenAddress(mint, treasury);
@@ -112,17 +117,20 @@ export function buildUsdcTransferInstruction(
     data: Buffer.from(encodeTransferChecked(amountBaseUnits, 6)),
   });
 
-  return { instruction: transferIx, reference };
+  return { instruction: transferIx, reference, sourceAta, destAta };
 }
 
-/** Estimate the network fee for a USDC transfer in SOL. */
+/** Size in bytes of an SPL token account (for rent-exemption calculations). */
+const TOKEN_ACCOUNT_SIZE = 165;
+
+/** Estimate the network cost of a USDC transfer, in SOL. */
 export async function estimateUsdcTransferFee(amount: number): Promise<number> {
   if (!SOLANA_TREASURY_ADDRESS) return 0;
   const treasury = new PublicKey(SOLANA_TREASURY_ADDRESS);
   const placeholderPayer = new PublicKey(
     "11111111111111111111111111111111",
   );
-  const { instruction: transferIx } = buildUsdcTransferInstruction(
+  const { instruction: transferIx, destAta } = buildUsdcTransferInstruction(
     placeholderPayer,
     treasury,
     amount,
@@ -132,9 +140,29 @@ export async function estimateUsdcTransferFee(amount: number): Promise<number> {
   const tx = new Transaction();
   tx.feePayer = placeholderPayer;
   tx.recentBlockhash = blockhash;
+
+  // When the treasury has no USDC account yet the payer also funds its
+  // rent-exempt deposit. The rent is not part of the signature fee, so add it
+  // explicitly for a realistic cost estimate.
+  let rentLamports = 0;
+  const destInfo = await conn.getAccountInfo(destAta, "confirmed");
+  if (!destInfo) {
+    tx.add(
+      createAtaInstruction(
+        placeholderPayer,
+        destAta,
+        treasury,
+        new PublicKey(SOLANA_USDC_MINT),
+      ),
+    );
+    rentLamports = await conn.getMinimumBalanceForRentExemption(
+      TOKEN_ACCOUNT_SIZE,
+    );
+  }
   tx.add(transferIx);
+
   const { value } = await conn.getFeeForMessage(tx.compileMessage(), "confirmed");
-  return (value ?? 0) / LAMPORTS_PER_SOL;
+  return ((value ?? 0) + rentLamports) / LAMPORTS_PER_SOL;
 }
 
 /**
@@ -143,6 +171,10 @@ export async function estimateUsdcTransferFee(amount: number): Promise<number> {
  * When `signer` is provided (embedded wallet), the transaction is signed
  * directly in-app. Otherwise we fall back to an external wallet provider such
  * as Phantom or Solflare.
+ *
+ * If the treasury's USDC token account does not exist yet, the transaction
+ * prepends an associated-token-account `Create` instruction funded by the
+ * payer; otherwise the transfer would fail on-chain on the very first payment.
  */
 export async function payInvoiceWithUsdc(
   request: InvoicePaymentRequest,
@@ -157,32 +189,44 @@ export async function payInvoiceWithUsdc(
   const treasury = new PublicKey(SOLANA_TREASURY_ADDRESS);
   let payer: PublicKey;
   let walletAddress: string;
+  let provider: SolanaWalletProvider | undefined;
 
   if (signer) {
     payer = signer.publicKey;
     walletAddress = signer.publicKey.toBase58();
   } else {
-    const { provider, walletAddress: addr } = await connectWallet();
-    if (!provider.signAndSendTransaction) {
+    const connected = await connectWallet();
+    if (!connected.provider.signAndSendTransaction) {
       throw new Error(
         "This wallet does not support sending transactions. Use Phantom or Solflare.",
       );
     }
-    payer = new PublicKey(addr);
-    walletAddress = addr;
+    provider = connected.provider;
+    walletAddress = connected.walletAddress;
+    payer = new PublicKey(connected.walletAddress);
   }
 
   const conn = getConnection();
-  const { instruction: transferIx, reference } = buildUsdcTransferInstruction(
-    payer,
-    treasury,
-    request.amount,
-  );
+  const { instruction: transferIx, reference, destAta } =
+    buildUsdcTransferInstruction(payer, treasury, request.amount);
 
   const { blockhash } = await conn.getLatestBlockhash("confirmed");
   const tx = new Transaction();
   tx.feePayer = payer;
   tx.recentBlockhash = blockhash;
+
+  // Create the treasury's USDC account on the first payment (payer pays rent).
+  const destInfo = await conn.getAccountInfo(destAta, "confirmed");
+  if (!destInfo) {
+    tx.add(
+      createAtaInstruction(
+        payer,
+        destAta,
+        treasury,
+        new PublicKey(SOLANA_USDC_MINT),
+      ),
+    );
+  }
   tx.add(transferIx);
 
   let signature: string;
@@ -193,8 +237,7 @@ export async function payInvoiceWithUsdc(
     });
     await conn.confirmTransaction(signature, "confirmed");
   } else {
-    const { provider } = await connectWallet();
-    signature = (await sendWithProvider(provider, tx)).signature;
+    signature = (await sendWithProvider(provider!, tx)).signature;
   }
 
   return { signature, reference: reference.toBase58(), walletAddress };

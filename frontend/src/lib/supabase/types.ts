@@ -380,6 +380,38 @@ export type Database = {
           },
         ]
       }
+      chat_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          user_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          user_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          user_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contacts: {
         Row: {
           archived_at: string | null
@@ -1539,49 +1571,73 @@ export type Database = {
           auth_signup_account_type: string | null
           avatar_path: string | null
           bio: string | null
+          city: string | null
+          company_name: string | null
+          country_code: string | null
           created_at: string
           default_workspace_id: string | null
           email: string | null
+          email_notifications: boolean
           full_name: string | null
           id: string
           is_platform_admin: boolean
+          linkedin: string | null
           onboarding_complete: boolean
           phone: string | null
           professional_title: string | null
           promo_code: string | null
+          registration_no: string | null
+          specializations: string | null
           updated_at: string
+          website: string | null
         }
         Insert: {
           auth_signup_account_type?: string | null
           avatar_path?: string | null
           bio?: string | null
+          city?: string | null
+          company_name?: string | null
+          country_code?: string | null
           created_at?: string
           default_workspace_id?: string | null
           email?: string | null
+          email_notifications?: boolean
           full_name?: string | null
           id: string
           is_platform_admin?: boolean
+          linkedin?: string | null
           onboarding_complete?: boolean
           phone?: string | null
           professional_title?: string | null
           promo_code?: string | null
+          registration_no?: string | null
+          specializations?: string | null
           updated_at?: string
+          website?: string | null
         }
         Update: {
           auth_signup_account_type?: string | null
           avatar_path?: string | null
           bio?: string | null
+          city?: string | null
+          company_name?: string | null
+          country_code?: string | null
           created_at?: string
           default_workspace_id?: string | null
           email?: string | null
+          email_notifications?: boolean
           full_name?: string | null
           id?: string
           is_platform_admin?: boolean
+          linkedin?: string | null
           onboarding_complete?: boolean
           phone?: string | null
           professional_title?: string | null
           promo_code?: string | null
+          registration_no?: string | null
+          specializations?: string | null
           updated_at?: string
+          website?: string | null
         }
         Relationships: [
           {
@@ -2471,6 +2527,15 @@ export type Database = {
           target_workspace_id: string
         }
         Returns: boolean
+      }
+      project_cad_metrics: {
+        Args: { p_project_id: string }
+        Returns: {
+          points: number
+          linework: number
+          surfaces: number
+          qa_flags: number
+        }[]
       }
       list_workspace_activity_log: {
         Args: {

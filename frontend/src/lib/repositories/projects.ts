@@ -144,10 +144,18 @@ export async function updateProject(
   const { id: _id, ...safePatch } = patch;
   void _id;
 
+  // `status` and `archived_at` are two views of one fact: the UI mapper lets
+  // `archived_at` win ("Archived"), while the settings form writes `status`.
+  // Keep them coherent in both directions so nothing gets stuck archived.
+  // (archived_at is nullable in the DB; the DocType declares only the string
+  // side, hence the argument-level cast for the restore/null case.)
   await doc.incrementalPatch({
     ...omitNullish(safePatch as unknown as Record<string, unknown>),
+    ...(typeof safePatch.status === "string"
+      ? { archived_at: safePatch.status === "archived" ? nowIso() : null }
+      : {}),
     updated_at: nowIso(),
-  });
+  } as Parameters<typeof doc.incrementalPatch>[0]);
 
   return toProjectRow(doc.toMutableJSON());
 }
@@ -161,6 +169,7 @@ export async function archiveProject(id: string): Promise<void> {
   if (!doc) throw new Error(`Project not found: ${id}`);
 
   await doc.incrementalPatch({
+    status: "archived",
     archived_at: nowIso(),
     updated_at: nowIso(),
   });
@@ -177,6 +186,7 @@ export async function unarchiveProject(id: string): Promise<void> {
   await doc.update({
     $set: {
       archived_at: null,
+      status: "active",
       updated_at: nowIso(),
     },
   });
@@ -227,21 +237,65 @@ export async function listProjectMembers(
   });
 }
 
+/**
+ * Members for MANY projects in two queries total (instead of 2 per project).
+ * Grouped by project_id. Used by the project hub's row-mapping effect so the
+ * 15 s silent refresh is O(1) requests regardless of project count.
+ */
+export async function listProjectMembersForProjects(
+  projectIds: string[],
+): Promise<Map<string, ProjectMemberWithProfile[]>> {
+  const grouped = new Map<string, ProjectMemberWithProfile[]>();
+  if (projectIds.length === 0) return grouped;
+
+  const { data: members, error } = await supabase
+    .from("project_members")
+    .select("*")
+    .in("project_id", projectIds);
+
+  if (error) throw error;
+  if (!members || members.length === 0) return grouped;
+
+  const userIds = Array.from(new Set(members.map((m) => m.user_id)));
+
+  const { data: profiles, error: profileError } = await supabase
+    .from("profiles")
+    .select("id, full_name, email")
+    .in("id", userIds);
+
+  if (profileError) throw profileError;
+
+  const profileMap = new Map((profiles ?? []).map((p) => [p.id, p]));
+
+  for (const m of members) {
+    const profile = profileMap.get(m.user_id);
+    const withProfile: ProjectMemberWithProfile = {
+      ...m,
+      full_name: profile?.full_name ?? null,
+      email: profile?.email ?? null,
+    };
+    const bucket = grouped.get(m.project_id);
+    if (bucket) bucket.push(withProfile);
+    else grouped.set(m.project_id, [withProfile]);
+  }
+  return grouped;
+}
+
 export type ProjectActivity = ProjectActivityRow & {
   user_name?: string;
 };
 
 export async function listProjectActivities(projectId: string): Promise<ProjectActivity[]> {
+  // Throw on failure: the caller falls back to the local activity cache and
+  // must be able to distinguish "no activities" from "fetch failed".
   const { data, error } = await supabase
     .from("project_activities")
     .select("*")
     .eq("project_id", projectId)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(100);
 
-  if (error) {
-    console.warn("Failed to fetch project activities:", error.message);
-    return [];
-  }
+  if (error) throw error;
 
   const rows = data ?? [];
   const userIds = Array.from(new Set(rows.map((row) => row.user_id).filter((id): id is string => Boolean(id))));

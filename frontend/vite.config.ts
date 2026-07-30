@@ -184,6 +184,23 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Tests only: use @solana/web3.js' browser ESM build; the node CJS
+      // build native-requires rpc-websockets, which ships a nested ESM-in-CJS
+      // `uuid` copy Vitest cannot load. The ESM build's rpc-websockets import
+      // goes through Vite resolution and lands on the stub below (unit tests
+      // never open websocket subscriptions).
+      ...(process.env.VITEST
+        ? {
+            '@solana/web3.js': path.resolve(
+              __dirname,
+              './node_modules/@solana/web3.js/lib/index.browser.esm.js',
+            ),
+            'rpc-websockets': path.resolve(
+              __dirname,
+              './src/test-shims/rpc-websockets.ts',
+            ),
+          }
+        : {}),
     },
   },
   test: {

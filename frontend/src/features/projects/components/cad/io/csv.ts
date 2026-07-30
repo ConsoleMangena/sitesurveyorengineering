@@ -16,8 +16,10 @@ export interface CsvParseResult {
   errors: string[];
 }
 
-function looksNumeric(v: string): boolean {
-  return /^-?\d+(\.\d+)?$/.test(v.trim());
+function looksNumeric(v: string | undefined | null): boolean {
+  if (v == null) return false;
+  // Accept +1, .5, 1e3-style scientific notation as well as plain decimals.
+  return /^[+-]?(\d+(\.\d+)?|\.\d+)([eE][+-]?\d+)?$/.test(v.trim());
 }
 
 export interface CsvColumnMapping {
@@ -28,14 +30,31 @@ export interface CsvColumnMapping {
   code: number | null;
 }
 
-export function parsePointsCsv(text: string, mapping?: CsvColumnMapping, hasHeader?: boolean): CsvParseResult {
+export function parsePointsCsv(
+  text: string,
+  mapping?: CsvColumnMapping,
+  hasHeader?: boolean,
+  delimiter?: string,
+): CsvParseResult {
   const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0);
   const points: ParsedPoint[] = [];
   const errors: string[] = [];
   let skipped = 0;
 
+  // When the caller detected a delimiter (typically ";" for decimal-comma
+  // exports), split ONLY on it — splitting on commas as well would explode
+  // "45,002" into two columns and shift every mapping. With a non-comma
+  // delimiter, a comma inside a numeric cell is a DECIMAL point
+  // (decimal-comma locale); normalize it to a dot before parseFloat.
+  const splitCols = (line: string): string[] =>
+    (delimiter ? line.split(delimiter) : line.split(/[,\t;]/)).map((c) => c.trim());
+  const parseNum = (raw: string): number =>
+    delimiter && delimiter !== "," ? parseFloat(raw.replace(/,/g, ".")) : parseFloat(raw);
+  const numericWithDelimiter = (raw: string | undefined | null): boolean =>
+    looksNumeric(delimiter && delimiter !== "," ? raw?.replace(/,/g, ".") : raw);
+
   lines.forEach((line, idx) => {
-    const cols = line.split(/[,\t;]/).map((c) => c.trim());
+    const cols = splitCols(line);
     if (cols.length < 2) {
       skipped += 1;
       return;
@@ -47,15 +66,15 @@ export function parsePointsCsv(text: string, mapping?: CsvColumnMapping, hasHead
       const col = (i: number) => cols[i] ?? "";
       const eRaw = col(mapping.easting);
       const nRaw = col(mapping.northing);
-      const e = parseFloat(eRaw);
-      const n = parseFloat(nRaw);
+      const e = parseNum(eRaw);
+      const n = parseNum(nRaw);
       if (!Number.isFinite(n) || !Number.isFinite(e)) {
         errors.push(`Line ${idx + 1}: invalid X/Y`);
         skipped += 1;
         return;
       }
       const zRaw = mapping.elevation == null ? "" : col(mapping.elevation);
-      const z = zRaw && looksNumeric(zRaw) ? parseFloat(zRaw) : null;
+      const z = zRaw && numericWithDelimiter(zRaw) ? parseNum(zRaw) : null;
       const codeRaw = mapping.code == null ? "" : col(mapping.code);
       const pno = col(mapping.pointNo);
       points.push({
@@ -71,7 +90,8 @@ export function parsePointsCsv(text: string, mapping?: CsvColumnMapping, hasHead
     // Header detection: a genuine header row has non-numeric labels across
     // its leading columns (e.g. "PointNo,Y,X"). A data row with a
     // numeric point number but unparseable N/E is NOT a header; it must be
-    // reported as an error rather than silently skipped.
+    // reported as an error rather than silently skipped. (looksNumeric is
+    // undefined-safe; short rows simply fail the check and parse as data.)
     if (
       idx === 0 &&
       !looksNumeric(cols[0]) &&
@@ -82,14 +102,14 @@ export function parsePointsCsv(text: string, mapping?: CsvColumnMapping, hasHead
     }
     // Column order is PointNo, Y(Easting), X(Northing), Z, Code.
     const [pno, eRaw, nRaw, zRaw, code] = cols;
-    const e = parseFloat(eRaw);
-    const n = parseFloat(nRaw);
+    const e = parseNum(eRaw);
+    const n = parseNum(nRaw);
     if (!Number.isFinite(n) || !Number.isFinite(e)) {
       errors.push(`Line ${idx + 1}: invalid X/Y`);
       skipped += 1;
       return;
     }
-    const z = zRaw && looksNumeric(zRaw) ? parseFloat(zRaw) : null;
+    const z = zRaw && numericWithDelimiter(zRaw) ? parseNum(zRaw) : null;
     points.push({
       pointNo: pno || String(idx + 1),
       n,

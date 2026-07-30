@@ -68,13 +68,12 @@ describe("buildPlotSvg", () => {
     expect(res.svg).not.toContain("SCALE 1:");
   });
 
-  it("computes a sensible fit scale and rounds it to a nice value", () => {
+  it("computes an exact fit scale so the drawing fills the frame", () => {
     const res = buildPlotSvg(sampleModel(), opts({ scaleDenominator: "fit" }));
+    // Fit-to-paper uses the exact (integer) denominator rather than rounding
+    // up to a conventional value, so the plan fills the drawing frame.
     expect(res.denominator).toBeGreaterThan(0);
-    // Fit scale should be one of the conventional surveying denominators.
-    const nice = [1, 2, 2.5, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000, 20000, 25000, 50000];
-    const pow = Math.pow(10, Math.floor(Math.log10(res.denominator)));
-    expect(nice.some((b) => Math.abs(b * pow - res.denominator) < 1e-6)).toBe(true);
+    expect(Number.isInteger(res.denominator)).toBe(true);
   });
 
   it("honours an explicit plot scale", () => {
@@ -123,10 +122,7 @@ describe("buildPlotSvg", () => {
     );
     // Zooming in shows a smaller area, so the scale denominator decreases.
     expect(zoomedIn.denominator).toBeLessThan(fit.denominator);
-    // Still a conventional surveying value.
-    const nice = [1, 2, 2.5, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000];
-    const pow = Math.pow(10, Math.floor(Math.log10(zoomedIn.denominator)));
-    expect(nice.some((b) => Math.abs(b * pow - zoomedIn.denominator) < 1e-6)).toBe(true);
+    expect(Number.isInteger(zoomedIn.denominator)).toBe(true);
   });
 
   it("pans the sheet by re-centring on the view offset", () => {

@@ -159,10 +159,12 @@ function findPoint(model: CadModelState, pno: string): SurveyPoint | null {
 
 /** Return the next numeric point number without relying on synchronous state updates. */
 function nextPointBase(model: CadModelState): number {
-  const nums = model.points
-    .map((p) => parseInt(p.pointNo, 10))
-    .filter((n) => Number.isFinite(n));
-  return nums.length ? Math.max(...nums) + 1 : 1001;
+  let max = 1000;
+  for (const p of model.points) {
+    const n = parseInt(p.pointNo, 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return max + 1;
 }
 
 export function CadCogoPanel({ cad, model, selection, bearingFormat, axisConvention = "yx", angleEntry = "packed", coordDecimals: _coordDecimals, log }: CadCogoPanelProps) {

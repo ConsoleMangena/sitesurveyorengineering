@@ -23,6 +23,7 @@ import {
   RefreshCcw,
   LandPlot,
   Target,
+  Scaling,
   MailOpen,
   FileUp,
   FileDown,
@@ -46,7 +47,8 @@ export type CalcToolId =
   | "point-fixing"
   | "angle-converter"
   | "stakeout"
-  | "curve-design";
+  | "curve-design"
+  | "scale-factor";
 
 export type ToolBehavior =
   | { kind: "cad" }
@@ -187,6 +189,15 @@ export const PROJECT_TOOLS: ProjectTool[] = [
     tier: "free",
     behavior: { kind: "calc", calc: "curve-design" },
     icon: LineChart,
+  },
+  {
+    id: "scale-factor",
+    label: "Scale Factor (Ground ↔ Grid)",
+    category: "COGO & Computation",
+    description: "Combined scale factor from point (grid) scale and site elevation; reduce ground distances to grid and expand grid distances for setting-out.",
+    tier: "free",
+    behavior: { kind: "calc", calc: "scale-factor" },
+    icon: Scaling,
   },
 
   // ── Field Data ───────────────────────────────────────────────────────────

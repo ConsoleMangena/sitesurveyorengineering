@@ -569,7 +569,9 @@ export function ProjectPointsManager({ projectId }: ProjectPointsManagerProps) {
     sectionId: string | null;
   }) => {
     if (!projectId) return;
-    const result = parsePointsCsv(params.text, params.mapping, params.hasHeader);
+    // Honour the detected delimiter — a ";" decimal-comma file must not be
+    // re-split on commas (that exploded every coordinate into two columns).
+    const result = parsePointsCsv(params.text, params.mapping, params.hasHeader, params.delimiter);
     if (result.errors.length) {
       setImportError(result.errors.slice(0, 3).join("; "));
       setImportSuccess(null);

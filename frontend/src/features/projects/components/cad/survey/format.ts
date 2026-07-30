@@ -40,7 +40,7 @@ export function fmtDistance(value: number, decimals = 3): string {
 }
 
 /** Convert decimal degrees to D°M'S" components. */
-function toDMS(deg: number): { d: number; m: number; s: number } {
+export function toDMS(deg: number): { d: number; m: number; s: number } {
   const sign = deg < 0 ? -1 : 1;
   let abs = Math.abs(deg);
   let d = Math.floor(abs);

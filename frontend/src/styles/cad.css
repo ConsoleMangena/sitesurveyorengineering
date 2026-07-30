@@ -6,25 +6,36 @@
 
 .cad-workspace-shell {
   /* AutoCAD-style light theme tokens — always light mode for readability */
-  --cad-bg: #f4f4f5;
+  --cad-bg: #f3f5f7;
   --cad-bg-2: #ffffff;
-  --cad-panel: #e4e4e7;
-  --cad-panel-2: #d4d4d8;
-  --cad-border: #c4c4c8;
-  --cad-border-2: #a1a1aa;
-  --cad-text: #27272a;
-  --cad-text-dim: #52525b;
-  --cad-text-hi: #000000;
+  --cad-panel: #e9edf1;
+  --cad-panel-2: #dde3e9;
+  --cad-border: rgba(15, 23, 42, 0.1);
+  --cad-border-2: rgba(15, 23, 42, 0.18);
+  --cad-text: #2f3a45;
+  --cad-text-dim: #64748b;
+  --cad-text-hi: #0f172a;
   --cad-accent: #1473e6;
-  --cad-accent-bg: rgba(20, 115, 230, 0.14);
+  --cad-accent-hover: #0f66d1;
+  --cad-accent-active: #0d56b8;
+  --cad-accent-bg: rgba(20, 115, 230, 0.1);
+  --cad-accent-bg-strong: rgba(20, 115, 230, 0.16);
+  --cad-ring: 0 0 0 2px rgba(20, 115, 230, 0.3);
   --cad-canvas: #ffffff;
-  --cad-grid: #d4d4d8;
-  --cad-grid-major: #c0c0c4;
+  --cad-grid: #dde3ea;
+  --cad-grid-major: #c9d2dc;
   --cad-error: #d32f2f;
   --cad-ok: #2e7d32;
+  --cad-warning: #b45309;
   --cad-cursor: #0066cc;
   --cad-entity-text: #1f2937;
   --cad-entity-stroke: rgba(0, 0, 0, 0.75);
+  /* Elevation + motion */
+  --cad-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --cad-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.1), 0 1px 2px rgba(15, 23, 42, 0.06);
+  --cad-shadow-md: 0 4px 10px rgba(15, 23, 42, 0.1), 0 2px 4px rgba(15, 23, 42, 0.06);
+  --cad-shadow-lg: 0 12px 28px rgba(15, 23, 42, 0.16), 0 4px 8px rgba(15, 23, 42, 0.06);
+  --cad-ease: cubic-bezier(0.2, 0, 0.2, 1);
 
   position: fixed;
   inset: 0;
@@ -2230,13 +2241,11 @@
 
 /* ── Plot / Layout dialog (inner preview pieces; shell uses shadcn Dialog) ─── */
 .cad-plot-preview-sheet {
+  /* Explicit px size is set inline by CadPlotDialog (largest fit for the
+     pane, keeping the paper aspect ratio); these are only fallbacks. */
   max-width: 100%;
   max-height: 100%;
-  width: auto;
-  height: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  flex: none;
   background: #fff;
   border-radius: 1px;
   overflow: hidden;
@@ -2244,11 +2253,11 @@
 }
 
 .cad-plot-preview-sheet svg {
+  /* Stretch the sheet SVG to the sized container — overrides the intrinsic
+     mm width/height attributes so the preview fills the pane. */
   display: block;
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
 }
 
 .cad-plot-viewport-pad {
@@ -2718,3 +2727,473 @@
   margin: 0 -1.5rem -1.5rem;
   padding: 1rem 1.5rem;
 }
+
+/* ============================================================================
+   POLISH LAYER — comprehensive visual upgrade for the CAD workspace.
+   Visual properties only: no layout/geometry changes. Later cascade wins.
+   ============================================================================ */
+
+/* ── Motion + focus system ─────────────────────────────────────────────────── */
+.cad-workspace-shell button:not(:disabled),
+.cad-workspace-shell select,
+.cad-workspace-shell summary {
+  transition:
+    background 120ms var(--cad-ease),
+    border-color 120ms var(--cad-ease),
+    color 120ms var(--cad-ease),
+    box-shadow 150ms var(--cad-ease),
+    filter 120ms var(--cad-ease);
+}
+
+.cad-workspace-shell input:focus-visible,
+.cad-workspace-shell select:focus-visible,
+.cad-workspace-shell textarea:focus-visible {
+  outline: none;
+  box-shadow: var(--cad-ring);
+  border-color: var(--cad-accent) !important;
+}
+
+.cad-workspace-shell button:focus-visible {
+  outline: none;
+  box-shadow: var(--cad-ring);
+}
+
+/* ── Topbar chrome ────────────────────────────────────────────────────────── */
+.cad-topbar {
+  height: 32px;
+  padding: 0 10px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset;
+}
+
+.cad-stat-pill {
+  border-radius: 6px;
+  box-shadow: var(--cad-shadow-xs);
+  padding: 2px 8px;
+}
+
+.cad-sync-dot {
+  box-shadow: 0 0 0 3px var(--cad-accent-bg);
+}
+
+/* ── Application menu bar ─────────────────────────────────────────────────── */
+.cad-menu-item {
+  padding: 3px 9px;
+  border-radius: 5px;
+}
+
+.cad-menu-item.active {
+  background: var(--cad-bg-2);
+  box-shadow: 0 2px 0 var(--cad-accent) inset, var(--cad-shadow-xs);
+}
+
+.cad-menu-dropdown {
+  border-radius: 10px;
+  border-color: var(--cad-border);
+  box-shadow: var(--cad-shadow-lg);
+  padding: 5px;
+  border-top-color: rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+}
+
+.cad-menu-dropdown-item {
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.cad-menu-dropdown-item:hover:not(.cad-menu-dropdown-item-disabled) {
+  background: var(--cad-accent-bg);
+  color: var(--cad-accent-active);
+}
+
+.cad-menu-divider-h {
+  background: rgba(15, 23, 42, 0.08);
+  margin: 4px 2px;
+}
+
+/* ── Tool dropdown groups ─────────────────────────────────────────────────── */
+.cad-tool-dropdown {
+  border-radius: 10px;
+  border-color: var(--cad-border);
+  box-shadow: var(--cad-shadow-lg);
+  padding: 5px;
+}
+
+.cad-tool-dropdown-btn {
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.cad-tool-dropdown-btn:hover {
+  background: var(--cad-accent-bg);
+}
+
+.cad-tool-dropdown-group-label {
+  letter-spacing: 0.7px;
+  opacity: 0.85;
+}
+
+/* ── Ribbon ────────────────────────────────────────────────────────────────── */
+.cad-ribbon {
+  box-shadow: var(--cad-shadow-xs);
+  position: relative;
+  z-index: 10;
+}
+
+.cad-ribbon-tab {
+  border-radius: 6px 6px 0 0;
+  padding: 4px 12px;
+  font-size: 10.5px;
+  letter-spacing: 0.1px;
+  position: relative;
+}
+
+.cad-ribbon-tab.active {
+  color: var(--cad-accent-active);
+  background: var(--cad-bg-2);
+  border-color: transparent;
+  border-bottom-color: var(--cad-bg-2);
+  box-shadow: 0 -2px 0 var(--cad-accent) inset;
+  font-weight: 700;
+}
+
+.cad-ribbon-panels {
+  padding: 5px 8px;
+  border-top: none;
+}
+
+.cad-ribbon-panel {
+  border-right-color: rgba(15, 23, 42, 0.07);
+  padding: 3px 12px 6px;
+}
+
+.cad-ribbon-panel-label {
+  letter-spacing: 0.7px;
+  opacity: 0.8;
+}
+
+.cad-ribbon-btn {
+  border-radius: 6px;
+  padding: 4px 9px;
+  height: 30px;
+  font-size: 10.5px;
+  border: 1px solid transparent;
+  background: var(--cad-bg-2);
+}
+
+.cad-ribbon-btn:hover:not(.disabled) {
+  background: var(--cad-panel);
+  border-color: var(--cad-border);
+  box-shadow: var(--cad-shadow-sm);
+}
+
+.cad-ribbon-btn.active {
+  background: var(--cad-accent-bg);
+  border-color: rgba(20, 115, 230, 0.45);
+  color: var(--cad-accent-active);
+  box-shadow: 0 2px 0 rgba(20, 115, 230, 0.25) inset;
+  font-weight: 600;
+}
+
+.cad-ribbon-btn.active svg {
+  color: var(--cad-accent-active);
+}
+
+.cad-ribbon-btn svg {
+  color: #3f4b57;
+}
+
+/* ── Left tool rail ───────────────────────────────────────────────────────── */
+.cad-left-rail {
+  background: linear-gradient(180deg, var(--cad-bg-2), var(--cad-bg));
+}
+
+/* ── Generic panels: cards, blocks and titles ─────────────────────────────── */
+.cad-panel-block {
+  background: var(--cad-bg-2);
+  border: 1px solid rgba(15, 23, 42, 0.09);
+  border-radius: 10px;
+  box-shadow: var(--cad-shadow-xs);
+}
+
+.cad-panel-title {
+  letter-spacing: 0.7px;
+}
+
+.cad-summary-card {
+  border-radius: 8px;
+  box-shadow: var(--cad-shadow-xs);
+}
+
+/* ── Right panel tabs (segmented control) ─────────────────────────────────── */
+.cad-panel-tabs {
+  border-radius: 8px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.cad-panel-tab {
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.cad-panel-tab.active {
+  box-shadow: var(--cad-shadow-xs);
+}
+
+/* ── Layer rows & swatches ────────────────────────────────────────────────── */
+.cad-layer-list button,
+.cad-layer-list .cad-panel-row {
+  border-radius: 6px;
+}
+
+.cad-layer-list button:hover,
+.cad-layer-list .cad-panel-row:hover {
+  background: var(--cad-panel);
+}
+
+.cad-layer-swatch,
+.cad-layer-color-chip {
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.14) inset;
+}
+
+.cad-layer-icon-btn,
+.cad-mini-icon-btn,
+.cad-layer-delete {
+  border-radius: 6px;
+}
+
+.cad-layer-icon-btn:hover,
+.cad-mini-icon-btn:hover {
+  background: var(--cad-panel-2);
+}
+
+.cad-layer-delete:hover {
+  background: rgba(211, 47, 47, 0.12);
+  color: var(--cad-error);
+}
+
+/* ── Inputs inside the CAD (COGO + panels) ────────────────────────────────── */
+.cad-workspace-shell input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.cad-workspace-shell select,
+.cad-workspace-shell textarea {
+  background: var(--cad-bg-2);
+  border: 1px solid var(--cad-border);
+  border-radius: 6px;
+  transition: box-shadow 140ms var(--cad-ease), border-color 140ms var(--cad-ease), background 140ms var(--cad-ease);
+}
+
+.cad-workspace-shell input:hover:not(:focus):not(:disabled),
+.cad-workspace-shell select:hover:not(:focus):not(:disabled),
+.cad-workspace-shell textarea:hover:not(:focus):not(:disabled) {
+  border-color: var(--cad-border-2);
+}
+
+.cad-cogo-toolbar select,
+.cad-cogo-field input {
+  border-radius: 6px;
+}
+
+/* ── Tables (points, COGO) ────────────────────────────────────────────────── */
+.cad-point-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--cad-panel);
+  box-shadow: inset 0 -1px 0 var(--cad-border);
+  z-index: 2;
+}
+
+.cad-point-table tbody tr:hover td {
+  background: var(--cad-accent-bg);
+}
+
+.cad-cogo-table thead th {
+  letter-spacing: 0.5px;
+}
+
+/* ── Command line ─────────────────────────────────────────────────────────── */
+.cad-command-body,
+.cad-command-log {
+  font-variant-ligatures: none;
+}
+
+.cad-command-line-entry.info { opacity: 0.8; }
+
+.cad-command-input-row {
+  border-radius: 8px;
+  border: 1px solid var(--cad-border);
+  transition: box-shadow 140ms var(--cad-ease), border-color 140ms var(--cad-ease);
+}
+
+.cad-command-input-row:focus-within {
+  border-color: var(--cad-accent);
+  box-shadow: var(--cad-ring);
+}
+
+.cad-command-expand-btn {
+  border-radius: 6px;
+}
+
+/* ── Status bar chrome ────────────────────────────────────────────────────── */
+.cad-status-bar {
+  height: 30px;
+  background: var(--cad-bg-2);
+}
+
+.cad-status-coords {
+  border-radius: 6px;
+  box-shadow: var(--cad-shadow-xs);
+  font-size: 10.5px;
+  letter-spacing: 0.15px;
+}
+
+.cad-status-toggle {
+  border-radius: 5px;
+  font-size: 9.5px;
+  letter-spacing: 0.5px;
+  padding: 2px 9px;
+}
+
+.cad-status-toggle.on {
+  background: var(--cad-accent);
+  border-color: var(--cad-accent);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(20, 115, 230, 0.35);
+}
+
+.cad-model-tab {
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+/* ── Layout (paper-space) tabs ────────────────────────────────────────────── */
+.cad-layout-tab {
+  border-radius: 6px 6px 0 0;
+  letter-spacing: 0.15px;
+}
+
+.cad-layout-tab.active {
+  box-shadow: 0 -2px 0 var(--cad-accent) inset;
+}
+
+/* ── Viewport HUD chips (zoom, pan, osnap tips, dynamic input) ───────────── */
+.cad-vp-btn,
+.cad-zoom-btn,
+.cad-hud-tool {
+  background: var(--cad-bg-2);
+  border: 1px solid transparent;
+  border-radius: 7px;
+  box-shadow: var(--cad-shadow-sm);
+  color: var(--cad-text);
+}
+
+.cad-vp-btn:hover,
+.cad-zoom-btn:hover,
+.cad-hud-tool:hover {
+  border-color: rgba(20, 115, 230, 0.4);
+  color: var(--cad-accent);
+  box-shadow: var(--cad-shadow-md);
+}
+
+.cad-dynamic-tip,
+.cad-dyn-input-wrap {
+  background: var(--cad-bg-2);
+  border: 1px solid var(--cad-border-2);
+  border-radius: 8px;
+  box-shadow: var(--cad-shadow-md);
+  color: var(--cad-text);
+}
+
+.cad-chip-btn {
+  border-radius: 5px;
+}
+
+/* ── Settings popover switch-style toggles ────────────────────────────────── */
+.cad-settings-toggle input[type="checkbox"] {
+  appearance: none;
+  width: 32px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--cad-panel-2);
+  border: 1px solid var(--cad-border);
+  position: relative;
+  cursor: pointer;
+  transition: background 160ms var(--cad-ease), border-color 160ms var(--cad-ease);
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.cad-settings-toggle input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2);
+  transition: transform 160ms var(--cad-ease);
+}
+
+.cad-settings-toggle input[type="checkbox"]:checked {
+  background: var(--cad-accent);
+  border-color: var(--cad-accent);
+}
+
+.cad-settings-toggle input[type="checkbox"]:checked::after {
+  transform: translateX(14px);
+}
+
+.cad-settings-toggle input[type="checkbox"]:focus-visible {
+  box-shadow: var(--cad-ring);
+}
+
+/* ── 3D viewport overlays ─────────────────────────────────────────────────── */
+.cad-3d-readout,
+.cad-3d-measure-readout,
+.cad-3d-axes-legend,
+.cad-3d-cutfill-legend {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  box-shadow: var(--cad-shadow-sm);
+  backdrop-filter: blur(4px);
+}
+
+/* ── Plot dialog sheet preview ────────────────────────────────────────────── */
+.cad-plot-preview-sheet {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  box-shadow: var(--cad-shadow-md);
+  border-radius: 3px;
+}
+
+/* ── Scrollbars (Chromium) ────────────────────────────────────────────────── */
+.cad-workspace-shell ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.cad-workspace-shell ::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.18);
+  border-radius: 999px;
+  border: 2.5px solid transparent;
+  background-clip: padding-box;
+}
+
+.cad-workspace-shell ::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.32);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.cad-workspace-shell ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ── Selection affordance ─────────────────────────────────────────────────── */
+.cad-workspace-shell ::selection {
+  background: var(--cad-accent-bg-strong);
+}
+

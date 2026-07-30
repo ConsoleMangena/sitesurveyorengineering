@@ -10,7 +10,7 @@ What sets it apart:
 - **Hybrid on-chain / off-chain by choice.** You decide, per file, what goes **on-chain** (maximum security and immutability) versus **off-chain** in the Supabase database and storage (fast and affordable). This keeps everyday work cheap while reserving the blockchain for the records that truly need it — the best of both Web 2.0 and Web 3.0.
 - **Direct on-chain payments.** Pay network gas fees directly from your wallet and settle client invoices in crypto — all verified on-chain through Supabase Edge Functions.
 - **A real engineering core, not a thin CRM.** Survey geometry (TIN surfaces, contours, volumes, and a full COGO toolset) is computed by a single Rust engine that runs identically as WebAssembly in the browser and natively on the Tauri desktop app — deterministic and unit-tested to survey tolerance.
-- **Built for teams and tenants.** Personal, Business, and Platform Admin workspaces sit on a multi-tenant foundation with PostgreSQL Row-Level Security and role-based access control, plus a feature marketplace to unlock add-ons on demand.
+- **Built for teams and tenants.** Personal, Business, and Platform Admin workspaces sit on a multi-tenant foundation with PostgreSQL Row-Level Security and role-based access control.
 
 Built by **Eineva Incorporated**.
 
@@ -53,7 +53,6 @@ Built by **Eineva Incorporated**.
 - **Pay network gas fees directly from your Solana wallet** when anchoring files or settling on-chain
 - **Hybrid storage** — choose, per file, between on-chain (maximum security, immutable) and off-chain Supabase storage (fast, affordable)
 - Hire crew / find jobs
-- Feature add-on store — unlock capabilities on demand
 
 ### Business Workspace (survey firms)
 Everything in Personal, plus:
@@ -64,7 +63,6 @@ Everything in Personal, plus:
 ### Platform Admin Workspace
 - Platform-wide metrics and activity monitoring
 - Cross-tenant user and workspace management
-- Feature request approval workflow
 - Full audit log
 
 ---
@@ -253,4 +251,4 @@ npm run build      # Production bundle
 - **No custom backend** — all server logic is Supabase (PostgreSQL + RLS + Edge Functions)
 - **One geometry engine, two runtimes** — the same Rust code runs as WASM in the browser and over Tauri IPC on desktop, guaranteeing identical results
 - **Multi-tenancy via RLS** — every table carries a `workspace_id`; Row-Level Security enforces tenant isolation
-- **Feature gating** — the CAD workspace is a paid add-on managed through a marketplace with request/approval
+- **All tools included** — the CAD engine and every COGO tool are available to all workspaces; there is no feature gating

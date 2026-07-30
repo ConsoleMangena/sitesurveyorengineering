@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export type CadMenuAction =
   | "file:project-points"
   | "file:import-dxf"
+  | "file:import-geojson"
   | "file:export-dxf"
   | "file:export-csv"
   | "file:export-geojson"
@@ -43,6 +44,7 @@ const MENUS: MenuDef[] = [
     items: [
       { label: "Project Coordinates", action: "file:project-points" },
       { label: "Import DXF from Files", action: "file:import-dxf" },
+      { label: "Import GeoJSON…", action: "file:import-geojson" },
       { divider: true, label: "" },
       { label: "Export DXF", action: "file:export-dxf" },
       { label: "Export CSV", action: "file:export-csv" },

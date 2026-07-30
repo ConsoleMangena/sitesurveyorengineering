@@ -35,7 +35,9 @@ const sizeClasses: Record<DialogSize, string> = {
   xl: "max-w-xl",
   "2xl": "max-w-2xl",
   full: "max-w-[calc(100vw-2rem)] sm:max-w-4xl",
-  screen: "!w-[calc(100vw-2rem)] !max-w-none h-[calc(100dvh-2rem)] !max-h-none flex flex-col !overflow-hidden",
+  // NOTE: Tailwind v4 important modifier is a trailing "!" (v3's leading "!"
+  // generates no CSS and silently breaks the fullscreen sizing).
+  screen: "w-[calc(100vw-2rem)]! max-w-none! max-h-none! h-[calc(100dvh-2rem)] flex flex-col overflow-hidden!",
 };
 
 export function DialogTemplate({

@@ -31,6 +31,7 @@ import {
   SheetTitle,
 } from "../ui/sheet.tsx";
 import { DialogTemplate } from "../templates/DialogTemplate.tsx";
+import { ChatWidget } from "../templates/ChatWidget.tsx";
 
 interface WorkspaceShellProps {
   user: UiUser;
@@ -1351,6 +1352,14 @@ export default function WorkspaceShell({
           {children}
         </main>
       </div>
+
+      {!shouldHideGlobalChrome && (
+        <ChatWidget
+          workspaceId={user.workspaceId}
+          workspaceName={user.company}
+          canModerate={user.accountType === "business"}
+        />
+      )}
     </div>
   );
 }

@@ -47,6 +47,31 @@ describe("parsePointsCsv", () => {
     expect(res.points).toHaveLength(0);
     expect(res.skipped).toBe(1);
   });
+
+  it("does not crash on a two-column first row", () => {
+    // cols[2] is undefined here — header detection must not throw.
+    const res = parsePointsCsv("Point,Easting\n1,200\n2,210");
+    // Row 1-2 parse (northing missing → invalid X/Y error), no TypeError.
+    expect(res.errors.length).toBeGreaterThan(0);
+    expect(res.skipped).toBe(2);
+  });
+
+  it("honours an explicit ';' delimiter without splitting decimal commas", () => {
+    const text = "P;Y;X;Z\n1;5200,5;1800,25;1499,5";
+    const res = parsePointsCsv(text, undefined, undefined, ";");
+    expect(res.points).toHaveLength(1);
+    expect(res.points[0].e).toBe(5200.5);
+    expect(res.points[0].n).toBe(1800.25);
+    expect(res.points[0].z).toBe(1499.5);
+  });
+
+  it("accepts signed, leading-dot and scientific values", () => {
+    const res = parsePointsCsv("1,+200,.5,1e3,X");
+    expect(res.points).toHaveLength(1);
+    expect(res.points[0].e).toBe(200);
+    expect(res.points[0].n).toBe(0.5);
+    expect(res.points[0].z).toBe(1000);
+  });
 });
 
 describe("pointsToCsv", () => {

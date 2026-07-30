@@ -230,6 +230,17 @@ alter table public.profiles
   add column if not exists deletion_requested_at timestamptz,
   add column if not exists deleted_at timestamptz;
 
+-- Professional portfolio + notification-preference columns (idempotent).
+alter table public.profiles
+  add column if not exists registration_no text,
+  add column if not exists company_name text,
+  add column if not exists city text,
+  add column if not exists country_code text,
+  add column if not exists website text,
+  add column if not exists linkedin text,
+  add column if not exists specializations text,
+  add column if not exists email_notifications boolean not null default true;
+
 create table if not exists public.workspaces (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -858,75 +869,6 @@ create table if not exists public.project_cad_drawings (
 
 create index if not exists idx_project_cad_drawings_workspace_id
   on public.project_cad_drawings (workspace_id);
-
--- ── System Features (subscribable add-ons) ──
-
-DO $$ BEGIN
-  create type public.feature_request_status as enum ('pending', 'approved', 'declined');
-EXCEPTION
-  WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-  create type public.feature_entitlement_status as enum ('active', 'revoked');
-EXCEPTION
-  WHEN duplicate_object THEN null;
-END $$;
-
-DO $$ BEGIN
-  create type public.feature_billing_period as enum ('one_time', 'monthly', 'annual');
-EXCEPTION
-  WHEN duplicate_object THEN null;
-END $$;
-
--- Global catalog of subscribable features (platform-admin managed).
-create table if not exists public.feature_catalog (
-  key text primary key,
-  name text not null,
-  description text,
-  category text not null default 'General',
-  price numeric not null default 0,
-  currency text not null default 'USD',
-  billing_period public.feature_billing_period not null default 'monthly',
-  is_active boolean not null default true,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
--- Request / approval workflow for feature access.
-create table if not exists public.feature_access_requests (
-  id uuid primary key default gen_random_uuid(),
-  workspace_id uuid not null references public.workspaces (id) on delete cascade,
-  feature_key text not null references public.feature_catalog (key) on delete cascade,
-  requested_by uuid references auth.users (id) on delete set null,
-  status public.feature_request_status not null default 'pending',
-  note text,
-  reviewed_by uuid references auth.users (id) on delete set null,
-  reviewed_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create index if not exists idx_feature_access_requests_workspace
-  on public.feature_access_requests (workspace_id);
-create index if not exists idx_feature_access_requests_status
-  on public.feature_access_requests (status);
-
--- At most one pending request per (workspace, feature).
-create unique index if not exists uq_feature_access_requests_pending
-  on public.feature_access_requests (workspace_id, feature_key)
-  where status = 'pending';
-
--- The granted access.
-create table if not exists public.workspace_feature_entitlements (
-  workspace_id uuid not null references public.workspaces (id) on delete cascade,
-  feature_key text not null references public.feature_catalog (key) on delete cascade,
-  status public.feature_entitlement_status not null default 'active',
-  granted_by uuid references auth.users (id) on delete set null,
-  granted_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  primary key (workspace_id, feature_key)
-);
 
 -- ── Embedded Solana wallets (open-source app wallet) ──
 -- The secret key and optional seed phrase are encrypted client-side with a
@@ -1647,122 +1589,35 @@ begin
 end;
 $$;
 
--- ── System feature touch helpers ──
+-- ── Project CAD model metrics (counts without shipping the JSONB) ──
+--
+-- The dashboard KPI cards need only four counts. Counting server-side avoids
+-- transferring the (potentially multi-MB) CAD model JSONB on every refresh.
+-- SECURITY INVOKER so the project_cad_drawings RLS select policy still
+-- applies per caller.
 
-create or replace function public.touch_feature_catalog()
-returns trigger
-language plpgsql
-as $$
-begin
-  new.updated_at := now();
-  return new;
-end;
-$$;
-
-create or replace function public.touch_feature_access_requests()
-returns trigger
-language plpgsql
-as $$
-begin
-  new.updated_at := now();
-  return new;
-end;
-$$;
-
-create or replace function public.touch_workspace_feature_entitlements()
-returns trigger
-language plpgsql
-as $$
-begin
-  new.updated_at := now();
-  return new;
-end;
-$$;
-
--- ── Feature entitlement helper ──
-
-create or replace function public.has_feature(
-  p_workspace_id uuid,
-  p_feature_key text
-)
-returns boolean
+create or replace function public.project_cad_metrics(p_project_id uuid)
+returns table (points integer, linework integer, surfaces integer, qa_flags integer)
 language sql
 stable
-security definer
+security invoker
 set search_path = public
 as $$
-  select exists (
-    select 1
-    from public.workspace_feature_entitlements e
-    where e.workspace_id = p_workspace_id
-      and e.feature_key = p_feature_key
-      and e.status = 'active'
-  );
+  select
+    coalesce(jsonb_array_length(model -> 'points'), 0)::integer,
+    coalesce(jsonb_array_length(model -> 'linework'), 0)::integer,
+    coalesce(jsonb_array_length(model -> 'surfaces'), 0)::integer,
+    (
+      select count(*)::integer
+      from jsonb_array_elements(coalesce(model -> 'points', '[]'::jsonb)) p
+      where upper(coalesce(p ->> 'code', '')) like '%QA%'
+         or upper(coalesce(p ->> 'code', '')) like '%CHECK%'
+         or upper(coalesce(p ->> 'code', '')) like '%FLAG%'
+         or upper(coalesce(p ->> 'code', '')) like '%REVIEW%'
+    )
+  from public.project_cad_drawings
+  where project_id = project_cad_metrics.p_project_id;
 $$;
-
-comment on function public.has_feature(uuid, text) is
-  'True when the workspace holds an active entitlement for the given feature key.';
-
--- ── Feature request approve / decline RPCs (platform admin only) ──
-
-create or replace function public.admin_approve_feature_request(p_request_id uuid)
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  r public.feature_access_requests%rowtype;
-begin
-  if not public.is_platform_admin() then
-    raise exception 'Only platform administrators may approve feature requests.';
-  end if;
-
-  select * into r from public.feature_access_requests where id = p_request_id for update;
-  if not found then
-    raise exception 'Feature request not found.';
-  end if;
-
-  update public.feature_access_requests
-    set status = 'approved',
-        reviewed_by = auth.uid(),
-        reviewed_at = now()
-    where id = p_request_id;
-
-  insert into public.workspace_feature_entitlements (workspace_id, feature_key, status, granted_by)
-  values (r.workspace_id, r.feature_key, 'active', auth.uid())
-  on conflict (workspace_id, feature_key)
-    do update set status = 'active', granted_by = auth.uid();
-end;
-$$;
-
-create or replace function public.admin_decline_feature_request(
-  p_request_id uuid,
-  p_note text default null
-)
-returns void
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  if not public.is_platform_admin() then
-    raise exception 'Only platform administrators may decline feature requests.';
-  end if;
-
-  update public.feature_access_requests
-    set status = 'declined',
-        reviewed_by = auth.uid(),
-        reviewed_at = now(),
-        note = coalesce(p_note, note)
-    where id = p_request_id;
-
-  if not found then
-    raise exception 'Feature request not found.';
-  end if;
-end;
-$$;
-
 
 -- ===========================================================================
 -- triggers
@@ -1856,23 +1711,6 @@ create trigger trg_touch_project_cad_drawings
 before update on public.project_cad_drawings
 for each row execute function public.touch_project_cad_drawings();
 
--- ── System feature updated_at touches ──
-
-drop trigger if exists trg_touch_feature_catalog on public.feature_catalog;
-create trigger trg_touch_feature_catalog
-before update on public.feature_catalog
-for each row execute function public.touch_feature_catalog();
-
-drop trigger if exists trg_touch_feature_access_requests on public.feature_access_requests;
-create trigger trg_touch_feature_access_requests
-before update on public.feature_access_requests
-for each row execute function public.touch_feature_access_requests();
-
-drop trigger if exists trg_touch_workspace_feature_entitlements on public.workspace_feature_entitlements;
-create trigger trg_touch_workspace_feature_entitlements
-before update on public.workspace_feature_entitlements
-for each row execute function public.touch_workspace_feature_entitlements();
-
 -- ── Project creator membership ──
 -- Defence in depth: if a project is created without a project_members row for
 -- its creator, add one automatically. Many policies also fall back to
@@ -1961,9 +1799,6 @@ alter table public.time_entries enable row level security;
 alter table public.expense_entries enable row level security;
 alter table public.payment_methods enable row level security;
 alter table public.project_cad_drawings enable row level security;
-alter table public.feature_catalog enable row level security;
-alter table public.feature_access_requests enable row level security;
-alter table public.workspace_feature_entitlements enable row level security;
 alter table public.embedded_solana_wallets enable row level security;
 
 -- ── Profiles ──
@@ -2944,8 +2779,8 @@ create policy "embedded_wallets_delete_own"
   using (user_id = auth.uid());
 
 -- ── Project CAD drawings ──
--- Members read their project's drawing; writes require the active 'cad_engine'
--- feature entitlement (server-side gate that the client cannot bypass).
+-- Members read and write their project's drawings. CAD is available to every
+-- workspace, so there is no entitlement gate.
 
 drop policy if exists "project_cad_drawings_select_member" on public.project_cad_drawings;
 create policy "project_cad_drawings_select_member"
@@ -2971,13 +2806,10 @@ on public.project_cad_drawings
 for insert
 to authenticated
 with check (
-  (
-    public.has_feature(workspace_id, 'cad_engine')
-    and exists (
-      select 1 from public.project_members
-      where project_id = project_cad_drawings.project_id
-      and user_id = auth.uid()
-    )
+  exists (
+    select 1 from public.project_members
+    where project_id = project_cad_drawings.project_id
+    and user_id = auth.uid()
   )
   or exists (
     select 1 from public.projects
@@ -2992,12 +2824,10 @@ on public.project_cad_drawings
 for update
 to authenticated
 using (
-  (
-    exists (
-      select 1 from public.project_members
-      where project_id = project_cad_drawings.project_id
-      and user_id = auth.uid()
-    )
+  exists (
+    select 1 from public.project_members
+    where project_id = project_cad_drawings.project_id
+    and user_id = auth.uid()
   )
   or exists (
     select 1 from public.projects
@@ -3006,13 +2836,10 @@ using (
   )
 )
 with check (
-  (
-    public.has_feature(workspace_id, 'cad_engine')
-    and exists (
-      select 1 from public.project_members
-      where project_id = project_cad_drawings.project_id
-      and user_id = auth.uid()
-    )
+  exists (
+    select 1 from public.project_members
+    where project_id = project_cad_drawings.project_id
+    and user_id = auth.uid()
   )
   or exists (
     select 1 from public.projects
@@ -3038,88 +2865,6 @@ using (
     and created_by = auth.uid()
   )
 );
-
--- ── Feature catalog (read all; write platform admin only) ──
-
-drop policy if exists "feature_catalog_select_all" on public.feature_catalog;
-create policy "feature_catalog_select_all"
-on public.feature_catalog
-for select
-to authenticated
-using (true);
-
-drop policy if exists "feature_catalog_insert_platform_admin" on public.feature_catalog;
-create policy "feature_catalog_insert_platform_admin"
-on public.feature_catalog
-for insert
-to authenticated
-with check (public.is_platform_admin());
-
-drop policy if exists "feature_catalog_update_platform_admin" on public.feature_catalog;
-create policy "feature_catalog_update_platform_admin"
-on public.feature_catalog
-for update
-to authenticated
-using (public.is_platform_admin())
-with check (public.is_platform_admin());
-
-drop policy if exists "feature_catalog_delete_platform_admin" on public.feature_catalog;
-create policy "feature_catalog_delete_platform_admin"
-on public.feature_catalog
-for delete
-to authenticated
-using (public.is_platform_admin());
-
--- ── Feature access requests ──
-
-drop policy if exists "feature_requests_select" on public.feature_access_requests;
-create policy "feature_requests_select"
-on public.feature_access_requests
-for select
-to authenticated
-using (
-  public.is_platform_admin()
-  or public.is_workspace_member(workspace_id)
-);
-
-drop policy if exists "feature_requests_insert_admin" on public.feature_access_requests;
-create policy "feature_requests_insert_admin"
-on public.feature_access_requests
-for insert
-to authenticated
-with check (
-  requested_by = auth.uid()
-  and public.has_workspace_role(workspace_id, array['owner', 'admin']::public.workspace_member_role[])
-);
-
-drop policy if exists "feature_requests_update_platform_admin" on public.feature_access_requests;
-create policy "feature_requests_update_platform_admin"
-on public.feature_access_requests
-for update
-to authenticated
-using (public.is_platform_admin())
-with check (public.is_platform_admin());
-
--- ── Workspace feature entitlements (members read; platform admin manages) ──
-
-drop policy if exists "feature_entitlements_select" on public.workspace_feature_entitlements;
-create policy "feature_entitlements_select"
-on public.workspace_feature_entitlements
-for select
-to authenticated
-using (
-  public.is_platform_admin()
-  or public.is_workspace_member(workspace_id)
-);
-
-drop policy if exists "feature_entitlements_write_platform_admin" on public.workspace_feature_entitlements;
-create policy "feature_entitlements_write_platform_admin"
-on public.workspace_feature_entitlements
-for all
-to authenticated
-using (public.is_platform_admin())
-with check (public.is_platform_admin());
-
 
 -- ===========================================================================
 -- storage
@@ -3329,43 +3074,6 @@ begin;
 -- Idempotent seeds and backfills. On a fresh project the backfills are no-ops
 -- (no existing auth users); they also make this file safe to re-run.
 
-
--- ── Seed: feature catalog (CAD Engine is the first feature) ──
-
-insert into public.feature_catalog (key, name, description, category, price, currency, billing_period)
-values
-  (
-    'cad_engine',
-    'SurveyorAI CAD',
-    'AI-powered CAD engine for engineering surveying: a full-screen drafting workspace with points, linework, surfaces (TIN), layers, COGO and DXF export, plus AI-assisted drafting. Unlocks all CAD-backed project tools.',
-    'Drafting & Computation',
-    20,
-    'USD',
-    'monthly'
-  ),
-  (
-    'cogo_professional',
-    'COGO Professional Pack',
-    'Professional survey computations: traverse adjustment, intersection, resection, area & volume, and stake-out / set-out.',
-    'COGO & Computation',
-    10,
-    'USD',
-    'monthly'
-  ),
-  (
-    'cogo_advanced',
-    'COGO Advanced Pack',
-    'Advanced road design computations: horizontal curve and vertical curve set-out.',
-    'COGO & Computation',
-    10,
-    'USD',
-    'monthly'
-  )
-on conflict (key) do nothing;
-
--- Listing assets/instruments for hire in the Marketplace is free for every
--- workspace, so no 'marketplace_hire' feature/permission is seeded. Any
--- workspace admin can publish, edit and remove their own hire listings.
 
 -- ── Backfill: create profiles for auth users missing one ──
 
@@ -4403,3 +4111,61 @@ alter table public.workspaces
 
 commit;
 
+
+-- 13_chat.sql — workspace real-time team chat. Run after everything.
+
+begin;
+
+-- ── Workspace chat messages ──
+-- One natural room per workspace (general team channel). RLS scopes each room
+-- to active workspace members; Realtime (postgres_changes) pushes new rows to
+-- subscribed clients of the same workspace.
+
+create table if not exists public.chat_messages (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspaces (id) on delete cascade,
+  user_id uuid references auth.users (id) on delete set null,
+  content text not null
+    check (length(trim(content)) between 1 and 2000),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_chat_messages_workspace_created
+  on public.chat_messages (workspace_id, created_at desc, id desc);
+
+alter table public.chat_messages enable row level security;
+
+-- Members of the workspace read the room.
+drop policy if exists "chat_messages_select_member" on public.chat_messages;
+create policy "chat_messages_select_member"
+on public.chat_messages
+for select
+to authenticated
+using (public.is_workspace_member(workspace_id));
+
+-- Members post under their own identity only.
+drop policy if exists "chat_messages_insert_self" on public.chat_messages;
+create policy "chat_messages_insert_self"
+on public.chat_messages
+for insert
+to authenticated
+with check (
+  user_id = auth.uid()
+  and public.is_workspace_member(workspace_id)
+);
+
+-- Users may delete their own messages; workspace managers may moderate.
+drop policy if exists "chat_messages_delete_moderator" on public.chat_messages;
+create policy "chat_messages_delete_moderator"
+on public.chat_messages
+for delete
+to authenticated
+using (
+  user_id = auth.uid()
+  or public.can_manage_workspace(workspace_id)
+);
+
+-- Realtime publication for subscribeWorkspaceChat (postgres_changes INSERT).
+select private.add_table_to_realtime('chat_messages');
+
+commit;

@@ -2,25 +2,32 @@ import { useCallback, useMemo, useState } from "react";
 import {
   computeTraverse,
   forward,
+  normalizeAzimuth,
+  reduceAngularTraverse,
+  type AngularTraverseResult,
+  type TraverseAngleMode,
   type TraverseLeg,
   type TraverseType,
 } from "../../components/cad/survey/cogo.ts";
-import { parseBearing } from "../../components/cad/survey/format.ts";
+import { fmtBearing, parseBearing } from "../../components/cad/survey/format.ts";
 import { ToolGuidePanel, type ToolGuide } from "./ToolGuide.tsx";
 import { useAxisLabels } from "./useAxisConvention.ts";
+import { AngleInput } from "./AngleInput.tsx";
 import { ProjectPointPicker } from "./ProjectPointPicker.tsx";
 import { useProjectPoints } from "./projectPoints.ts";
 import { addProjectOutput } from "./projectOutputs.ts";
 import { downloadCsv, useToast } from "./calcUtils.ts";
 
 interface Leg { id: number; bearing: string; distance: string }
+interface AngleLeg { id: number; angleDeg: number | null; distance: string }
 
 const TRAVERSE_GUIDE: ToolGuide = {
   summary: "Compute and balance a traverse: from a known start point, walk leg by leg to get coordinates, check the misclosure, then distribute it with the Bowditch (compass) rule.",
   steps: [
     { title: "Pick the traverse type", body: "Closed loop returns to the start, closed link ends on a second known point, open has no closure (no adjustment)." },
+    { title: "Pick the entry basis", body: "Work directly from leg bearings, or from observed angles (interior / deflection / angle-right) plus a known starting azimuth — the angular misclosure is balanced before the linear adjustment." },
     { title: "Enter the start point", body: "Type the start coordinates (first axis = Easting, second axis = Northing). For a link traverse also enter the known closing coordinates." },
-    { title: "Add the legs", body: "For each leg enter the bearing and distance in order around the traverse." },
+    { title: "Add the legs", body: "For each leg enter the bearing (or angle) and distance in order around the traverse." },
     { title: "Read the results", body: "Misclosure, accuracy (1:X) and the balanced coordinates update live as you type." },
   ],
   tips: ["Open traverses cannot be checked or balanced — coordinates are raw computed values only."],
@@ -46,12 +53,28 @@ const TRAVERSE_TYPES: { id: TraverseType; label: string; blurb: string }[] = [
 
 let lid = 0;
 const newLeg = (bearing = "", distance = ""): Leg => ({ id: ++lid, bearing, distance });
+const newAngleLeg = (angleDeg: number | null = null, distance = ""): AngleLeg => ({ id: ++lid, angleDeg, distance });
 
 const SAMPLE: Leg[] = [
   newLeg("90", "100.00"),
   newLeg("0", "100.00"),
   newLeg("270", "100.00"),
   newLeg("180", "99.00"),
+];
+
+// 100 m square observed with ~90° interior angles (plus a deliberate small
+// misclosure on the last distance so the balancing rows stay interesting).
+const ANGLE_SAMPLE: AngleLeg[] = [
+  newAngleLeg(90, "100.00"),
+  newAngleLeg(90, "100.00"),
+  newAngleLeg(90, "100.00"),
+  newAngleLeg(90.0008, "99.00"),
+];
+
+const ANGLE_MODES: { id: TraverseAngleMode; label: string }[] = [
+  { id: "interior", label: "Interior angles" },
+  { id: "deflection", label: "Deflection (+R / −L)" },
+  { id: "angle-right", label: "Angles to the right" },
 ];
 
 const num = (v: string) => { const n = parseFloat(v); return Number.isFinite(n) ? n : NaN; };
@@ -65,6 +88,9 @@ export function TraverseTool({ projectId }: TraverseToolProps) {
   const { add } = useProjectPoints(projectId);
   const { message: toastMessage, show: showToast } = useToast();
   const [type, setType] = useState<TraverseType>("closed-loop");
+  const [entryMode, setEntryMode] = useState<"bearings" | "angles">("bearings");
+  const [angleMode, setAngleMode] = useState<TraverseAngleMode>("interior");
+  const [startAzDeg, setStartAzDeg] = useState<number | null>(90);
   const [x0, setX0] = useState("1000.000");
   const [y0, setY0] = useState("1000.000");
   const [cx, setCx] = useState("1000.000");
@@ -72,6 +98,7 @@ export function TraverseTool({ projectId }: TraverseToolProps) {
   const [startPointNo, setStartPointNo] = useState("");
   const [closePointNo, setClosePointNo] = useState("");
   const [legsState, setLegsState] = useState<Leg[]>(SAMPLE);
+  const [angleLegs, setAngleLegs] = useState<AngleLeg[]>(ANGLE_SAMPLE);
 
   const activeType = TRAVERSE_TYPES.find((t) => t.id === type)!;
 
@@ -79,6 +106,11 @@ export function TraverseTool({ projectId }: TraverseToolProps) {
     setLegsState((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const addLeg = () => setLegsState((ls) => [...ls, newLeg()]);
   const delLeg = (id: number) => setLegsState((ls) => ls.filter((l) => l.id !== id));
+
+  const updateAngle = (id: number, patch: Partial<AngleLeg>) =>
+    setAngleLegs((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  const addAngleLeg = () => setAngleLegs((ls) => [...ls, newAngleLeg()]);
+  const delAngleLeg = (id: number) => setAngleLegs((ls) => ls.filter((l) => l.id !== id));
 
   const applyStartPoint = useCallback(
     (pointNo: string, point?: { e: number; n: number; z?: number | null }) => {
@@ -102,22 +134,53 @@ export function TraverseTool({ projectId }: TraverseToolProps) {
     [],
   );
 
-  const { result, error } = useMemo(() => {
+  const { result, angular, error } = useMemo(() => {
     const sx = num(x0), sy = num(y0);
     let err: string | null = null;
     let res: ReturnType<typeof computeTraverse> | null = null;
+    let ang: AngularTraverseResult | null = null;
     if (!Number.isFinite(sx) || !Number.isFinite(sy)) {
       err = `Enter a valid start ${ax.first}, ${ax.second}.`;
     } else {
       const legs: TraverseLeg[] = [];
-      for (const l of legsState) {
-        if (!l.bearing.trim() && !l.distance.trim()) continue;
-        const az = parseBearing(l.bearing);
-        const d = num(l.distance);
-        if (az == null || !Number.isFinite(d)) { err = `Invalid leg (bearing "${l.bearing}", distance "${l.distance}").`; break; }
-        legs.push({ azimuth: az, distance: d });
+      if (entryMode === "bearings") {
+        for (const l of legsState) {
+          if (!l.bearing.trim() && !l.distance.trim()) continue;
+          const az = parseBearing(l.bearing);
+          const d = num(l.distance);
+          if (az == null || !Number.isFinite(d)) { err = `Invalid leg (bearing "${l.bearing}", distance "${l.distance}").`; break; }
+          if (d <= 0) { err = `Leg distances must be positive (leg ${legs.length + 1}: "${l.distance}").`; break; }
+          legs.push({ azimuth: az, distance: d });
+        }
+      } else {
+        if (startAzDeg == null || !Number.isFinite(startAzDeg)) {
+          err = "Enter a valid starting azimuth for the angular traverse.";
+        }
+        if (!err) {
+          const observations: { angle: number; distance: number }[] = [];
+          let legNo = 0;
+          for (const l of angleLegs) {
+            if (l.angleDeg == null && !l.distance.trim()) continue;
+            legNo += 1;
+            const d = num(l.distance);
+            if (l.angleDeg == null || !Number.isFinite(l.angleDeg)) { err = `Enter a valid angle at station ${legNo}.`; break; }
+            if (!Number.isFinite(d) || d <= 0) { err = `Leg distances must be positive (station ${legNo}: "${l.distance}").`; break; }
+            observations.push({ angle: l.angleDeg, distance: d });
+          }
+          if (!err && observations.length >= 1) {
+            // The angular condition only balances on a closed polygon; link
+            // and open traverses roll azimuths through without balancing.
+            ang = reduceAngularTraverse(
+              startAzDeg!,
+              observations,
+              angleMode,
+              type === "closed-loop",
+            );
+            for (const leg of ang.legs) legs.push(leg);
+          }
+        }
       }
-      const minLegs = type === "open" ? 1 : type === "closed-loop" ? 3 : 1;
+      const minLegs = type === "closed-loop" ? 3 : 1;
       if (!err && legs.length < minLegs) {
         err =
           type === "closed-loop"
@@ -133,10 +196,14 @@ export function TraverseTool({ projectId }: TraverseToolProps) {
           closingPoint = { n: ey, e: ex };
         }
       }
-      if (!err) res = computeTraverse({ n: sy, e: sx }, legs, { type, closingPoint });
+      try {
+        if (!err) res = computeTraverse({ n: sy, e: sx }, legs, { type, closingPoint });
+      } catch (e) {
+        err = e instanceof Error ? e.message : "Traverse computation failed.";
+      }
     }
-    return { result: res, error: err };
-  }, [type, x0, y0, cx, cy, legsState, ax.first, ax.second]);
+    return { result: res, angular: ang, error: err };
+  }, [type, x0, y0, cx, cy, legsState, entryMode, angleMode, startAzDeg, angleLegs, ax.first, ax.second]);
 
   const handleExportCsv = useCallback(() => {
     if (!result) return;
@@ -176,6 +243,41 @@ export function TraverseTool({ projectId }: TraverseToolProps) {
     }
   }, [projectId, result, add, showToast]);
 
+  const renderLegRow = (
+    key: number,
+    i: number,
+    az: number | null,
+    dText: string,
+    onDistance: (v: string) => void,
+    onDelete: () => void,
+    control: React.ReactNode,
+  ) => {
+    const raw = result?.computed[i + 1];
+    const adj = result?.adjusted[i + 1];
+    const d = num(dText);
+    const prev = result?.computed[i];
+    let dx = NaN, dy = NaN;
+    if (az != null && Number.isFinite(d) && prev) {
+      const p = forward(prev, az, d);
+      dx = p.e - prev.e; dy = p.n - prev.n;
+    }
+    const f = (v: number | undefined | null) => (v == null || !Number.isFinite(v) ? "" : v.toFixed(3));
+    return (
+      <tr key={key}>
+        <td>{i + 1}</td>
+        <td>{control}</td>
+        <td><input className="svt-cell-input" value={dText} onChange={(e) => onDistance(e.target.value)} /></td>
+        <td className="svt-cell-derived">{f(dx)}</td>
+        <td className="svt-cell-derived">{f(dy)}</td>
+        <td className="svt-cell-derived">{f(raw?.e)}</td>
+        <td className="svt-cell-derived">{f(raw?.n)}</td>
+        <td className="svt-cell-derived">{f(adj?.e)}</td>
+        <td className="svt-cell-derived">{f(adj?.n)}</td>
+        <td><button className="svt-row-del" onClick={onDelete} aria-label="Delete leg">×</button></td>
+      </tr>
+    );
+  };
+
   return (
     <div className="svt-shell">
       <div className="svt-header">
@@ -196,6 +298,36 @@ export function TraverseTool({ projectId }: TraverseToolProps) {
               <option key={t.id} value={t.id}>{t.label}</option>
             ))}
           </select>
+          <label className="form-label">Entry</label>
+          <select
+            className="input-field"
+            style={{ width: 190 }}
+            value={entryMode}
+            onChange={(e) => setEntryMode(e.target.value as typeof entryMode)}
+          >
+            <option value="bearings">Leg bearings</option>
+            <option value="angles">Observed angles</option>
+          </select>
+          {entryMode === "angles" && (
+            <>
+              <label className="form-label">Angles</label>
+              <select
+                className="input-field"
+                style={{ width: 180 }}
+                value={angleMode}
+                onChange={(e) => setAngleMode(e.target.value as TraverseAngleMode)}
+              >
+                {ANGLE_MODES.map((m) => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </select>
+              <AngleInput
+                label="Start azimuth"
+                valueDeg={startAzDeg}
+                onChange={setStartAzDeg}
+              />
+            </>
+          )}
           {projectId && (
             <ProjectPointPicker
               projectId={projectId}
@@ -231,53 +363,61 @@ export function TraverseTool({ projectId }: TraverseToolProps) {
 
       <div className="svt-grid-layout">
         <div className="svt-card">
-          <div className="svt-card-title"><span>Legs &amp; balanced coordinates</span><span>{legsState.length} legs</span></div>
+          <div className="svt-card-title"><span>Legs &amp; balanced coordinates</span><span>{entryMode === "angles" ? `${angleLegs.length} stations` : `${legsState.length} legs`}</span></div>
           <div className="svt-table-wrap">
             <table className="svt-table">
               <thead>
                 <tr>
-                  <th>Stn</th><th>Bearing</th><th>Dist</th>
+                  <th>Stn</th><th>{entryMode === "angles" ? "Angle" : "Bearing"}</th><th>Dist</th>
                   <th>Δ{ax.first}</th><th>Δ{ax.second}</th><th>{ax.first} (raw)</th><th>{ax.second} (raw)</th>
                   <th>{ax.first} (adj)</th><th>{ax.second} (adj)</th><th></th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td>0</td><td className="svt-cell-muted">—</td><td className="svt-cell-muted">—</td>
-                  <td className="svt-cell-muted">—</td><td className="svt-cell-muted">—</td>
-                  <td className="svt-cell-derived">{num(x0).toFixed(3)}</td>
-                  <td className="svt-cell-derived">{num(y0).toFixed(3)}</td>
+                  <td>0</td>
+                  <td className="svt-cell-muted">{entryMode === "angles" && startAzDeg != null && Number.isFinite(startAzDeg) ? fmtBearing(normalizeAzimuth(startAzDeg)) : "—"}</td>
+                  <td className="svt-cell-muted">—</td>
+                  <td className="svt-cell-muted">—</td>
+                  <td className="svt-cell-muted">—</td>
+                  <td className="svt-cell-derived">{Number.isFinite(num(x0)) ? num(x0).toFixed(3) : ""}</td>
+                  <td className="svt-cell-derived">{Number.isFinite(num(y0)) ? num(y0).toFixed(3) : ""}</td>
                   <td className="svt-cell-derived">{result ? result.adjusted[0].e.toFixed(3) : ""}</td>
                   <td className="svt-cell-derived">{result ? result.adjusted[0].n.toFixed(3) : ""}</td>
                   <td></td>
                 </tr>
-                {legsState.map((l, i) => {
-                  const raw = result?.computed[i + 1];
-                  const adj = result?.adjusted[i + 1];
-                  const az = parseBearing(l.bearing);
-                  const d = num(l.distance);
-                  const prev = result?.computed[i];
-                  let dx = NaN, dy = NaN;
-                  if (az != null && Number.isFinite(d) && prev) {
-                    const p = forward(prev, az, d);
-                    dx = p.e - prev.e; dy = p.n - prev.n;
-                  }
-                  const f = (v: number | undefined | null) => (v == null || !Number.isFinite(v) ? "" : v.toFixed(3));
-                  return (
-                    <tr key={l.id}>
-                      <td>{i + 1}</td>
-                      <td><input className="svt-cell-input" value={l.bearing} onChange={(e) => update(l.id, { bearing: e.target.value })} placeholder="90 or N45E" /></td>
-                      <td><input className="svt-cell-input" value={l.distance} onChange={(e) => update(l.id, { distance: e.target.value })} /></td>
-                      <td className="svt-cell-derived">{f(dx)}</td>
-                      <td className="svt-cell-derived">{f(dy)}</td>
-                      <td className="svt-cell-derived">{f(raw?.e)}</td>
-                      <td className="svt-cell-derived">{f(raw?.n)}</td>
-                      <td className="svt-cell-derived">{f(adj?.e)}</td>
-                      <td className="svt-cell-derived">{f(adj?.n)}</td>
-                      <td><button className="svt-row-del" onClick={() => delLeg(l.id)} aria-label="Delete leg">×</button></td>
-                    </tr>
-                  );
-                })}
+                {entryMode === "angles"
+                  ? angleLegs.map((l, i) =>
+                      renderLegRow(
+                        l.id,
+                        i,
+                        angular?.azimuths[i] ?? null,
+                        l.distance,
+                        (v) => updateAngle(l.id, { distance: v }),
+                        () => delAngleLeg(l.id),
+                        <AngleInput
+                          label={`Angle ${i + 1}`}
+                          valueDeg={l.angleDeg}
+                          onChange={(deg) => updateAngle(l.id, { angleDeg: deg })}
+                        />,
+                      ),
+                    )
+                  : legsState.map((l, i) =>
+                      renderLegRow(
+                        l.id,
+                        i,
+                        parseBearing(l.bearing),
+                        l.distance,
+                        (v) => update(l.id, { distance: v }),
+                        () => delLeg(l.id),
+                        <input
+                          className="svt-cell-input"
+                          value={l.bearing}
+                          onChange={(e) => update(l.id, { bearing: e.target.value })}
+                          placeholder="90 or N45E"
+                        />,
+                      ),
+                    )}
               </tbody>
               {result && (
                 <tfoot>
@@ -292,15 +432,46 @@ export function TraverseTool({ projectId }: TraverseToolProps) {
             </table>
           </div>
           <div className="svt-grid-actions">
-            <button className="btn btn-outline btn-sm" onClick={addLeg}>+ Add leg</button>
-            <button className="btn btn-outline btn-sm" onClick={() => setLegsState(SAMPLE)}>Reset sample</button>
-            <button className="btn btn-outline btn-sm" onClick={() => setLegsState([newLeg()])}>Clear</button>
+            {entryMode === "angles" ? (
+              <>
+                <button className="btn btn-outline btn-sm" onClick={addAngleLeg}>+ Add station</button>
+                <button className="btn btn-outline btn-sm" onClick={() => setAngleLegs(ANGLE_SAMPLE)}>Reset sample</button>
+                <button className="btn btn-outline btn-sm" onClick={() => setAngleLegs([newAngleLeg()])}>Clear</button>
+              </>
+            ) : (
+              <>
+                <button className="btn btn-outline btn-sm" onClick={addLeg}>+ Add leg</button>
+                <button className="btn btn-outline btn-sm" onClick={() => setLegsState(SAMPLE)}>Reset sample</button>
+                <button className="btn btn-outline btn-sm" onClick={() => setLegsState([newLeg()])}>Clear</button>
+              </>
+            )}
           </div>
         </div>
 
         <div style={{ display: "grid", gap: 16 }}>
           <div className="svt-card">
             <div className="svt-card-title">Misclosure &amp; accuracy</div>
+            {angular?.hasAngularClosure && (
+              <div className="svt-summary" style={{ marginBottom: 10 }}>
+                <div className="svt-summary-row">
+                  <span className="svt-summary-label">Angular misclosure</span>
+                  <span className="svt-summary-val">{fmtBearing(Math.abs(angular.angularMisclosure))}{angular.angularMisclosure < 0 ? " (short)" : ""}</span>
+                </div>
+                <div className="svt-summary-row">
+                  <span className="svt-summary-label">Σ angles / theory</span>
+                  <span className="svt-summary-val">{angular.angleSum.toFixed(4)}° / {angular.theoreticalSum.toFixed(1)}°</span>
+                </div>
+                <div className="svt-summary-row">
+                  <span className="svt-summary-label">Per-angle correction</span>
+                  <span className="svt-summary-val">{angular.perAngleCorrection.toFixed(5)}°</span>
+                </div>
+                {angular.mirrored && (
+                  <p style={{ padding: "4px 0 0", fontSize: 12, color: "var(--color-warning, #a16207)" }}>
+                    Angles closed on the mirrored loop direction — the mirrored convention was applied automatically.
+                  </p>
+                )}
+              </div>
+            )}
             {result ? (
               result.hasClosure ? (
                 <div className="svt-summary">

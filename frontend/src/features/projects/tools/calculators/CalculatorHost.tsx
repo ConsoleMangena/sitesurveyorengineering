@@ -12,6 +12,7 @@ import { StakeOutTool } from "./AlignmentTools.tsx";
 import { PolarJoinTool } from "./PolarJoinTool.tsx";
 import { PointFixingTool } from "./PointFixingTool.tsx";
 import { CurveDesignTool } from "./CurveDesignTool.tsx";
+import { ScaleFactorTool } from "./ScaleFactorTool.tsx";
 import { AxisConventionProvider } from "./AxisConventionContext.tsx";
 import { useState } from "react";
 
@@ -22,7 +23,9 @@ interface CalculatorHostProps {
 }
 
 function projectIdFrom(activeProject?: HubProject | null): string | undefined {
-  return activeProject?.id;
+  // Project points/outputs are stored under the stable DB id (the Coordinates
+  // page keys them the same way) — the short display id is NOT unique.
+  return activeProject?.dbId;
 }
 
 function toAxisConvention(value: string | undefined): AxisConvention {
@@ -126,6 +129,7 @@ export function CalculatorHost({ calc, activeProject, onClose }: CalculatorHostP
           {calc === "polar-join" && <PolarJoinTool projectId={projectIdFrom(activeProject)} />}
           {calc === "point-fixing" && <PointFixingTool projectId={projectIdFrom(activeProject)} />}
           {calc === "curve-design" && <CurveDesignTool projectId={projectIdFrom(activeProject)} />}
+          {calc === "scale-factor" && <ScaleFactorTool projectId={projectIdFrom(activeProject)} />}
         </div>
       </AxisConventionProvider>
     </div>
