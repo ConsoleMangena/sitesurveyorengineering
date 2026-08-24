@@ -120,7 +120,11 @@ export default function PublicMarketPage() {
         missingRelation:
           !aborted &&
           (postgrestError.code === "42P01" ||
-            /does not exist/i.test(postgrestError.message ?? "")),
+            postgrestError.code === "PGRST202" ||
+            postgrestError.code === "PGRST205" ||
+            /does not exist|schema cache|could not find/i.test(
+              postgrestError.message ?? "",
+            )),
       });
     } finally {
       window.clearTimeout(timeoutId);
