@@ -238,6 +238,10 @@ export default function LoginPage() {
           >
             Clear local data
           </Button>
+          <span className="mx-1">·</span>
+          <Button variant="link" className="h-auto p-0" asChild>
+            <Link to="/market">Public market</Link>
+          </Button>
         </CardFooter>
       </Card>
     </div>

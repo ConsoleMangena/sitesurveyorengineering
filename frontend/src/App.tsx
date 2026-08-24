@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { lazy, Suspense, useCallback, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import SplashScreen from "./components/SplashScreen";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -11,6 +11,8 @@ import LoginPage from "./pages/auth/LoginPage";
 import SignupPage from "./pages/auth/SignupPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/auth/ResetPasswordPage";
+
+const PublicMarketPage = lazy(() => import("./pages/public/PublicMarketPage"));
 import {
   getCurrentAppUserWithDiagnostics,
   type AppUserLoadDiagnostics,
@@ -242,6 +244,14 @@ export default function App() {
               ) : (
                 <ResetPasswordPage />
               )
+            }
+          />
+          <Route
+            path="/market"
+            element={
+              <Suspense fallback={<div className="min-h-screen bg-background" />}>
+                <PublicMarketPage />
+              </Suspense>
             }
           />
           <Route element={<ProtectedRoute />}>

@@ -240,6 +240,10 @@ export default function SignupPage() {
             <Button variant="link" className="h-auto p-0 ml-1" onClick={() => navigate("/login")}>
               Log in
             </Button>
+            <span className="mx-1">·</span>
+            <Button variant="link" className="h-auto p-0" onClick={() => navigate("/market")}>
+              Public market
+            </Button>
           </CardFooter>
         </Card>
       </div>
@@ -437,6 +441,10 @@ export default function SignupPage() {
           Already have an account?{" "}
           <Button variant="link" className="h-auto p-0 ml-1" onClick={() => navigate("/login")}>
             Log in
+          </Button>
+          <span className="mx-1">·</span>
+          <Button variant="link" className="h-auto p-0" onClick={() => navigate("/market")}>
+            Public market
           </Button>
         </CardFooter>
       </Card>
