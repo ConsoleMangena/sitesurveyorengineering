@@ -20,7 +20,7 @@ day-rate benchmark chips computed live from hire listings. FINISH:
 unreviewed and undocumented is unfinished; this build ends with the finish
 review, the verdict, and DESIGN.md.
 */
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -40,10 +40,7 @@ import {
   Search,
   UserRound,
 } from "lucide-react";
-import { supabase } from "../../lib/supabase/client.ts";
 import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
-import type { Database } from "../../lib/supabase/types.ts";
-import { portfolioMediaUrl } from "../../lib/repositories/portfolioMedia.ts";
 import {
   buildMarketDots,
   MARKET_DOT_COLORS,
@@ -51,145 +48,29 @@ import {
   type MarketDotKind,
 } from "../../components/market/marketDots";
 import { Button } from "../../components/ui/button.tsx";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "../../components/ui/dialog.tsx";
 import { Input } from "../../components/ui/input.tsx";
 
 const PublicMarketGlobe = lazy(
   () => import("../../components/market/PublicMarketGlobe.tsx"),
 );
-
-// Supabase types every view column nullable even where the underlying base
-// columns are NOT NULL. Normalize those fields once at the fetch boundary so
-// the rest of the page can rely on the DB truth.
-type DbListing = Database["public"]["Views"]["public_market_listings"]["Row"];
-type DbProfessional =
-  Database["public"]["Views"]["public_market_professionals"]["Row"];
-type DbJob = Database["public"]["Views"]["public_market_jobs"]["Row"];
-type DbFirm = Database["public"]["Views"]["public_market_firms"]["Row"];
-type DbEvent = Database["public"]["Views"]["public_market_events"]["Row"];
-type DbPortfolioItem =
-  Database["public"]["Views"]["public_market_portfolio_items"]["Row"];
-
-type ListingRow = Omit<DbListing, "id" | "name" | "price" | "location" | "created_at"> & {
-  id: string;
-  name: string;
-  price: number;
-  location: string;
-  created_at: string;
-};
-type ProfessionalRow = Omit<DbProfessional, "id" | "name" | "rate" | "location" | "created_at"> & {
-  id: string;
-  name: string;
-  rate: number;
-  location: string;
-  created_at: string;
-};
-type JobRow = Omit<DbJob, "id" | "rate" | "location" | "created_at"> & {
-  id: string;
-  rate: number;
-  location: string;
-  created_at: string;
-};
-type FirmRow = Omit<DbFirm, "id" | "name" | "location" | "created_at"> & {
-  id: string;
-  name: string;
-  location: string;
-  created_at: string;
-};
-type EventRow = Omit<DbEvent, "id" | "starts_at" | "price" | "location" | "created_at"> & {
-  id: string;
-  starts_at: string;
-  price: number;
-  location: string;
-  created_at: string;
-};
-
-const toListingRows = (rows: DbListing[]): ListingRow[] =>
-  rows.map((r) => ({
-    ...r,
-    id: r.id ?? "",
-    name: r.name ?? "",
-    price: r.price ?? 0,
-    location: r.location ?? "",
-    created_at: r.created_at ?? "",
-  }));
-const toProfessionalRows = (rows: DbProfessional[]): ProfessionalRow[] =>
-  rows.map((r) => ({
-    ...r,
-    id: r.id ?? "",
-    name: r.name ?? "",
-    rate: r.rate ?? 0,
-    location: r.location ?? "",
-    created_at: r.created_at ?? "",
-  }));
-const toJobRows = (rows: DbJob[]): JobRow[] =>
-  rows.map((r) => ({
-    ...r,
-    id: r.id ?? "",
-    rate: r.rate ?? 0,
-    location: r.location ?? "",
-    created_at: r.created_at ?? "",
-  }));
-type ShowcaseItemRow = {
-  id: string;
-  title: string;
-  year: string | null;
-  description: string | null;
-  image_path: string | null;
-};
-const toPortfolioItemRows = (rows: DbPortfolioItem[]): ShowcaseItemRow[] =>
-  rows
-    .filter((r) => r.image_path != null)
-    .map((r) => ({
-      id: r.id ?? "",
-      title: r.title ?? "",
-      year: r.year,
-      description: r.description,
-      image_path: r.image_path,
-    }));
-const toFirmRows = (rows: DbFirm[]): FirmRow[] =>
-  rows.map((r) => ({
-    ...r,
-    id: r.id ?? "",
-    name: r.name ?? "",
-    location: r.location ?? "",
-    created_at: r.created_at ?? "",
-  }));
-const toEventRows = (rows: DbEvent[]): EventRow[] =>
-  rows.map((r) => ({
-    ...r,
-    id: r.id ?? "",
-    starts_at: r.starts_at ?? "",
-    price: r.price ?? 0,
-    location: r.location ?? "",
-    created_at: r.created_at ?? "",
-  }));
-
-interface MarketData {
-  listings: ListingRow[];
-  professionals: ProfessionalRow[];
-  jobs: JobRow[];
-  firms: FirmRow[];
-  events: EventRow[];
-}
+import {
+  fetchMarketData,
+  classifyFailure,
+} from "../../components/market/marketFeed.ts";
+import type {
+  EventRow,
+  FirmRow,
+  JobRow,
+  ListingRow,
+  LoadFailure,
+  MarketData,
+  ProfessionalRow,
+} from "../../components/market/marketFeed.ts";
+import { MarketDetailDialog } from "../../components/market/MarketDetailDialog.tsx";
 
 type Scope = "all" | "listing" | "professional" | "job" | "firm" | "event";
 type SortKey = "newest" | "price-asc" | "price-desc";
 type ListingCategory = "all" | "instrument" | "accessory";
-
-interface LoadFailure {
-  reason: "timeout" | "error";
-  message: string;
-  missingRelation: boolean;
-}
-
-const FETCH_TIMEOUT_MS = 12_000;
 
 /** Registry rows per page — keeps the list scannable instead of endless. */
 const REGISTRY_PAGE_SIZE = 5;
@@ -248,75 +129,11 @@ export default function PublicMarketPage() {
   } | null>(null);
 
   const load = useCallback(async () => {
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(
-      () => controller.abort(),
-      FETCH_TIMEOUT_MS,
-    );
     try {
-      const [listingsRes, professionalsRes, jobsRes, firmsRes, eventsRes] =
-        await Promise.all([
-          supabase
-            .from("public_market_listings")
-            .select("*")
-            .order("created_at", { ascending: false })
-            .abortSignal(controller.signal),
-          supabase
-            .from("public_market_professionals")
-            .select("*")
-            .abortSignal(controller.signal),
-          supabase
-            .from("public_market_jobs")
-            .select("*")
-            .order("created_at", { ascending: false })
-            .abortSignal(controller.signal),
-          supabase
-            .from("public_market_firms")
-            .select("*")
-            .order("created_at", { ascending: false })
-            .abortSignal(controller.signal),
-          supabase
-            .from("public_market_events")
-            .select("*")
-            .order("starts_at", { ascending: true })
-            .abortSignal(controller.signal),
-        ]);
-      for (const res of [
-        listingsRes,
-        professionalsRes,
-        jobsRes,
-        firmsRes,
-        eventsRes,
-      ]) {
-        if (res.error) throw res.error;
-      }
-      setData({
-        listings: toListingRows(listingsRes.data ?? []),
-        professionals: toProfessionalRows(professionalsRes.data ?? []),
-        jobs: toJobRows(jobsRes.data ?? []),
-        firms: toFirmRows(firmsRes.data ?? []),
-        events: toEventRows(eventsRes.data ?? []),
-      });
+      setData(await fetchMarketData());
       setFailure(null);
     } catch (error) {
-      const aborted =
-        controller.signal.aborted ||
-        (error instanceof Error && error.name === "AbortError");
-      const postgrestError = error as { code?: string; message?: string };
-      setFailure({
-        reason: aborted ? "timeout" : "error",
-        message: !aborted ? (postgrestError.message ?? "Unknown error") : "",
-        missingRelation:
-          !aborted &&
-          (postgrestError.code === "42P01" ||
-            postgrestError.code === "PGRST202" ||
-            postgrestError.code === "PGRST205" ||
-            /does not exist|schema cache|could not find/i.test(
-              postgrestError.message ?? "",
-            )),
-      });
-    } finally {
-      window.clearTimeout(timeoutId);
+      setFailure(classifyFailure(error));
     }
   }, []);
 
@@ -1544,273 +1361,5 @@ function EventRowItem({ row, onOpen }: { row: EventRow; onOpen: () => void }) {
         ) : null}
       </p>
     </RowShell>
-  );
-}
-
-// ── Detail dialog ───────────────────────────────────────────────────────────
-
-function MarketDetailDialog({
-  dot,
-  listing,
-  professional,
-  job,
-  firm,
-  event,
-  onClose,
-}: {
-  dot: MarketDot | null;
-  listing: ListingRow | null;
-  professional: ProfessionalRow | null;
-  job: JobRow | null;
-  firm: FirmRow | null;
-  event: EventRow | null;
-  onClose: () => void;
-}) {
-  const [showcase, setShowcase] = useState<ShowcaseItemRow[]>([]);
-  const professionalId = professional?.id ?? null;
-
-  // Lazy-load showcase projects only while a professional detail is open.
-  useEffect(() => {
-    if (!professionalId) return;
-    let cancelled = false;
-    const clear = window.setTimeout(() => setShowcase([]), 0);
-    supabase
-      .from("public_market_portfolio_items")
-      .select("*")
-      .eq("professional_id", professionalId)
-      .order("sort_order", { ascending: true })
-      .then(({ data }) => {
-        if (!cancelled) setShowcase(toPortfolioItemRows((data ?? []) as DbPortfolioItem[]));
-      });
-    return () => {
-      cancelled = true;
-      window.clearTimeout(clear);
-    };
-  }, [professionalId]);
-
-  const subtitle = dot
-    ? dot.kind === "listing"
-      ? `Marketplace listing${dot.location ? ` · ${dot.location}` : ""}`
-      : dot.kind === "professional"
-        ? `Survey professional${dot.location ? ` · ${dot.location}` : ""}`
-        : dot.kind === "job"
-          ? `Job opening${dot.location ? ` · ${dot.location}` : ""}`
-          : dot.kind === "firm"
-            ? `Survey firm${dot.location ? ` · ${dot.location}` : ""}`
-            : `Training & events${dot.location ? ` · ${dot.location}` : ""}`
-    : "";
-  return (
-    <Dialog
-      open={dot !== null}
-      onOpenChange={(open) => (!open ? onClose() : undefined)}
-    >
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
-        {dot ? (
-          <>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2.5 pr-6 text-lg">
-                <span
-                  className="size-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: MARKET_DOT_COLORS[dot.kind] }}
-                  aria-hidden="true"
-                />
-                {dot.name}
-                {professional?.is_verified ? (
-                  <BadgeCheck
-                    className="size-4 shrink-0 text-cyan-600"
-                    aria-label="Verified"
-                  />
-                ) : null}
-              </DialogTitle>
-              <DialogDescription>{subtitle}</DialogDescription>
-            </DialogHeader>
-            <dl className="space-y-2.5 text-sm">
-              {listing ? (
-                <>
-                  <DetailRow label="Price">
-                    <span className="font-semibold tabular-nums">
-                      {listing.price.toLocaleString()} {listing.currency}
-                      {listing.listing_type === "hire" ? " / day" : ""}
-                    </span>
-                  </DetailRow>
-                  {listing.condition ? (
-                    <DetailRow label="Condition">{listing.condition}</DetailRow>
-                  ) : null}
-                  <DetailRow label="Seller">{listing.seller}</DetailRow>
-                  {listing.specs && listing.specs.length > 0 ? (
-                    <DetailRow label="Specs">
-                      <span>{listing.specs.join(" · ")}</span>
-                    </DetailRow>
-                  ) : null}
-                  {listing.description ? (
-                    <DetailRow label="Notes">{listing.description}</DetailRow>
-                  ) : null}
-                </>
-              ) : null}
-              {professional ? (
-                <>
-                  <DetailRow label="Role">
-                    {professional.title} · {professional.discipline}
-                  </DetailRow>
-                  <DetailRow label="Rate">
-                    <span className="font-semibold tabular-nums">
-                      {professional.rate.toLocaleString()}{" "}
-                      {professional.currency} / {professional.rate_per}
-                    </span>
-                  </DetailRow>
-                  <DetailRow label="Experience">{professional.experience}</DetailRow>
-                  <DetailRow label="Availability">{professional.availability}</DetailRow>
-                  {professional.skills && professional.skills.length > 0 ? (
-                    <DetailRow label="Skills">
-                      <span>{professional.skills.join(" · ")}</span>
-                    </DetailRow>
-                  ) : null}
-                  {professional.bio ? (
-                    <DetailRow label="About">{professional.bio}</DetailRow>
-                  ) : null}
-                  {showcase.length > 0 ? (
-                    <DetailRow label="Projects">
-                      <div className="grid grid-cols-3 gap-1.5">
-                        {showcase.map((item) => (
-                          <img
-                            key={item.id}
-                            src={portfolioMediaUrl(item.image_path) ?? undefined}
-                            alt={item.title}
-                            loading="lazy"
-                            className="aspect-square w-full rounded-md border object-cover"
-                          />
-                        ))}
-                      </div>
-                    </DetailRow>
-                  ) : null}
-                </>
-              ) : null}
-              {job ? (
-                <>
-                  <DetailRow label="Discipline">
-                    {job.discipline} · <span className="capitalize">{job.employment_type}</span>
-                  </DetailRow>
-                  <DetailRow label="Pay">
-                    {job.rate != null ? (
-                      <span className="font-semibold tabular-nums">
-                        {job.rate.toLocaleString()} {job.currency} /{" "}
-                        {job.rate_per ?? "day"}
-                      </span>
-                    ) : (
-                      "Negotiable"
-                    )}
-                  </DetailRow>
-                  {job.requirements && job.requirements.length > 0 ? (
-                    <DetailRow label="Requirements">
-                      <ul className="list-disc space-y-0.5 pl-4">
-                        {job.requirements.map((requirement) => (
-                          <li key={requirement}>{requirement}</li>
-                        ))}
-                      </ul>
-                    </DetailRow>
-                  ) : null}
-                  {job.description ? (
-                    <DetailRow label="About">{job.description}</DetailRow>
-                  ) : null}
-                </>
-              ) : null}
-              {firm ? (
-                <>
-                  <DetailRow label="Services">
-                    <span>{(firm.services ?? []).join(" · ")}</span>
-                  </DetailRow>
-                  {firm.staff_count != null || firm.founded_year != null ? (
-                    <DetailRow label="Profile">
-                      <span className="tabular-nums">
-                        {firm.staff_count != null
-                          ? `${firm.staff_count} staff`
-                          : ""}
-                        {firm.staff_count != null && firm.founded_year != null
-                          ? " · "
-                          : ""}
-                        {firm.founded_year != null
-                          ? `founded ${firm.founded_year}`
-                          : ""}
-                      </span>
-                    </DetailRow>
-                  ) : null}
-                  {firm.about ? (
-                    <DetailRow label="About">{firm.about}</DetailRow>
-                  ) : null}
-                </>
-              ) : null}
-              {event ? (
-                <>
-                  <DetailRow label="Schedule">
-                    <span className="capitalize">
-                      {formatDate(event.starts_at)}
-                      {event.ends_at ? ` → ${formatDate(event.ends_at)}` : ""}
-                    </span>
-                  </DetailRow>
-                  <DetailRow label="Price">
-                    {event.price > 0 ? (
-                      <span className="font-semibold tabular-nums">
-                        {event.price.toLocaleString()} {event.currency}
-                      </span>
-                    ) : (
-                      <span className="font-semibold uppercase tracking-wide text-emerald-700">
-                        Free
-                      </span>
-                    )}
-                  </DetailRow>
-                  <DetailRow label="Provider">{event.provider}</DetailRow>
-                  {event.certification_body ? (
-                    <DetailRow label="Certification">
-                      {event.certification_body}
-                    </DetailRow>
-                  ) : null}
-                  {event.seats_left != null ? (
-                    <DetailRow label="Seats left">
-                      <span className="tabular-nums">{event.seats_left}</span>
-                    </DetailRow>
-                  ) : null}
-                  {event.description ? (
-                    <DetailRow label="About">{event.description}</DetailRow>
-                  ) : null}
-                </>
-              ) : null}
-              {dot.lat != null && dot.lng != null ? (
-                <DetailRow label="Coordinates">
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {dot.lat.toFixed(4)}°, {dot.lng.toFixed(4)}°
-                  </span>
-                </DetailRow>
-              ) : null}
-            </dl>
-            <Button asChild className="mt-2 w-full">
-              <Link to="/login">
-                {dot.kind === "job"
-                  ? "Sign in to apply"
-                  : dot.kind === "event"
-                    ? "Sign in to register"
-                    : dot.kind === "firm"
-                      ? "Sign in to request services"
-                      : "Sign in to contact the publisher"}
-              </Link>
-            </Button>
-          </>
-        ) : null}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function DetailRow({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="grid grid-cols-[88px_1fr] gap-3">
-      <dt className="text-xs uppercase tracking-wide text-muted-foreground">{label}</dt>
-      <dd className="min-w-0">{children}</dd>
-    </div>
   );
 }

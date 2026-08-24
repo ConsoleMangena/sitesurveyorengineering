@@ -23,6 +23,8 @@ interface PublicMarketGlobeProps {
   onRetry: () => void;
   /** Rendered inside the map container (heading overlay etc.). */
   children?: ReactNode;
+  /** Overrides the default full-bleed hero height (e.g. embedded cards). */
+  heightClassName?: string;
 }
 
 function formatCoord(lngLat: maplibregl.LngLat): string {
@@ -256,6 +258,7 @@ export default function PublicMarketGlobe({
   onSelect,
   onRetry,
   children,
+  heightClassName = "h-[68vh] min-h-[480px]",
 }: PublicMarketGlobeProps) {
   const mapRef = useRef<MapRef | null>(null);
   const [ready, setReady] = useState(false);
@@ -286,7 +289,9 @@ export default function PublicMarketGlobe({
 
   return (
     <section className="relative">
-      <div className="relative h-[68vh] min-h-[480px] w-full overflow-hidden border-y border-border/60 bg-muted/40">
+      <div
+        className={`relative w-full overflow-hidden border-y border-border/60 bg-muted/40 ${heightClassName}`}
+      >
         {/* Canvas-only content; the searchable registry rows below carry the
             same information for keyboard and screen-reader users. */}
         <p className="sr-only">

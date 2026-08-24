@@ -22,6 +22,7 @@ import {
   DashboardShell,
 } from "@/components/dashboard/DashboardShell.tsx";
 import { ProfessionalPortfolioCard } from "../../features/personal/components/ProfessionalPortfolioCard.tsx";
+import MarketGlobeCard from "../../components/market/MarketGlobeCard.tsx";
 
 import { listProjects, type ProjectWithOrg } from "../../lib/repositories/projects.ts";
 import { listInvoices, type InvoiceWithDetails } from "../../lib/repositories/invoices.ts";
@@ -204,6 +205,10 @@ export default function PersonalDashboardPage({
             subtext={nextCalibrationDays == null ? "No schedule found" : "until next calibration"}
             icon={<Clock className="size-4" />}
           />
+        </div>
+
+        <div className="xl:col-span-12">
+          <MarketGlobeCard />
         </div>
 
         <div className="xl:col-span-5">

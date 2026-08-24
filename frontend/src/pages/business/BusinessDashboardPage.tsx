@@ -19,6 +19,7 @@ import { ProjectTimelineChart } from "@/components/dashboard/ProjectTimelineChar
 import { RecentProjectsTable } from "@/components/dashboard/RecentProjectsTable";
 import { DashboardHeader, DashboardShell } from "@/components/dashboard/DashboardShell.tsx";
 import { TodaysSchedule } from "@/components/dashboard/TodaysSchedule.tsx";
+import MarketGlobeCard from "../../components/market/MarketGlobeCard.tsx";
 
 import { listProjects, type ProjectWithOrg } from "../../lib/repositories/projects.ts";
 import { listInvoices, type InvoiceWithDetails } from "../../lib/repositories/invoices.ts";
@@ -185,6 +186,10 @@ export default function BusinessDashboardPage({
             subtext="awaiting payment"
             icon={<FileText className="size-4" />}
           />
+        </div>
+
+        <div className="xl:col-span-12">
+          <MarketGlobeCard />
         </div>
 
         <div className="xl:col-span-5">
