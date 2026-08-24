@@ -1087,8 +1087,10 @@ export type Database = {
           description: string | null
           id: string
           is_global: boolean
+          latitude: number | null
           listing_type: string
           location: string
+          longitude: number | null
           name: string
           price: number
           seller: string
@@ -1106,8 +1108,10 @@ export type Database = {
           description?: string | null
           id?: string
           is_global?: boolean
+          latitude?: number | null
           listing_type?: string
           location: string
+          longitude?: number | null
           name: string
           price: number
           seller: string
@@ -1125,8 +1129,10 @@ export type Database = {
           description?: string | null
           id?: string
           is_global?: boolean
+          latitude?: number | null
           listing_type?: string
           location?: string
+          longitude?: number | null
           name?: string
           price?: number
           seller?: string
@@ -1503,7 +1509,9 @@ export type Database = {
           experience: string
           id: string
           is_global: boolean
+          latitude: number | null
           location: string
+          longitude: number | null
           name: string
           rate: number
           rate_per: string
@@ -1524,7 +1532,9 @@ export type Database = {
           experience: string
           id?: string
           is_global?: boolean
+          latitude?: number | null
           location: string
+          longitude?: number | null
           name: string
           rate: number
           rate_per: string
@@ -1545,7 +1555,9 @@ export type Database = {
           experience?: string
           id?: string
           is_global?: boolean
+          latitude?: number | null
           location?: string
+          longitude?: number | null
           name?: string
           rate?: number
           rate_per?: string
@@ -2447,7 +2459,47 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      public_market_listings: {
+        Row: {
+          condition: string
+          created_at: string
+          currency: string
+          description: string | null
+          id: string
+          latitude: number | null
+          listing_type: string | null
+          location: string
+          longitude: number | null
+          name: string
+          price: number
+          seller: string
+          specs: string[] | null
+          type: string
+        }
+        Relationships: []
+      }
+      public_market_professionals: {
+        Row: {
+          availability: string
+          bio: string | null
+          certifications: string[] | null
+          currency: string
+          discipline: string
+          experience: string
+          id: string
+          latitude: number | null
+          location: string
+          longitude: number | null
+          name: string
+          rate: number
+          rate_per: string
+          rating: number | null
+          reviews: number | null
+          skills: string[] | null
+          title: string
+        }
+        Relationships: []
+      }
     }
     Functions: {
       accept_workspace_invitation: {
