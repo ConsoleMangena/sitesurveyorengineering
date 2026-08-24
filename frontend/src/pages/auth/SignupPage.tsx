@@ -177,6 +177,9 @@ export default function SignupPage() {
             />
             <CardTitle>SiteSurveyor for Engineers</CardTitle>
             <CardDescription>Choose how you'll use SiteSurveyor</CardDescription>
+            <Button variant="link" className="h-auto p-0 text-xs" onClick={() => navigate("/market")}>
+              Browse the public market
+            </Button>
           </CardHeader>
           <CardContent className="space-y-6 auth-animate-stagger">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 auth-animate-stagger">
@@ -240,10 +243,6 @@ export default function SignupPage() {
             <Button variant="link" className="h-auto p-0 ml-1" onClick={() => navigate("/login")}>
               Log in
             </Button>
-            <span className="mx-1">·</span>
-            <Button variant="link" className="h-auto p-0" onClick={() => navigate("/market")}>
-              Public market
-            </Button>
           </CardFooter>
         </Card>
       </div>
@@ -268,6 +267,9 @@ export default function SignupPage() {
                 ? "Create your platform operator account"
                 : "Register your surveying firm"}
           </CardDescription>
+          <Button variant="link" className="h-auto p-0 text-xs" onClick={() => navigate("/market")}>
+            Browse the public market
+          </Button>
         </CardHeader>
         <CardContent className="space-y-4">
           <Button
@@ -441,10 +443,6 @@ export default function SignupPage() {
           Already have an account?{" "}
           <Button variant="link" className="h-auto p-0 ml-1" onClick={() => navigate("/login")}>
             Log in
-          </Button>
-          <span className="mx-1">·</span>
-          <Button variant="link" className="h-auto p-0" onClick={() => navigate("/market")}>
-            Public market
           </Button>
         </CardFooter>
       </Card>

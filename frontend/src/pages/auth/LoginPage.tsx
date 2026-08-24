@@ -121,6 +121,9 @@ export default function LoginPage() {
           />
           <CardTitle className="text-lg font-bold">SiteSurveyor for Engineers</CardTitle>
           <CardDescription>Sign in to your engineering workspace</CardDescription>
+          <Button variant="link" className="h-auto p-0 text-xs" asChild>
+            <Link to="/market">Browse the public market</Link>
+          </Button>
         </CardHeader>
 
         <CardContent>
@@ -237,10 +240,6 @@ export default function LoginPage() {
             }}
           >
             Clear local data
-          </Button>
-          <span className="mx-1">·</span>
-          <Button variant="link" className="h-auto p-0" asChild>
-            <Link to="/market">Public market</Link>
           </Button>
         </CardFooter>
       </Card>
