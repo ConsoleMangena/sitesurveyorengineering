@@ -9,6 +9,7 @@ import {
   File,
 } from "lucide-react";
 import { Button } from "@/components/ui/button.tsx";
+import { Badge } from "@/components/ui/badge.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card.tsx";
 import { useProjectOutputs, downloadOutput } from "../tools/calculators/projectOutputs.ts";
 import { SendToFileManagerDialog } from "./SendToFileManagerDialog.tsx";
@@ -84,7 +85,7 @@ export function ProjectOutputsManager({ projectId, workspaceId }: ProjectOutputs
               workspace.
             </div>
           ) : (
-            <div className="overflow-auto">
+            <div className="hidden overflow-auto md:block">
               <table className="w-full text-sm min-w-[520px]">
                 <thead className="bg-muted/50 text-left">
                   <tr>
@@ -149,6 +150,49 @@ export function ProjectOutputsManager({ projectId, workspaceId }: ProjectOutputs
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+          {sorted.length > 0 && (
+            <div className="flex flex-col gap-3 p-3 md:hidden">
+              {sorted.map((o) => (
+                <article key={o.id} className="rounded-lg border border-border/40 bg-muted/30 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-2 min-w-0">
+                      <OutputIcon mimeType={o.mimeType} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{o.label}</p>
+                        {o.description ? (
+                          <p className="text-xs text-muted-foreground truncate">{o.description}</p>
+                        ) : null}
+                        <p className="text-xs text-muted-foreground truncate">{o.fileName}</p>
+                      </div>
+                    </div>
+                    <Badge variant="secondary" className="shrink-0 whitespace-nowrap">
+                      {formatBytes(o.size)}
+                    </Badge>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-muted-foreground">{formatDate(o.createdAt)}</span>
+                    <div className="flex items-center gap-1">
+                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Download" onClick={() => downloadOutput(o)}>
+                        <Download size={15} />
+                      </Button>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" title="Send to File Manager" onClick={() => setSending(o)}>
+                        <FolderInput size={15} />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        title="Delete"
+                        onClick={() => remove(o.id)}
+                      >
+                        <Trash2 size={15} />
+                      </Button>
+                    </div>
+                  </div>
+                </article>
+              ))}
             </div>
           )}
         </CardContent>

@@ -369,15 +369,7 @@ interface CoordinateRowProps {
   onSetSection: (id: string, sectionId: string | null) => void;
 }
 
-const CoordinateRow = memo(function CoordinateRow({
-  point,
-  sections,
-  selected,
-  onToggleSelect,
-  onUpdate,
-  onRemove,
-  onSetSection,
-}: CoordinateRowProps) {
+function usePointEdits(point: ProjectPoint, onUpdate: (id: string, patch: Partial<ProjectPoint>) => void) {
   const [pointNo, setPointNo] = useState(point.pointNo);
   const [e, setE] = useState(String(point.e));
   const [n, setN] = useState(String(point.n));
@@ -416,11 +408,25 @@ const CoordinateRow = memo(function CoordinateRow({
     if (Object.keys(patch).length > 0) onUpdate(point.id, patch);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      (e.target as HTMLInputElement).blur();
-      commit();
+  return { pointNo, setPointNo, e, setE, n, setN, z, setZ, code, setCode, commit };
+}
+
+const CoordinateRow = memo(function CoordinateRow({
+  point,
+  sections,
+  selected,
+  onToggleSelect,
+  onUpdate,
+  onRemove,
+  onSetSection,
+}: CoordinateRowProps) {
+  const edits = usePointEdits(point, onUpdate);
+
+  const handleKeyDown = (ev: React.KeyboardEvent<HTMLInputElement>) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      (ev.target as HTMLInputElement).blur();
+      edits.commit();
     }
   };
 
@@ -439,47 +445,47 @@ const CoordinateRow = memo(function CoordinateRow({
       <td className="px-2 py-1">
         <Input
           className="h-8 w-full min-w-0"
-          value={pointNo}
-          onChange={(e) => setPointNo(e.target.value)}
-          onBlur={commit}
+          value={edits.pointNo}
+          onChange={(e) => edits.setPointNo(e.target.value)}
+          onBlur={edits.commit}
           onKeyDown={handleKeyDown}
         />
       </td>
       <td className="px-2 py-1">
         <Input
           className="h-8 w-full min-w-0"
-          value={e}
-          onChange={(ev) => setE(ev.target.value)}
-          onBlur={commit}
+          value={edits.e}
+          onChange={(ev) => edits.setE(ev.target.value)}
+          onBlur={edits.commit}
           onKeyDown={handleKeyDown}
         />
       </td>
       <td className="px-2 py-1">
         <Input
           className="h-8 w-full min-w-0"
-          value={n}
-          onChange={(ev) => setN(ev.target.value)}
-          onBlur={commit}
+          value={edits.n}
+          onChange={(ev) => edits.setN(ev.target.value)}
+          onBlur={edits.commit}
           onKeyDown={handleKeyDown}
         />
       </td>
       <td className="px-2 py-1">
         <Input
           className="h-8 w-full min-w-0"
-          value={z}
+          value={edits.z}
           placeholder="RL"
-          onChange={(ev) => setZ(ev.target.value)}
-          onBlur={commit}
+          onChange={(ev) => edits.setZ(ev.target.value)}
+          onBlur={edits.commit}
           onKeyDown={handleKeyDown}
         />
       </td>
       <td className="px-2 py-1">
         <Input
           className="h-8 w-full min-w-0"
-          value={code}
+          value={edits.code}
           placeholder="Code"
-          onChange={(ev) => setCode(ev.target.value)}
-          onBlur={commit}
+          onChange={(ev) => edits.setCode(ev.target.value)}
+          onBlur={edits.commit}
           onKeyDown={handleKeyDown}
         />
       </td>
@@ -513,6 +519,110 @@ const CoordinateRow = memo(function CoordinateRow({
         </Button>
       </td>
     </tr>
+  );
+});
+
+const CoordinateTile = memo(function CoordinateTile({
+  point,
+  sections,
+  selected,
+  onToggleSelect,
+  onUpdate,
+  onRemove,
+  onSetSection,
+}: CoordinateRowProps) {
+  const edits = usePointEdits(point, onUpdate);
+
+  const handleKeyDown = (ev: React.KeyboardEvent<HTMLInputElement>) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      (ev.target as HTMLInputElement).blur();
+      edits.commit();
+    }
+  };
+
+  return (
+    <article className="rounded-lg border border-border/40 bg-muted/30 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <Checkbox
+            checked={selected}
+            onCheckedChange={(checked) => onToggleSelect(point.id, checked === true)}
+            aria-label={`Select coordinate ${point.pointNo}`}
+          />
+          <Input
+            className="h-8 w-24 shrink-0"
+            value={edits.pointNo}
+            onChange={(ev) => edits.setPointNo(ev.target.value)}
+            onBlur={edits.commit}
+            onKeyDown={handleKeyDown}
+            aria-label={`Point number ${point.pointNo}`}
+          />
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-destructive"
+          onClick={() => onRemove(point.id)}
+          aria-label={`Delete coordinate ${point.pointNo}`}
+        >
+          <Trash2 size={15} />
+        </Button>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <Input
+          className="h-8"
+          value={edits.e}
+          placeholder="Easting (Y)"
+          inputMode="decimal"
+          onChange={(ev) => edits.setE(ev.target.value)}
+          onBlur={edits.commit}
+          onKeyDown={handleKeyDown}
+        />
+        <Input
+          className="h-8"
+          value={edits.n}
+          placeholder="Northing (X)"
+          inputMode="decimal"
+          onChange={(ev) => edits.setN(ev.target.value)}
+          onBlur={edits.commit}
+          onKeyDown={handleKeyDown}
+        />
+        <Input
+          className="h-8"
+          value={edits.z}
+          placeholder="RL (Z)"
+          inputMode="decimal"
+          onChange={(ev) => edits.setZ(ev.target.value)}
+          onBlur={edits.commit}
+          onKeyDown={handleKeyDown}
+        />
+        <Input
+          className="h-8"
+          value={edits.code}
+          placeholder="Code"
+          onChange={(ev) => edits.setCode(ev.target.value)}
+          onBlur={edits.commit}
+          onKeyDown={handleKeyDown}
+        />
+      </div>
+      <Select
+        value={point.sectionId ?? "__none__"}
+        onValueChange={(v) => onSetSection(point.id, v === "__none__" ? null : v)}
+      >
+        <SelectTrigger className="mt-2 h-8 w-full text-xs">
+          <SelectValue placeholder="No section" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__none__">No section</SelectItem>
+          {sections.map((s) => (
+            <SelectItem key={s.id} value={s.id}>
+              {s.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </article>
   );
 });
 
@@ -807,7 +917,7 @@ export function ProjectPointsManager({ projectId }: ProjectPointsManagerProps) {
       {hasSections && (
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-sm min-w-[720px] table-fixed">
                 <thead className="bg-muted/50 text-left">
                   <tr>
@@ -850,6 +960,20 @@ export function ProjectPointsManager({ projectId }: ProjectPointsManagerProps) {
                   ))}
                 </tbody>
               </table>
+            </div>
+            <div className="flex flex-col gap-3 p-3 md:hidden">
+              {grouped.ungrouped.map((p) => (
+                <CoordinateTile
+                  key={p.id}
+                  point={p}
+                  sections={sections}
+                  selected={selectedIds.has(p.id)}
+                  onToggleSelect={toggleSelect}
+                  onUpdate={update}
+                  onRemove={remove}
+                  onSetSection={setPointSection}
+                />
+              ))}
             </div>
           </CardContent>
         </Card>
@@ -910,7 +1034,7 @@ export function ProjectPointsManager({ projectId }: ProjectPointsManagerProps) {
             </CardHeader>
             {!isCollapsed && section.points.length > 0 && (
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
+                <div className="hidden overflow-x-auto md:block">
                   <table className="w-full text-sm min-w-[720px] table-fixed">
                     <thead className="bg-muted/30 text-left">
                       <tr>
@@ -953,6 +1077,20 @@ export function ProjectPointsManager({ projectId }: ProjectPointsManagerProps) {
                       ))}
                     </tbody>
                   </table>
+                </div>
+                <div className="flex flex-col gap-3 p-3 md:hidden">
+                  {section.points.map((p) => (
+                    <CoordinateTile
+                      key={p.id}
+                      point={p}
+                      sections={sections}
+                      selected={selectedIds.has(p.id)}
+                      onToggleSelect={toggleSelect}
+                      onUpdate={update}
+                      onRemove={remove}
+                      onSetSection={setPointSection}
+                    />
+                  ))}
                 </div>
               </CardContent>
             )}

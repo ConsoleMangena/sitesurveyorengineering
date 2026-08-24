@@ -1296,8 +1296,9 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
               ))}
             </div>
 
-            <ResponsiveTable>
-              <Table className="min-w-[900px]">
+            <div className="hidden md:block">
+              <ResponsiveTable>
+                <Table className="min-w-[900px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="min-w-[220px]">Project</TableHead>
@@ -1359,6 +1360,52 @@ export default function ProjectHubPage({ userName, workspaceId, onEnterFullscree
               </TableBody>
             </Table>
             </ResponsiveTable>
+            </div>
+
+            {/* Mobile project tiles */}
+            <div className="flex flex-col gap-3 md:hidden">
+              {filteredProjects.map((p) => {
+                const surveyor = p.members[0]?.name || 'Unassigned'
+                return (
+                  <article
+                    key={p.dbId}
+                    className="cursor-pointer rounded-lg border border-border/40 bg-muted/30 p-3 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => setSelectedProject(p)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedProject(p); } }}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Open project ${p.name}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className="block font-semibold truncate" title={p.name}>{p.name}</span>
+                        <code className="mt-1 inline-block w-fit rounded bg-background px-1.5 py-0.5 text-xs text-primary font-medium">{p.id}</code>
+                      </div>
+                      <Badge variant={statusBadgeVariant[p.status] ?? 'secondary'} className="shrink-0">{p.status}</Badge>
+                    </div>
+                    <div className="mt-2 space-y-1 text-sm">
+                      <p className="truncate text-muted-foreground">
+                        <span className="font-medium text-foreground" title={p.client}>{p.client}</span>
+                        {' · '}
+                        <span title={p.phase}>{p.phase}</span>
+                      </p>
+                      <p className="truncate text-muted-foreground">
+                        <span title={surveyor}>{surveyor}</span>
+                        {' · '}
+                        <span className="text-xs" title={p.datum}>{p.datum}</span>
+                      </p>
+                    </div>
+                    <div className="mt-3 flex items-center gap-2">
+                      <div className="h-2 flex-1 rounded-full bg-muted overflow-hidden">
+                        <div className="h-full rounded-full bg-primary" style={{ width: `${p.progress}%` }} />
+                      </div>
+                      <span className="w-9 shrink-0 text-right text-xs font-semibold">{p.progress}%</span>
+                      <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">{p.points.toLocaleString()} pts</span>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
 
             {filteredProjects.length === 0 && (
               <div className="p-12 text-center text-muted-foreground">
