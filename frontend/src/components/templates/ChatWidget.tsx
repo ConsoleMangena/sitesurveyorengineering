@@ -359,7 +359,7 @@ export function ChatWidget({ workspaceId, workspaceName, canModerate }: ChatWidg
 
   return (
     <>
-      <div className="fixed bottom-6 right-6 z-50">
+      <div className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-[calc(1rem+env(safe-area-inset-right))] z-50 sm:bottom-6 sm:right-6">
         <div className="relative">
           {unreadCount > 0 && (
             <span
@@ -396,7 +396,7 @@ export function ChatWidget({ workspaceId, workspaceName, canModerate }: ChatWidg
       <Sheet open={isOpen} onOpenChange={handleOpenChange}>
         <SheetContent side="right" className="flex flex-col w-full sm:max-w-[420px] p-0">
           <SheetHeader className="p-4 pr-12 border-b bg-gradient-to-r from-primary/10 via-primary/5 to-transparent">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <div className="relative shrink-0">
                 <Avatar className="h-11 w-11 border shadow-sm">
                   <AvatarFallback className="bg-primary text-primary-foreground text-sm font-semibold">
@@ -436,7 +436,7 @@ export function ChatWidget({ workspaceId, workspaceName, canModerate }: ChatWidg
                 aria-expanded={showMembers}
                 aria-label={`Show team members (${activeMembers.length})`}
                 className={cn(
-                  "flex shrink-0 items-center gap-1.5 rounded-full border bg-background/70 py-1 pl-1.5 pr-2.5 shadow-sm transition-colors hover:bg-background",
+                  "flex shrink-0 items-center gap-1.5 rounded-full border bg-background/70 py-1.5 pl-1.5 pr-2.5 shadow-sm transition-colors hover:bg-background sm:py-1",
                   showMembers && "border-primary/40 bg-background ring-2 ring-primary/15"
                 )}
               >
@@ -492,7 +492,7 @@ export function ChatWidget({ workspaceId, workspaceName, canModerate }: ChatWidg
                     return (
                       <li
                         key={m.id}
-                        className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-background/80"
+                        className="flex items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-background/80"
                       >
                         <Avatar className="h-7 w-7 border">
                           <AvatarFallback
@@ -555,7 +555,7 @@ export function ChatWidget({ workspaceId, workspaceName, canModerate }: ChatWidg
                   <Button
                     variant="outline"
                     size="sm"
-                    className="self-center mb-4 h-7 rounded-full text-[11px] text-muted-foreground bg-background/80 backdrop-blur"
+                    className="self-center mb-4 h-9 rounded-full px-4 text-[11px] text-muted-foreground bg-background/80 backdrop-blur sm:h-7 sm:px-3"
                     onClick={handleLoadOlder}
                     disabled={isLoadingOlder}
                   >
@@ -682,9 +682,9 @@ export function ChatWidget({ workspaceId, workspaceName, canModerate }: ChatWidg
                           <button
                             onClick={() => handleDelete(msg.id)}
                             aria-label="Delete message"
-                            className="flex-shrink-0 rounded-full p-1.5 text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive"
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/60 opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:bg-destructive/10 focus-visible:text-destructive sm:h-auto sm:w-auto sm:p-1.5 sm:opacity-0 sm:group-hover:opacity-100"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         )}
                       </div>
@@ -701,7 +701,7 @@ export function ChatWidget({ workspaceId, workspaceName, canModerate }: ChatWidg
               <Button
                 size="sm"
                 variant="secondary"
-                className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full shadow-lg text-xs"
+                className="absolute bottom-3 left-1/2 -translate-x-1/2 h-9 rounded-full px-4 shadow-lg text-xs"
                 onClick={() => scrollToBottom("smooth")}
               >
                 <ChevronDown className="h-3.5 w-3.5 mr-1" />
@@ -717,7 +717,7 @@ export function ChatWidget({ workspaceId, workspaceName, canModerate }: ChatWidg
                 <button
                   type="button"
                   onClick={() => setError(null)}
-                  className="font-medium underline-offset-2 hover:underline"
+                  className="shrink-0 rounded px-1 py-0.5 font-medium underline-offset-2 hover:underline"
                 >
                   Dismiss
                 </button>
@@ -737,14 +737,14 @@ export function ChatWidget({ workspaceId, workspaceName, canModerate }: ChatWidg
                 disabled={isSending}
                 rows={1}
                 aria-label="Chat message"
-                className="flex-1 min-h-[38px] max-h-32 resize-none border-0 bg-transparent px-2.5 py-2 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="flex-1 min-h-[40px] max-h-32 resize-none border-0 bg-transparent px-2.5 py-2 text-base shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:text-sm"
               />
-              <Button 
-                type="submit" 
-                size="icon" 
+              <Button
+                type="submit"
+                size="icon"
                 disabled={!inputValue.trim() || isSending}
                 aria-label="Send message"
-                className="h-9 w-9 shrink-0 rounded-xl"
+                className="h-10 w-10 shrink-0 rounded-xl sm:h-9 sm:w-9"
               >
                 {isSending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
