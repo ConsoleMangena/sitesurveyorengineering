@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       asset_calibrations: {
         Row: {
+          _deleted: boolean
           asset_id: string
           calibration_date: string
           calibration_status: Database["public"]["Enums"]["calibration_status"]
@@ -31,6 +32,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          _deleted?: boolean
           asset_id: string
           calibration_date: string
           calibration_status?: Database["public"]["Enums"]["calibration_status"]
@@ -46,6 +48,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          _deleted?: boolean
           asset_id?: string
           calibration_date?: string
           calibration_status?: Database["public"]["Enums"]["calibration_status"]
@@ -79,6 +82,7 @@ export type Database = {
       }
       asset_maintenance_events: {
         Row: {
+          _deleted: boolean
           asset_id: string
           cost: number
           created_at: string
@@ -91,6 +95,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          _deleted?: boolean
           asset_id: string
           cost?: number
           created_at?: string
@@ -103,6 +108,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          _deleted?: boolean
           asset_id?: string
           cost?: number
           created_at?: string
@@ -133,6 +139,7 @@ export type Database = {
       }
       assets: {
         Row: {
+          _deleted: boolean
           archived_at: string | null
           asset_code: string | null
           category: string | null
@@ -153,6 +160,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          _deleted?: boolean
           archived_at?: string | null
           asset_code?: string | null
           category?: string | null
@@ -173,6 +181,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          _deleted?: boolean
           archived_at?: string | null
           asset_code?: string | null
           category?: string | null
@@ -195,103 +204,6 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "assets_workspace_id_fkey"
-            columns: ["workspace_id"]
-            isOneToOne: false
-            referencedRelation: "workspaces"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      attachments: {
-        Row: {
-          anchored_at: string | null
-          bucket_name: string
-          chain_network: string | null
-          chain_program_address: string | null
-          chain_status: Database["public"]["Enums"]["attachment_chain_status"]
-          chain_tx_signature: string | null
-          content_hash: string | null
-          created_at: string
-          deleted_at: string | null
-          deleted_by: string | null
-          entity_id: string
-          entity_table: string
-          folder_id: string | null
-          id: string
-          mime_type: string | null
-          size_bytes: number | null
-          storage_path: string
-          storage_tier: Database["public"]["Enums"]["attachment_storage_tier"]
-          updated_at: string
-          uploaded_by: string | null
-          visibility: Database["public"]["Enums"]["attachment_visibility"]
-          workspace_id: string
-        }
-        Insert: {
-          anchored_at?: string | null
-          bucket_name: string
-          chain_network?: string | null
-          chain_program_address?: string | null
-          chain_status?: Database["public"]["Enums"]["attachment_chain_status"]
-          chain_tx_signature?: string | null
-          content_hash?: string | null
-          created_at?: string
-          deleted_at?: string | null
-          deleted_by?: string | null
-          entity_id: string
-          entity_table: string
-          folder_id?: string | null
-          id?: string
-          mime_type?: string | null
-          size_bytes?: number | null
-          storage_path: string
-          storage_tier?: Database["public"]["Enums"]["attachment_storage_tier"]
-          updated_at?: string
-          uploaded_by?: string | null
-          visibility?: Database["public"]["Enums"]["attachment_visibility"]
-          workspace_id: string
-        }
-        Update: {
-          anchored_at?: string | null
-          bucket_name?: string
-          chain_network?: string | null
-          chain_program_address?: string | null
-          chain_status?: Database["public"]["Enums"]["attachment_chain_status"]
-          chain_tx_signature?: string | null
-          content_hash?: string | null
-          created_at?: string
-          deleted_at?: string | null
-          deleted_by?: string | null
-          entity_id?: string
-          entity_table?: string
-          folder_id?: string | null
-          id?: string
-          mime_type?: string | null
-          size_bytes?: number | null
-          storage_path?: string
-          storage_tier?: Database["public"]["Enums"]["attachment_storage_tier"]
-          updated_at?: string
-          uploaded_by?: string | null
-          visibility?: Database["public"]["Enums"]["attachment_visibility"]
-          workspace_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "attachments_deleted_by_fkey"
-            columns: ["deleted_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "attachments_folder_id_fkey"
-            columns: ["folder_id"]
-            isOneToOne: false
-            referencedRelation: "folders"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "attachments_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -380,6 +292,96 @@ export type Database = {
           },
         ]
       }
+      attachments: {
+        Row: {
+          anchored_at: string | null
+          bucket_name: string
+          chain_network: string | null
+          chain_program_address: string | null
+          chain_status: Database["public"]["Enums"]["attachment_chain_status"]
+          chain_tx_signature: string | null
+          content_hash: string | null
+          created_at: string
+          deleted_at: string | null
+          deleted_by: string | null
+          entity_id: string
+          entity_table: string
+          folder_id: string | null
+          id: string
+          mime_type: string | null
+          size_bytes: number | null
+          storage_path: string
+          storage_tier: Database["public"]["Enums"]["attachment_storage_tier"]
+          updated_at: string
+          uploaded_by: string | null
+          visibility: Database["public"]["Enums"]["attachment_visibility"]
+          workspace_id: string
+        }
+        Insert: {
+          anchored_at?: string | null
+          bucket_name: string
+          chain_network?: string | null
+          chain_program_address?: string | null
+          chain_status?: Database["public"]["Enums"]["attachment_chain_status"]
+          chain_tx_signature?: string | null
+          content_hash?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+          entity_id: string
+          entity_table: string
+          folder_id?: string | null
+          id?: string
+          mime_type?: string | null
+          size_bytes?: number | null
+          storage_path: string
+          storage_tier?: Database["public"]["Enums"]["attachment_storage_tier"]
+          updated_at?: string
+          uploaded_by?: string | null
+          visibility?: Database["public"]["Enums"]["attachment_visibility"]
+          workspace_id: string
+        }
+        Update: {
+          anchored_at?: string | null
+          bucket_name?: string
+          chain_network?: string | null
+          chain_program_address?: string | null
+          chain_status?: Database["public"]["Enums"]["attachment_chain_status"]
+          chain_tx_signature?: string | null
+          content_hash?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+          entity_id?: string
+          entity_table?: string
+          folder_id?: string | null
+          id?: string
+          mime_type?: string | null
+          size_bytes?: number | null
+          storage_path?: string
+          storage_tier?: Database["public"]["Enums"]["attachment_storage_tier"]
+          updated_at?: string
+          uploaded_by?: string | null
+          visibility?: Database["public"]["Enums"]["attachment_visibility"]
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attachments_folder_id_fkey"
+            columns: ["folder_id"]
+            isOneToOne: false
+            referencedRelation: "folders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attachments_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chat_messages: {
         Row: {
           content: string
@@ -414,6 +416,7 @@ export type Database = {
       }
       contacts: {
         Row: {
+          _deleted: boolean
           archived_at: string | null
           contact_type: string | null
           created_at: string
@@ -430,6 +433,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          _deleted?: boolean
           archived_at?: string | null
           contact_type?: string | null
           created_at?: string
@@ -446,6 +450,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          _deleted?: boolean
           archived_at?: string | null
           contact_type?: string | null
           created_at?: string
@@ -478,8 +483,45 @@ export type Database = {
           },
         ]
       }
+      embedded_solana_wallets: {
+        Row: {
+          created_at: string
+          encrypted_key: string
+          encrypted_mnemonic: string | null
+          iv: string
+          mnemonic_iv: string | null
+          salt: string
+          updated_at: string
+          user_id: string
+          wallet_address: string
+        }
+        Insert: {
+          created_at?: string
+          encrypted_key: string
+          encrypted_mnemonic?: string | null
+          iv: string
+          mnemonic_iv?: string | null
+          salt: string
+          updated_at?: string
+          user_id: string
+          wallet_address: string
+        }
+        Update: {
+          created_at?: string
+          encrypted_key?: string
+          encrypted_mnemonic?: string | null
+          iv?: string
+          mnemonic_iv?: string | null
+          salt?: string
+          updated_at?: string
+          user_id?: string
+          wallet_address?: string
+        }
+        Relationships: []
+      }
       expense_entries: {
         Row: {
+          _deleted: boolean
           amount: number
           category: string
           created_at: string
@@ -494,6 +536,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          _deleted?: boolean
           amount: number
           category: string
           created_at?: string
@@ -508,6 +551,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          _deleted?: boolean
           amount?: number
           category?: string
           created_at?: string
@@ -570,13 +614,6 @@ export type Database = {
           workspace_id?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "folders_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "folders_parent_id_fkey"
             columns: ["parent_id"]
@@ -741,24 +778,30 @@ export type Database = {
       }
       job_assignment_assets: {
         Row: {
+          _deleted: boolean
           asset_id: string
           assignment_id: string
           created_at: string
           id: string
+          updated_at: string
           workspace_id: string
         }
         Insert: {
+          _deleted?: boolean
           asset_id: string
           assignment_id: string
           created_at?: string
           id?: string
+          updated_at?: string
           workspace_id: string
         }
         Update: {
+          _deleted?: boolean
           asset_id?: string
           assignment_id?: string
           created_at?: string
           id?: string
+          updated_at?: string
           workspace_id?: string
         }
         Relationships: [
@@ -787,26 +830,32 @@ export type Database = {
       }
       job_assignment_members: {
         Row: {
+          _deleted: boolean
           assignment_id: string
           assignment_role: string | null
           created_at: string
           id: string
+          updated_at: string
           workspace_id: string
           workspace_member_id: string
         }
         Insert: {
+          _deleted?: boolean
           assignment_id: string
           assignment_role?: string | null
           created_at?: string
           id?: string
+          updated_at?: string
           workspace_id: string
           workspace_member_id: string
         }
         Update: {
+          _deleted?: boolean
           assignment_id?: string
           assignment_role?: string | null
           created_at?: string
           id?: string
+          updated_at?: string
           workspace_id?: string
           workspace_member_id?: string
         }
@@ -836,6 +885,7 @@ export type Database = {
       }
       job_assignments: {
         Row: {
+          _deleted: boolean
           assignment_date: string
           created_at: string
           created_by: string | null
@@ -848,6 +898,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          _deleted?: boolean
           assignment_date: string
           created_at?: string
           created_by?: string | null
@@ -860,6 +911,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          _deleted?: boolean
           assignment_date?: string
           created_at?: string
           created_by?: string | null
@@ -897,6 +949,7 @@ export type Database = {
       }
       job_events: {
         Row: {
+          _deleted: boolean
           created_at: string
           created_by: string | null
           end_time: string | null
@@ -913,6 +966,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          _deleted?: boolean
           created_at?: string
           created_by?: string | null
           end_time?: string | null
@@ -929,6 +983,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          _deleted?: boolean
           created_at?: string
           created_by?: string | null
           end_time?: string | null
@@ -970,6 +1025,7 @@ export type Database = {
       }
       jobs: {
         Row: {
+          _deleted: boolean
           archived_at: string | null
           created_at: string
           created_by: string | null
@@ -986,6 +1042,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          _deleted?: boolean
           archived_at?: string | null
           created_at?: string
           created_by?: string | null
@@ -1002,6 +1059,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          _deleted?: boolean
           archived_at?: string | null
           created_at?: string
           created_by?: string | null
@@ -1034,43 +1092,185 @@ export type Database = {
           },
         ]
       }
-      license_events: {
+      market_events: {
         Row: {
-          changed_by: string | null
+          certification_body: string | null
           created_at: string
-          id: number
-          new_status: Database["public"]["Enums"]["license_status"] | null
-          new_tier: Database["public"]["Enums"]["license_tier"] | null
-          notes: string | null
-          previous_status: Database["public"]["Enums"]["license_status"] | null
-          previous_tier: Database["public"]["Enums"]["license_tier"] | null
+          currency: string
+          description: string | null
+          ends_at: string | null
+          id: string
+          kind: string
+          latitude: number | null
+          location: string
+          longitude: number | null
+          price: number
+          provider: string
+          seats_left: number | null
+          starts_at: string
+          title: string
           workspace_id: string
         }
         Insert: {
-          changed_by?: string | null
+          certification_body?: string | null
           created_at?: string
-          id?: never
-          new_status?: Database["public"]["Enums"]["license_status"] | null
-          new_tier?: Database["public"]["Enums"]["license_tier"] | null
-          notes?: string | null
-          previous_status?: Database["public"]["Enums"]["license_status"] | null
-          previous_tier?: Database["public"]["Enums"]["license_tier"] | null
+          currency?: string
+          description?: string | null
+          ends_at?: string | null
+          id?: string
+          kind?: string
+          latitude?: number | null
+          location: string
+          longitude?: number | null
+          price?: number
+          provider: string
+          seats_left?: number | null
+          starts_at: string
+          title: string
           workspace_id: string
         }
         Update: {
-          changed_by?: string | null
+          certification_body?: string | null
           created_at?: string
-          id?: never
-          new_status?: Database["public"]["Enums"]["license_status"] | null
-          new_tier?: Database["public"]["Enums"]["license_tier"] | null
-          notes?: string | null
-          previous_status?: Database["public"]["Enums"]["license_status"] | null
-          previous_tier?: Database["public"]["Enums"]["license_tier"] | null
+          currency?: string
+          description?: string | null
+          ends_at?: string | null
+          id?: string
+          kind?: string
+          latitude?: number | null
+          location?: string
+          longitude?: number | null
+          price?: number
+          provider?: string
+          seats_left?: number | null
+          starts_at?: string
+          title?: string
           workspace_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "license_events_workspace_id_fkey"
+            foreignKeyName: "market_events_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      market_firms: {
+        Row: {
+          about: string | null
+          created_at: string
+          founded_year: number | null
+          id: string
+          is_global: boolean
+          latitude: number | null
+          location: string
+          longitude: number | null
+          name: string
+          services: string[]
+          staff_count: number | null
+          verified: boolean
+          workspace_id: string
+        }
+        Insert: {
+          about?: string | null
+          created_at?: string
+          founded_year?: number | null
+          id?: string
+          is_global?: boolean
+          latitude?: number | null
+          location: string
+          longitude?: number | null
+          name: string
+          services?: string[]
+          staff_count?: number | null
+          verified?: boolean
+          workspace_id: string
+        }
+        Update: {
+          about?: string | null
+          created_at?: string
+          founded_year?: number | null
+          id?: string
+          is_global?: boolean
+          latitude?: number | null
+          location?: string
+          longitude?: number | null
+          name?: string
+          services?: string[]
+          staff_count?: number | null
+          verified?: boolean
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "market_firms_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      market_job_posts: {
+        Row: {
+          created_at: string
+          currency: string
+          description: string | null
+          discipline: string
+          employment_type: string
+          id: string
+          is_global: boolean
+          latitude: number | null
+          location: string
+          longitude: number | null
+          rate: number | null
+          rate_per: string | null
+          requirements: string[] | null
+          title: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          description?: string | null
+          discipline: string
+          employment_type?: string
+          id?: string
+          is_global?: boolean
+          latitude?: number | null
+          location: string
+          longitude?: number | null
+          rate?: number | null
+          rate_per?: string | null
+          requirements?: string[] | null
+          title: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          description?: string | null
+          discipline?: string
+          employment_type?: string
+          id?: string
+          is_global?: boolean
+          latitude?: number | null
+          location?: string
+          longitude?: number | null
+          rate?: number | null
+          rate_per?: string | null
+          requirements?: string[] | null
+          title?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "market_job_posts_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -1081,6 +1281,7 @@ export type Database = {
       marketplace_listings: {
         Row: {
           asset_id: string | null
+          category: string
           condition: string
           created_at: string
           currency: string
@@ -1088,7 +1289,7 @@ export type Database = {
           id: string
           is_global: boolean
           latitude: number | null
-          listing_type: string
+          listing_type: string | null
           location: string
           longitude: number | null
           name: string
@@ -1102,6 +1303,7 @@ export type Database = {
         }
         Insert: {
           asset_id?: string | null
+          category?: string
           condition: string
           created_at?: string
           currency: string
@@ -1109,7 +1311,7 @@ export type Database = {
           id?: string
           is_global?: boolean
           latitude?: number | null
-          listing_type?: string
+          listing_type?: string | null
           location: string
           longitude?: number | null
           name: string
@@ -1123,6 +1325,7 @@ export type Database = {
         }
         Update: {
           asset_id?: string | null
+          category?: string
           condition?: string
           created_at?: string
           currency?: string
@@ -1130,7 +1333,7 @@ export type Database = {
           id?: string
           is_global?: boolean
           latitude?: number | null
-          listing_type?: string
+          listing_type?: string | null
           location?: string
           longitude?: number | null
           name?: string
@@ -1144,62 +1347,15 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "marketplace_listings_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "marketplace_listings_workspace_id_fkey"
             columns: ["workspace_id"]
-            isOneToOne: false
-            referencedRelation: "workspaces"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      marketplace_requests: {
-        Row: {
-          id: string
-          listing_id: string
-          requester_workspace_id: string
-          requester_user_id: string
-          status: string
-          message: string | null
-          desired_start_date: string | null
-          desired_end_date: string | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          listing_id: string
-          requester_workspace_id: string
-          requester_user_id: string
-          status?: string
-          message?: string | null
-          desired_start_date?: string | null
-          desired_end_date?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          listing_id?: string
-          requester_workspace_id?: string
-          requester_user_id?: string
-          status?: string
-          message?: string | null
-          desired_start_date?: string | null
-          desired_end_date?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "marketplace_requests_listing_id_fkey"
-            columns: ["listing_id"]
-            isOneToOne: false
-            referencedRelation: "marketplace_listings"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "marketplace_requests_requester_workspace_id_fkey"
-            columns: ["requester_workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
@@ -1268,8 +1424,76 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "marketplace_orders_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "public_market_listings"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "marketplace_orders_listing_workspace_id_fkey"
             columns: ["listing_workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      marketplace_requests: {
+        Row: {
+          created_at: string
+          desired_end_date: string | null
+          desired_start_date: string | null
+          id: string
+          listing_id: string
+          message: string | null
+          requester_user_id: string
+          requester_workspace_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          desired_end_date?: string | null
+          desired_start_date?: string | null
+          id?: string
+          listing_id: string
+          message?: string | null
+          requester_user_id: string
+          requester_workspace_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          desired_end_date?: string | null
+          desired_start_date?: string | null
+          id?: string
+          listing_id?: string
+          message?: string | null
+          requester_user_id?: string
+          requester_workspace_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketplace_requests_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "marketplace_listings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_requests_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "public_market_listings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketplace_requests_requester_workspace_id_fkey"
+            columns: ["requester_workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
@@ -1322,6 +1546,7 @@ export type Database = {
       }
       organizations: {
         Row: {
+          _deleted: boolean
           address: string | null
           archived_at: string | null
           city: string | null
@@ -1338,6 +1563,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          _deleted?: boolean
           address?: string | null
           archived_at?: string | null
           city?: string | null
@@ -1354,6 +1580,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          _deleted?: boolean
           address?: string | null
           archived_at?: string | null
           city?: string | null
@@ -1498,9 +1725,69 @@ export type Database = {
           },
         ]
       }
+      portfolio_items: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          image_path: string | null
+          professional_id: string
+          sort_order: number
+          title: string
+          workspace_id: string
+          year: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_path?: string | null
+          professional_id: string
+          sort_order?: number
+          title: string
+          workspace_id: string
+          year?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_path?: string | null
+          professional_id?: string
+          sort_order?: number
+          title?: string
+          workspace_id?: string
+          year?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "portfolio_items_professional_id_fkey"
+            columns: ["professional_id"]
+            isOneToOne: false
+            referencedRelation: "professionals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "portfolio_items_professional_id_fkey"
+            columns: ["professional_id"]
+            isOneToOne: false
+            referencedRelation: "public_market_professionals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "portfolio_items_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       professionals: {
         Row: {
           availability: string
+          avatar_path: string | null
+          banner_path: string | null
           bio: string | null
           certifications: string[] | null
           created_at: string
@@ -1509,6 +1796,7 @@ export type Database = {
           experience: string
           id: string
           is_global: boolean
+          is_verified: boolean
           latitude: number | null
           location: string
           longitude: number | null
@@ -1524,6 +1812,8 @@ export type Database = {
         }
         Insert: {
           availability: string
+          avatar_path?: string | null
+          banner_path?: string | null
           bio?: string | null
           certifications?: string[] | null
           created_at?: string
@@ -1532,6 +1822,7 @@ export type Database = {
           experience: string
           id?: string
           is_global?: boolean
+          is_verified?: boolean
           latitude?: number | null
           location: string
           longitude?: number | null
@@ -1547,6 +1838,8 @@ export type Database = {
         }
         Update: {
           availability?: string
+          avatar_path?: string | null
+          banner_path?: string | null
           bio?: string | null
           certifications?: string[] | null
           created_at?: string
@@ -1555,6 +1848,7 @@ export type Database = {
           experience?: string
           id?: string
           is_global?: boolean
+          is_verified?: boolean
           latitude?: number | null
           location?: string
           longitude?: number | null
@@ -1588,6 +1882,8 @@ export type Database = {
           country_code: string | null
           created_at: string
           default_workspace_id: string | null
+          deleted_at: string | null
+          deletion_requested_at: string | null
           email: string | null
           email_notifications: boolean
           full_name: string | null
@@ -1612,6 +1908,8 @@ export type Database = {
           country_code?: string | null
           created_at?: string
           default_workspace_id?: string | null
+          deleted_at?: string | null
+          deletion_requested_at?: string | null
           email?: string | null
           email_notifications?: boolean
           full_name?: string | null
@@ -1636,6 +1934,8 @@ export type Database = {
           country_code?: string | null
           created_at?: string
           default_workspace_id?: string | null
+          deleted_at?: string | null
+          deletion_requested_at?: string | null
           email?: string | null
           email_notifications?: boolean
           full_name?: string | null
@@ -1831,22 +2131,23 @@ export type Database = {
       }
       projects: {
         Row: {
+          _deleted: boolean
+          angle_entry: string
           archived_at: string | null
+          axis_convention: string
+          bearing_format: string
           code: string | null
+          coord_decimals: number
           created_at: string
           created_by: string | null
-          datum: string | null
-          axis_convention: string | null
-          crs_type: string | null
           crs_epsg: string | null
-          local_origin_e: number | null
-          local_origin_n: number | null
-          bearing_format: string | null
-          angle_entry: string | null
-          coord_decimals: number | null
+          crs_type: string
+          datum: string | null
           description: string | null
           ends_on: string | null
           id: string
+          local_origin_e: number
+          local_origin_n: number
           name: string
           organization_id: string | null
           phase: string | null
@@ -1858,22 +2159,23 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          _deleted?: boolean
+          angle_entry?: string
           archived_at?: string | null
+          axis_convention?: string
+          bearing_format?: string
           code?: string | null
+          coord_decimals?: number
           created_at?: string
           created_by?: string | null
-          datum?: string | null
-          axis_convention?: string | null
-          crs_type?: string | null
           crs_epsg?: string | null
-          local_origin_e?: number | null
-          local_origin_n?: number | null
-          bearing_format?: string | null
-          angle_entry?: string | null
-          coord_decimals?: number | null
+          crs_type?: string
+          datum?: string | null
           description?: string | null
           ends_on?: string | null
           id?: string
+          local_origin_e?: number
+          local_origin_n?: number
           name: string
           organization_id?: string | null
           phase?: string | null
@@ -1885,22 +2187,23 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          _deleted?: boolean
+          angle_entry?: string
           archived_at?: string | null
+          axis_convention?: string
+          bearing_format?: string
           code?: string | null
+          coord_decimals?: number
           created_at?: string
           created_by?: string | null
-          datum?: string | null
-          axis_convention?: string | null
-          crs_type?: string | null
           crs_epsg?: string | null
-          local_origin_e?: number | null
-          local_origin_n?: number | null
-          bearing_format?: string | null
-          angle_entry?: string | null
-          coord_decimals?: number | null
+          crs_type?: string
+          datum?: string | null
           description?: string | null
           ends_on?: string | null
           id?: string
+          local_origin_e?: number
+          local_origin_n?: number
           name?: string
           organization_id?: string | null
           phase?: string | null
@@ -1927,45 +2230,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      promo_code_rules: {
-        Row: {
-          active: boolean
-          asset_cap_boost: number
-          code: string
-          project_cap_boost: number
-          seat_bonus: number
-          signup_license_status:
-            | Database["public"]["Enums"]["license_status"]
-            | null
-          signup_tier: Database["public"]["Enums"]["license_tier"] | null
-          trial_days: number | null
-        }
-        Insert: {
-          active?: boolean
-          asset_cap_boost?: number
-          code: string
-          project_cap_boost?: number
-          seat_bonus?: number
-          signup_license_status?:
-            | Database["public"]["Enums"]["license_status"]
-            | null
-          signup_tier?: Database["public"]["Enums"]["license_tier"] | null
-          trial_days?: number | null
-        }
-        Update: {
-          active?: boolean
-          asset_cap_boost?: number
-          code?: string
-          project_cap_boost?: number
-          seat_bonus?: number
-          signup_license_status?:
-            | Database["public"]["Enums"]["license_status"]
-            | null
-          signup_tier?: Database["public"]["Enums"]["license_tier"] | null
-          trial_days?: number | null
-        }
-        Relationships: []
       }
       quote_items: {
         Row: {
@@ -2113,63 +2377,6 @@ export type Database = {
           },
         ]
       }
-      time_entries: {
-        Row: {
-          billable: boolean
-          created_at: string
-          entry_date: string
-          hours: number
-          id: string
-          notes: string | null
-          project_id: string | null
-          task: string
-          updated_at: string
-          user_id: string
-          workspace_id: string
-        }
-        Insert: {
-          billable?: boolean
-          created_at?: string
-          entry_date: string
-          hours: number
-          id?: string
-          notes?: string | null
-          project_id?: string | null
-          task: string
-          updated_at?: string
-          user_id: string
-          workspace_id: string
-        }
-        Update: {
-          billable?: boolean
-          created_at?: string
-          entry_date?: string
-          hours?: number
-          id?: string
-          notes?: string | null
-          project_id?: string | null
-          task?: string
-          updated_at?: string
-          user_id?: string
-          workspace_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "time_entries_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "time_entries_workspace_id_fkey"
-            columns: ["workspace_id"]
-            isOneToOne: false
-            referencedRelation: "workspaces"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       tags: {
         Row: {
           color: string | null
@@ -2197,14 +2404,67 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "tags_created_by_fkey"
-            columns: ["created_by"]
+            foreignKeyName: "tags_workspace_id_fkey"
+            columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: "profiles"
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      time_entries: {
+        Row: {
+          _deleted: boolean
+          billable: boolean
+          created_at: string
+          entry_date: string
+          hours: number
+          id: string
+          notes: string | null
+          project_id: string | null
+          task: string
+          updated_at: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          _deleted?: boolean
+          billable?: boolean
+          created_at?: string
+          entry_date: string
+          hours: number
+          id?: string
+          notes?: string | null
+          project_id?: string | null
+          task: string
+          updated_at?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          _deleted?: boolean
+          billable?: boolean
+          created_at?: string
+          entry_date?: string
+          hours?: number
+          id?: string
+          notes?: string | null
+          project_id?: string | null
+          task?: string
+          updated_at?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "time_entries_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "tags_workspace_id_fkey"
+            foreignKeyName: "time_entries_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -2251,68 +2511,6 @@ export type Database = {
             foreignKeyName: "workspace_invitations_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
-            referencedRelation: "workspaces"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      workspace_licenses: {
-        Row: {
-          asset_cap: number | null
-          created_at: string
-          ends_at: string | null
-          is_manual: boolean
-          notes: string | null
-          project_cap: number | null
-          seat_limit: number | null
-          starts_at: string
-          status: Database["public"]["Enums"]["license_status"]
-          storage_cap_bytes: number | null
-          tier: Database["public"]["Enums"]["license_tier"]
-          trial_ends_at: string | null
-          updated_at: string
-          updated_by: string | null
-          workspace_id: string
-        }
-        Insert: {
-          asset_cap?: number | null
-          created_at?: string
-          ends_at?: string | null
-          is_manual?: boolean
-          notes?: string | null
-          project_cap?: number | null
-          seat_limit?: number | null
-          starts_at?: string
-          status?: Database["public"]["Enums"]["license_status"]
-          storage_cap_bytes?: number | null
-          tier?: Database["public"]["Enums"]["license_tier"]
-          trial_ends_at?: string | null
-          updated_at?: string
-          updated_by?: string | null
-          workspace_id: string
-        }
-        Update: {
-          asset_cap?: number | null
-          created_at?: string
-          ends_at?: string | null
-          is_manual?: boolean
-          notes?: string | null
-          project_cap?: number | null
-          seat_limit?: number | null
-          starts_at?: string
-          status?: Database["public"]["Enums"]["license_status"]
-          storage_cap_bytes?: number | null
-          tier?: Database["public"]["Enums"]["license_tier"]
-          trial_ends_at?: string | null
-          updated_at?: string
-          updated_by?: string | null
-          workspace_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "workspace_licenses_workspace_id_fkey"
-            columns: ["workspace_id"]
-            isOneToOne: true
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -2437,7 +2635,7 @@ export type Database = {
           owner_user_id: string
           slug?: string | null
           timezone?: string
-          type?: Database["public"]["Enums"]["workspace_type"]
+          type: Database["public"]["Enums"]["workspace_type"]
           updated_at?: string
         }
         Update: {
@@ -2462,97 +2660,318 @@ export type Database = {
       public_market_events: {
         Row: {
           certification_body: string | null
-          created_at: string
-          currency: string
+          created_at: string | null
+          currency: string | null
           description: string | null
           ends_at: string | null
-          id: string
-          kind: string
-          location: string
-          price: number
-          provider: string
-          seats_left: number | null
-          starts_at: string
-          title: string
+          id: string | null
+          kind: string | null
           latitude: number | null
+          location: string | null
           longitude: number | null
+          price: number | null
+          provider: string | null
+          seats_left: number | null
+          starts_at: string | null
+          title: string | null
+        }
+        Insert: {
+          certification_body?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          ends_at?: string | null
+          id?: string | null
+          kind?: string | null
+          latitude?: number | null
+          location?: string | null
+          longitude?: number | null
+          price?: number | null
+          provider?: string | null
+          seats_left?: number | null
+          starts_at?: string | null
+          title?: string | null
+        }
+        Update: {
+          certification_body?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          ends_at?: string | null
+          id?: string | null
+          kind?: string | null
+          latitude?: number | null
+          location?: string | null
+          longitude?: number | null
+          price?: number | null
+          provider?: string | null
+          seats_left?: number | null
+          starts_at?: string | null
+          title?: string | null
         }
         Relationships: []
       }
       public_market_firms: {
         Row: {
           about: string | null
-          created_at: string
+          created_at: string | null
           founded_year: number | null
-          id: string
+          id: string | null
           latitude: number | null
-          location: string
+          location: string | null
           longitude: number | null
-          name: string
+          name: string | null
           services: string[] | null
           staff_count: number | null
-          verified: boolean
+          verified: boolean | null
+        }
+        Insert: {
+          about?: string | null
+          created_at?: string | null
+          founded_year?: number | null
+          id?: string | null
+          latitude?: number | null
+          location?: string | null
+          longitude?: number | null
+          name?: string | null
+          services?: string[] | null
+          staff_count?: number | null
+          verified?: boolean | null
+        }
+        Update: {
+          about?: string | null
+          created_at?: string | null
+          founded_year?: number | null
+          id?: string | null
+          latitude?: number | null
+          location?: string | null
+          longitude?: number | null
+          name?: string | null
+          services?: string[] | null
+          staff_count?: number | null
+          verified?: boolean | null
         }
         Relationships: []
       }
       public_market_jobs: {
         Row: {
-          created_at: string
-          currency: string
+          created_at: string | null
+          currency: string | null
           description: string | null
-          discipline: string
-          employment_type: string
-          id: string
+          discipline: string | null
+          employment_type: string | null
+          id: string | null
           latitude: number | null
-          location: string
+          location: string | null
           longitude: number | null
           rate: number | null
           rate_per: string | null
           requirements: string[] | null
-          title: string
+          title: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          discipline?: string | null
+          employment_type?: string | null
+          id?: string | null
+          latitude?: number | null
+          location?: string | null
+          longitude?: number | null
+          rate?: number | null
+          rate_per?: string | null
+          requirements?: string[] | null
+          title?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          discipline?: string | null
+          employment_type?: string | null
+          id?: string | null
+          latitude?: number | null
+          location?: string | null
+          longitude?: number | null
+          rate?: number | null
+          rate_per?: string | null
+          requirements?: string[] | null
+          title?: string | null
         }
         Relationships: []
       }
       public_market_listings: {
         Row: {
-          category: string
-          condition: string
-          created_at: string
-          currency: string
+          category: string | null
+          condition: string | null
+          created_at: string | null
+          currency: string | null
           description: string | null
-          id: string
+          id: string | null
           latitude: number | null
           listing_type: string | null
-          location: string
+          location: string | null
           longitude: number | null
-          name: string
-          price: number
-          seller: string
+          name: string | null
+          price: number | null
+          seller: string | null
           specs: string[] | null
-          type: string
+          type: string | null
+        }
+        Insert: {
+          category?: string | null
+          condition?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          latitude?: number | null
+          listing_type?: string | null
+          location?: string | null
+          longitude?: number | null
+          name?: string | null
+          price?: number | null
+          seller?: string | null
+          specs?: string[] | null
+          type?: string | null
+        }
+        Update: {
+          category?: string | null
+          condition?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          latitude?: number | null
+          listing_type?: string | null
+          location?: string | null
+          longitude?: number | null
+          name?: string | null
+          price?: number | null
+          seller?: string | null
+          specs?: string[] | null
+          type?: string | null
         }
         Relationships: []
       }
+      public_market_portfolio_items: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string | null
+          image_path: string | null
+          professional_id: string | null
+          sort_order: number | null
+          title: string | null
+          year: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string | null
+          image_path?: string | null
+          professional_id?: string | null
+          sort_order?: number | null
+          title?: string | null
+          year?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string | null
+          image_path?: string | null
+          professional_id?: string | null
+          sort_order?: number | null
+          title?: string | null
+          year?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "portfolio_items_professional_id_fkey"
+            columns: ["professional_id"]
+            isOneToOne: false
+            referencedRelation: "professionals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "portfolio_items_professional_id_fkey"
+            columns: ["professional_id"]
+            isOneToOne: false
+            referencedRelation: "public_market_professionals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       public_market_professionals: {
         Row: {
-          availability: string
+          availability: string | null
+          avatar_path: string | null
+          banner_path: string | null
           bio: string | null
           certifications: string[] | null
-          created_at: string
-          currency: string
-          discipline: string
-          experience: string
-          id: string
+          created_at: string | null
+          currency: string | null
+          discipline: string | null
+          experience: string | null
+          id: string | null
+          is_verified: boolean | null
           latitude: number | null
-          location: string
+          location: string | null
           longitude: number | null
-          name: string
-          rate: number
-          rate_per: string
+          name: string | null
+          rate: number | null
+          rate_per: string | null
           rating: number | null
           reviews: number | null
           skills: string[] | null
-          title: string
+          title: string | null
+        }
+        Insert: {
+          availability?: string | null
+          avatar_path?: string | null
+          banner_path?: string | null
+          bio?: string | null
+          certifications?: string[] | null
+          created_at?: string | null
+          currency?: string | null
+          discipline?: string | null
+          experience?: string | null
+          id?: string | null
+          is_verified?: boolean | null
+          latitude?: number | null
+          location?: string | null
+          longitude?: number | null
+          name?: string | null
+          rate?: number | null
+          rate_per?: string | null
+          rating?: number | null
+          reviews?: number | null
+          skills?: string[] | null
+          title?: string | null
+        }
+        Update: {
+          availability?: string | null
+          avatar_path?: string | null
+          banner_path?: string | null
+          bio?: string | null
+          certifications?: string[] | null
+          created_at?: string | null
+          currency?: string | null
+          discipline?: string | null
+          experience?: string | null
+          id?: string | null
+          is_verified?: boolean | null
+          latitude?: number | null
+          location?: string | null
+          longitude?: number | null
+          name?: string | null
+          rate?: number | null
+          rate_per?: string | null
+          rating?: number | null
+          reviews?: number | null
+          skills?: string[] | null
+          title?: string | null
         }
         Relationships: []
       }
@@ -2583,10 +3002,6 @@ export type Database = {
       admin_workspace_summary: {
         Args: { p_workspace_id: string }
         Returns: Json
-      }
-      apply_promo_code_to_workspace: {
-        Args: { p_code: string; p_workspace_id: string }
-        Returns: undefined
       }
       can_manage_assets: {
         Args: { target_workspace_id: string }
@@ -2624,11 +3039,6 @@ export type Database = {
         Args: { workspace_name: string; workspace_slug?: string }
         Returns: string
       }
-      get_workspace_license_tier: {
-        Args: { target_workspace_id: string }
-        Returns: Database["public"]["Enums"]["license_tier"]
-      }
-      get_workspace_usage: { Args: { p_workspace_id: string }; Returns: Json }
       has_workspace_role: {
         Args: {
           allowed_roles: Database["public"]["Enums"]["workspace_member_role"][]
@@ -2636,21 +3046,17 @@ export type Database = {
         }
         Returns: boolean
       }
-      project_cad_metrics: {
-        Args: { p_project_id: string }
-        Returns: {
-          points: number
-          linework: number
-          surfaces: number
-          qa_flags: number
-        }[]
+      is_business_workspace: {
+        Args: { target_workspace_id: string }
+        Returns: boolean
+      }
+      is_platform_admin: { Args: never; Returns: boolean }
+      is_workspace_member: {
+        Args: { target_workspace_id: string }
+        Returns: boolean
       }
       list_workspace_activity_log: {
-        Args: {
-          p_limit?: number
-          p_offset?: number
-          p_workspace_id?: string
-        }
+        Args: { p_limit?: number; p_offset?: number; p_workspace_id: string }
         Returns: {
           action: string
           actor_user_id: string
@@ -2666,26 +3072,22 @@ export type Database = {
         Args: {
           p_action: string
           p_details?: Json
-          p_entity_id?: string
-          p_entity_table?: string
-          p_workspace_id?: string
+          p_entity_id: string
+          p_entity_table: string
+          p_workspace_id: string
         }
         Returns: undefined
       }
-      is_business_workspace: {
-        Args: { target_workspace_id: string }
-        Returns: boolean
-      }
-      is_platform_admin: { Args: never; Returns: boolean }
-      is_workspace_license_active: {
-        Args: { target_workspace_id: string }
-        Returns: boolean
-      }
-      is_workspace_member: {
-        Args: { target_workspace_id: string }
-        Returns: boolean
-      }
       path_first_segment_uuid: { Args: { path: string }; Returns: string }
+      project_cad_metrics: {
+        Args: { p_project_id: string }
+        Returns: {
+          linework: number
+          points: number
+          qa_flags: number
+          surfaces: number
+        }[]
+      }
       set_default_payment_method: {
         Args: { p_method_id: string; p_workspace_id: string }
         Returns: undefined
@@ -2699,21 +3101,6 @@ export type Database = {
         Returns: boolean
       }
       slugify: { Args: { value: string }; Returns: string }
-      workspace_active_project_count: {
-        Args: { p_workspace_id: string }
-        Returns: number
-      }
-      workspace_has_tier: {
-        Args: {
-          minimum_tier: Database["public"]["Enums"]["license_tier"]
-          target_workspace_id: string
-        }
-        Returns: boolean
-      }
-      workspace_occupied_seats: {
-        Args: { p_workspace_id: string }
-        Returns: number
-      }
     }
     Enums: {
       asset_kind: "instrument" | "vehicle" | "equipment" | "other"
@@ -2735,13 +3122,6 @@ export type Database = {
         | "in_progress"
         | "completed"
         | "cancelled"
-      license_status:
-        | "trialing"
-        | "active"
-        | "past_due"
-        | "suspended"
-        | "cancelled"
-      license_tier: "free" | "pro" | "enterprise"
       notification_status: "unread" | "read" | "archived"
       organization_type:
         | "client"
@@ -2898,6 +3278,8 @@ export const Constants = {
         "completed",
         "cancelled",
       ],
+      attachment_chain_status: ["none", "pending", "anchored", "failed"],
+      attachment_storage_tier: ["off_chain", "on_chain"],
       attachment_visibility: ["private", "workspace", "public"],
       calibration_status: ["scheduled", "passed", "failed", "expired"],
       invoice_status: ["draft", "sent", "paid", "overdue", "cancelled"],
@@ -2908,14 +3290,6 @@ export const Constants = {
         "completed",
         "cancelled",
       ],
-      license_status: [
-        "trialing",
-        "active",
-        "past_due",
-        "suspended",
-        "cancelled",
-      ],
-      license_tier: ["free", "pro", "enterprise"],
       notification_status: ["unread", "read", "archived"],
       organization_type: [
         "client",

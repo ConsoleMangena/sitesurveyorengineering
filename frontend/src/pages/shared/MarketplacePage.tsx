@@ -390,7 +390,7 @@ export default function MarketplacePage({
         sellerWorkspaceId: selectedListing.workspace_id,
         listingName: selectedListing.name,
         requesterName: ws?.name ?? null,
-        listingType: selectedListing.listing_type,
+        listingType: selectedListing.listing_type ?? undefined,
       });
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "Failed to send request");

@@ -63,12 +63,93 @@ const PublicMarketGlobe = lazy(
   () => import("../../components/market/PublicMarketGlobe.tsx"),
 );
 
-type ListingRow = Database["public"]["Views"]["public_market_listings"]["Row"];
-type ProfessionalRow =
+// Supabase types every view column nullable even where the underlying base
+// columns are NOT NULL. Normalize those fields once at the fetch boundary so
+// the rest of the page can rely on the DB truth.
+type DbListing = Database["public"]["Views"]["public_market_listings"]["Row"];
+type DbProfessional =
   Database["public"]["Views"]["public_market_professionals"]["Row"];
-type JobRow = Database["public"]["Views"]["public_market_jobs"]["Row"];
-type FirmRow = Database["public"]["Views"]["public_market_firms"]["Row"];
-type EventRow = Database["public"]["Views"]["public_market_events"]["Row"];
+type DbJob = Database["public"]["Views"]["public_market_jobs"]["Row"];
+type DbFirm = Database["public"]["Views"]["public_market_firms"]["Row"];
+type DbEvent = Database["public"]["Views"]["public_market_events"]["Row"];
+
+type ListingRow = Omit<DbListing, "id" | "name" | "price" | "location" | "created_at"> & {
+  id: string;
+  name: string;
+  price: number;
+  location: string;
+  created_at: string;
+};
+type ProfessionalRow = Omit<DbProfessional, "id" | "name" | "rate" | "location" | "created_at"> & {
+  id: string;
+  name: string;
+  rate: number;
+  location: string;
+  created_at: string;
+};
+type JobRow = Omit<DbJob, "id" | "rate" | "location" | "created_at"> & {
+  id: string;
+  rate: number;
+  location: string;
+  created_at: string;
+};
+type FirmRow = Omit<DbFirm, "id" | "name" | "location" | "created_at"> & {
+  id: string;
+  name: string;
+  location: string;
+  created_at: string;
+};
+type EventRow = Omit<DbEvent, "id" | "starts_at" | "price" | "location" | "created_at"> & {
+  id: string;
+  starts_at: string;
+  price: number;
+  location: string;
+  created_at: string;
+};
+
+const toListingRows = (rows: DbListing[]): ListingRow[] =>
+  rows.map((r) => ({
+    ...r,
+    id: r.id ?? "",
+    name: r.name ?? "",
+    price: r.price ?? 0,
+    location: r.location ?? "",
+    created_at: r.created_at ?? "",
+  }));
+const toProfessionalRows = (rows: DbProfessional[]): ProfessionalRow[] =>
+  rows.map((r) => ({
+    ...r,
+    id: r.id ?? "",
+    name: r.name ?? "",
+    rate: r.rate ?? 0,
+    location: r.location ?? "",
+    created_at: r.created_at ?? "",
+  }));
+const toJobRows = (rows: DbJob[]): JobRow[] =>
+  rows.map((r) => ({
+    ...r,
+    id: r.id ?? "",
+    rate: r.rate ?? 0,
+    location: r.location ?? "",
+    created_at: r.created_at ?? "",
+  }));
+const toFirmRows = (rows: DbFirm[]): FirmRow[] =>
+  rows.map((r) => ({
+    ...r,
+    id: r.id ?? "",
+    name: r.name ?? "",
+    location: r.location ?? "",
+    created_at: r.created_at ?? "",
+  }));
+const toEventRows = (rows: DbEvent[]): EventRow[] =>
+  rows.map((r) => ({
+    ...r,
+    id: r.id ?? "",
+    starts_at: r.starts_at ?? "",
+    price: r.price ?? 0,
+    location: r.location ?? "",
+    created_at: r.created_at ?? "",
+  }));
 
 interface MarketData {
   listings: ListingRow[];
@@ -191,11 +272,11 @@ export default function PublicMarketPage() {
         if (res.error) throw res.error;
       }
       setData({
-        listings: listingsRes.data ?? [],
-        professionals: professionalsRes.data ?? [],
-        jobs: jobsRes.data ?? [],
-        firms: firmsRes.data ?? [],
-        events: eventsRes.data ?? [],
+        listings: toListingRows(listingsRes.data ?? []),
+        professionals: toProfessionalRows(professionalsRes.data ?? []),
+        jobs: toJobRows(jobsRes.data ?? []),
+        firms: toFirmRows(firmsRes.data ?? []),
+        events: toEventRows(eventsRes.data ?? []),
       });
       setFailure(null);
     } catch (error) {
@@ -439,8 +520,8 @@ export default function PublicMarketPage() {
 
   const toSource = (
     row: { id: string; location: string; latitude: number | null; longitude: number | null } & {
-      name?: string;
-      title?: string;
+      name?: string | null;
+      title?: string | null;
     },
   ) => ({
     id: row.id,
@@ -517,9 +598,9 @@ export default function PublicMarketPage() {
     );
     const groups = new Map<string, number[]>();
     for (const row of hireRows) {
-      const bucket = groups.get(row.type) ?? [];
+      const bucket = groups.get(row.type ?? "other") ?? [];
       bucket.push(row.price);
-      groups.set(row.type, bucket);
+      groups.set(row.type ?? "other", bucket);
     }
     return [...groups.entries()]
       .map(([type, prices]) => {
@@ -564,7 +645,7 @@ export default function PublicMarketPage() {
     return {
       kind: selectedId.kind,
       id: source.id,
-      name: "name" in source ? source.name : source.title,
+      name: ("name" in source ? source.name : source.title) ?? "",
       location: source.location,
       lat: source.latitude,
       lng: source.longitude,

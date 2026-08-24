@@ -691,7 +691,9 @@ export async function logActivity(
   const { error } = await supabase.rpc("log_activity", {
     p_workspace_id: workspaceId,
     p_entity_table: entityTable,
-    p_entity_id: entityId ?? undefined,
+    // Explicit NULL (the uuid column is nullable); cast because generated
+    // RPC arg types don't model optional/null args without SQL defaults.
+    p_entity_id: (entityId ?? null) as string,
     p_action: action,
     p_details: details,
   });
