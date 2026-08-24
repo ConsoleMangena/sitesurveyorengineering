@@ -50,5 +50,8 @@ survey professionals.
 
 - `/market` visual world does not apply to auth pages or the authenticated
   app; those follow the existing shadcn tokens.
-- Map basemap: Carto dark-matter GL style; maplibre v6 requires
-  `map.setProjection({type:"globe"})` only after the map `load` event.
+- Map stack: mapcn (`components/ui/map.tsx`, vendored from
+  https://mapcn.dev) — theme-aware Carto dark-matter basemap, globe
+  projection, self-hosted maplibre web worker in `frontend/public/`. If the
+  basemap CDN is unreachable the globe falls back to a tile-free dark sphere;
+  pins and HUD always render.
