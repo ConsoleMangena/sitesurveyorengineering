@@ -88,7 +88,7 @@
 /* ── Dialog chrome (prompt/confirm/select/alert, plot, settings, import) ─── */
 
 .cad-admin-scope [data-slot="dialog-content"] {
-  border-radius: 0.875rem;
+  border-radius: 4px;
   border: 1px solid rgba(15, 23, 42, 0.11);
   box-shadow: var(--cad-shadow-lg);
   background: var(--card);
@@ -126,7 +126,7 @@
 
 /* Buttons inside CAD dialogs — consistent heights + focus rings */
 .cad-admin-scope [data-slot="dialog-content"] button:not(:disabled) {
-  border-radius: 0.5rem;
+  border-radius: 4px;
   transition:
     background 120ms var(--cad-ease),
     border-color 120ms var(--cad-ease),
@@ -144,7 +144,7 @@
 .cad-admin-scope [data-slot="dialog-content"] input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 .cad-admin-scope [data-slot="dialog-content"] select,
 .cad-admin-scope [data-slot="dialog-content"] textarea {
-  border-radius: 0.5rem;
+  border-radius: 4px;
   border-color: var(--input);
   background: #fff;
   transition: box-shadow 140ms var(--cad-ease), border-color 140ms var(--cad-ease);
@@ -162,7 +162,7 @@
 
 .cad-admin-scope [data-slot="tabs-list"] {
   background: rgba(15, 23, 42, 0.05);
-  border-radius: 0.625rem;
+  border-radius: 4px;
   padding: 0.25rem;
 }
 
@@ -194,7 +194,7 @@
 }
 
 .cad-admin-scope .cad-panel-tab {
-  border-radius: 6px;
+  border-radius: 4px;
   border: 1px solid transparent;
   color: var(--cad-text-dim);
 }
@@ -212,7 +212,7 @@
 }
 
 .cad-admin-scope .cad-settings-popover {
-  border-radius: 12px;
+  border-radius: 4px;
   border: 1px solid rgba(15, 23, 42, 0.11);
   box-shadow: var(--cad-shadow-lg);
 }
@@ -244,7 +244,7 @@
 .cad-admin-scope .cad-command-input-row {
   background: var(--cad-bg);
   border-color: var(--cad-border);
-  border-radius: 8px;
+  border-radius: 4px;
 }
 
 .cad-admin-scope .cad-command-input-row:focus-within {

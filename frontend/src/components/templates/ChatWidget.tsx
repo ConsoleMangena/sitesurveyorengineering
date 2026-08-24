@@ -669,8 +669,8 @@ export function ChatWidget({ workspaceId, workspaceName, canModerate }: ChatWidg
                           className={cn(
                             "min-w-0 px-3.5 py-2 text-sm whitespace-pre-wrap break-words shadow-sm transition-shadow group-hover:shadow",
                             isMe
-                              ? "bg-primary text-primary-foreground rounded-2xl"
-                              : "bg-background border text-foreground rounded-2xl",
+                              ? "bg-primary text-primary-foreground rounded-lg"
+                              : "bg-background border text-foreground rounded-lg",
                             isGroupStart &&
                               (isMe ? "rounded-tr-md" : "rounded-tl-md")
                           )}
@@ -725,7 +725,7 @@ export function ChatWidget({ workspaceId, workspaceName, canModerate }: ChatWidg
             )}
             <form
               onSubmit={handleSendMessage}
-              className="flex items-end gap-1.5 rounded-2xl border bg-muted/40 p-1.5 transition-colors focus-within:border-primary/50 focus-within:bg-background focus-within:ring-2 focus-within:ring-primary/15"
+              className="flex items-end gap-1.5 rounded-lg border bg-muted/40 p-1.5 transition-colors focus-within:border-primary/50 focus-within:bg-background focus-within:ring-2 focus-within:ring-primary/15"
             >
               <Textarea
                 placeholder="Write a message…"

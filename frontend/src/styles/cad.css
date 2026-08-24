@@ -178,7 +178,7 @@
   max-width: 260px;
   background: var(--cad-bg-2);
   border: 1px solid var(--cad-border-2);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 4px;
   margin-top: 2px;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
@@ -281,7 +281,7 @@
   margin-top: 2px;
   background: var(--cad-bg-2);
   border: 1px solid var(--cad-border-2);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 4px;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
   display: flex;
@@ -788,7 +788,7 @@
   background: transparent;
   border: 1px solid transparent;
   border-bottom: none;
-  border-radius: 5px 5px 0 0;
+  border-radius: 4px 4px 0 0;
   color: var(--cad-text-dim);
   padding: 6px 2px 5px;
   font-size: 11px;
@@ -849,7 +849,7 @@
   align-items: center;
   gap: 4px;
   padding: 2px 4px;
-  border-radius: 5px;
+  border-radius: 4px;
   border: 1px solid transparent;
   transition: background 0.1s, border-color 0.1s;
   position: relative;
@@ -1023,7 +1023,7 @@
 
 .cad-cogo-group {
   border: 1px solid var(--cad-border);
-  border-radius: 8px;
+  border-radius: 4px;
   padding: 10px;
   display: flex;
   flex-direction: column;
@@ -1043,7 +1043,7 @@
   background: var(--cad-panel);
   border: 1px solid var(--cad-border);
   color: var(--cad-text);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 6px 8px;
   font-size: 12px;
   width: 100%;
@@ -1059,7 +1059,7 @@
   border: 1px solid var(--cad-accent);
   color: var(--cad-text-hi);
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: 4px;
   font-size: 12px;
   cursor: pointer;
   font-family: var(--sans, sans-serif);
@@ -1073,7 +1073,7 @@
 .cad-cogo-panel .cad-cogo-field[data-primary] {
   background: var(--cad-panel);
   border: 1px solid var(--cad-border);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 6px 8px;
   margin: -2px;
 }
@@ -1120,7 +1120,7 @@
 .cad-cogo-result {
   background: var(--cad-bg-2);
   border: 1px solid var(--cad-border);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 8px;
   display: flex;
   flex-direction: column;
@@ -1142,7 +1142,7 @@
   max-height: 100%;
   overflow: auto;
   border: 1px solid var(--cad-border);
-  border-radius: 8px;
+  border-radius: 4px;
 }
 
 .cad-point-table {
@@ -1606,7 +1606,7 @@
   gap: 4px;
   background: var(--cad-panel);
   border: 1px solid var(--cad-border);
-  border-radius: 5px;
+  border-radius: 4px;
   padding: 1px 5px 1px 3px;
   min-width: 0;
 }
@@ -1664,7 +1664,7 @@
   display: flex;
   align-items: center;
   border: 1px solid var(--cad-border);
-  border-radius: 5px;
+  border-radius: 4px;
   overflow: hidden;
 }
 
@@ -1704,7 +1704,7 @@
   height: 22px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 5px;
+  border-radius: 4px;
   color: var(--cad-text);
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, color 0.12s;
@@ -1780,7 +1780,7 @@
   border: 1px solid var(--cad-error);
   color: var(--cad-error);
   padding: 2px 8px;
-  border-radius: 5px;
+  border-radius: 4px;
   font-size: 10px;
   cursor: pointer;
   font-family: var(--sans, sans-serif);
@@ -1879,7 +1879,7 @@
   gap: 0;
   background: var(--cad-panel);
   border: 1px solid var(--cad-border);
-  border-radius: 5px;
+  border-radius: 4px;
   padding: 3px 6px;
 }
 
@@ -1924,7 +1924,7 @@
   gap: 4px;
   background: var(--cad-bg-2);
   border: 1px solid var(--cad-border);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 6px;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
 }
@@ -2083,7 +2083,7 @@
   min-width: 120px;
   background: var(--cad-bg-2);
   border: 1px solid var(--cad-border-2);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 4px;
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
 }
@@ -2133,7 +2133,7 @@
   max-height: calc(100vh - 80px);
   background: var(--cad-bg-2);
   border: 1px solid var(--cad-border-2);
-  border-radius: 10px;
+  border-radius: 4px;
   z-index: 1400;
   overflow-y: auto;
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.12);
@@ -2278,7 +2278,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: 4px;
 }
 
 .cad-vp-up { grid-area: up; }
@@ -2299,7 +2299,7 @@
   max-width: calc(100% - 120px);
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--cad-border);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 5px 8px;
   font-size: 11px;
   color: var(--cad-text);
@@ -2333,7 +2333,7 @@
   right: 12px;
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--cad-border);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 5px 8px;
   font-size: 11px;
   color: var(--cad-text);
@@ -2373,7 +2373,7 @@
   gap: 4px;
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--cad-border);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 6px 8px;
   font-size: 11px;
   color: var(--cad-text);
@@ -2404,7 +2404,7 @@
   gap: 4px;
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--cad-border);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 6px 8px;
   pointer-events: none;
   z-index: 5;
@@ -2451,7 +2451,7 @@
   z-index: 10;
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--cad-border);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 3px;
 }
 
@@ -2499,7 +2499,7 @@
   gap: 1px;
   background: rgba(255, 255, 255, 0.95);
   border: 1px solid var(--cad-border-2);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 4px 7px;
   font-size: 10px;
   color: var(--cad-text-hi);
@@ -2524,7 +2524,7 @@
   width: 140px;
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid var(--cad-border-2);
-  border-radius: 5px;
+  border-radius: 4px;
   padding: 4px 8px;
   font-size: 11px;
   color: var(--cad-text-hi);
@@ -2545,7 +2545,7 @@
 /* ── COGO collapsible help ──────────────────────────────────────────────── */
 .cad-cogo-help {
   border: 1px solid var(--cad-border);
-  border-radius: 8px;
+  border-radius: 4px;
   background: var(--cad-panel);
   font-size: 11px;
 }
@@ -2626,7 +2626,7 @@
   max-width: 100%;
   overflow-x: auto;
   border: 1px solid var(--cad-border);
-  border-radius: 8px;
+  border-radius: 4px;
 }
 
 .cad-cogo-table {
@@ -2766,7 +2766,7 @@
 }
 
 .cad-stat-pill {
-  border-radius: 6px;
+  border-radius: 4px;
   box-shadow: var(--cad-shadow-xs);
   padding: 2px 8px;
 }
@@ -2778,7 +2778,7 @@
 /* ── Application menu bar ─────────────────────────────────────────────────── */
 .cad-menu-item {
   padding: 3px 9px;
-  border-radius: 5px;
+  border-radius: 4px;
 }
 
 .cad-menu-item.active {
@@ -2787,7 +2787,7 @@
 }
 
 .cad-menu-dropdown {
-  border-radius: 10px;
+  border-radius: 4px;
   border-color: var(--cad-border);
   box-shadow: var(--cad-shadow-lg);
   padding: 5px;
@@ -2797,7 +2797,7 @@
 
 .cad-menu-dropdown-item {
   padding: 7px 10px;
-  border-radius: 6px;
+  border-radius: 4px;
   font-size: 12px;
 }
 
@@ -2813,14 +2813,14 @@
 
 /* ── Tool dropdown groups ─────────────────────────────────────────────────── */
 .cad-tool-dropdown {
-  border-radius: 10px;
+  border-radius: 4px;
   border-color: var(--cad-border);
   box-shadow: var(--cad-shadow-lg);
   padding: 5px;
 }
 
 .cad-tool-dropdown-btn {
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 6px 8px;
 }
 
@@ -2841,7 +2841,7 @@
 }
 
 .cad-ribbon-tab {
-  border-radius: 6px 6px 0 0;
+  border-radius: 4px 4px 0 0;
   padding: 4px 12px;
   font-size: 10.5px;
   letter-spacing: 0.1px;
@@ -2873,7 +2873,7 @@
 }
 
 .cad-ribbon-btn {
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 4px 9px;
   height: 30px;
   font-size: 10.5px;
@@ -2912,7 +2912,7 @@
 .cad-panel-block {
   background: var(--cad-bg-2);
   border: 1px solid rgba(15, 23, 42, 0.09);
-  border-radius: 10px;
+  border-radius: 4px;
   box-shadow: var(--cad-shadow-xs);
 }
 
@@ -2921,19 +2921,19 @@
 }
 
 .cad-summary-card {
-  border-radius: 8px;
+  border-radius: 4px;
   box-shadow: var(--cad-shadow-xs);
 }
 
 /* ── Right panel tabs (segmented control) ─────────────────────────────────── */
 .cad-panel-tabs {
-  border-radius: 8px;
+  border-radius: 4px;
   padding: 3px;
   gap: 3px;
 }
 
 .cad-panel-tab {
-  border-radius: 6px;
+  border-radius: 4px;
   font-weight: 500;
 }
 
@@ -2944,7 +2944,7 @@
 /* ── Layer rows & swatches ────────────────────────────────────────────────── */
 .cad-layer-list button,
 .cad-layer-list .cad-panel-row {
-  border-radius: 6px;
+  border-radius: 4px;
 }
 
 .cad-layer-list button:hover,
@@ -2961,7 +2961,7 @@
 .cad-layer-icon-btn,
 .cad-mini-icon-btn,
 .cad-layer-delete {
-  border-radius: 6px;
+  border-radius: 4px;
 }
 
 .cad-layer-icon-btn:hover,
@@ -2980,7 +2980,7 @@
 .cad-workspace-shell textarea {
   background: var(--cad-bg-2);
   border: 1px solid var(--cad-border);
-  border-radius: 6px;
+  border-radius: 4px;
   transition: box-shadow 140ms var(--cad-ease), border-color 140ms var(--cad-ease), background 140ms var(--cad-ease);
 }
 
@@ -2992,7 +2992,7 @@
 
 .cad-cogo-toolbar select,
 .cad-cogo-field input {
-  border-radius: 6px;
+  border-radius: 4px;
 }
 
 /* ── Tables (points, COGO) ────────────────────────────────────────────────── */
@@ -3021,7 +3021,7 @@
 .cad-command-line-entry.info { opacity: 0.8; }
 
 .cad-command-input-row {
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px solid var(--cad-border);
   transition: box-shadow 140ms var(--cad-ease), border-color 140ms var(--cad-ease);
 }
@@ -3032,7 +3032,7 @@
 }
 
 .cad-command-expand-btn {
-  border-radius: 6px;
+  border-radius: 4px;
 }
 
 /* ── Status bar chrome ────────────────────────────────────────────────────── */
@@ -3042,14 +3042,14 @@
 }
 
 .cad-status-coords {
-  border-radius: 6px;
+  border-radius: 4px;
   box-shadow: var(--cad-shadow-xs);
   font-size: 10.5px;
   letter-spacing: 0.15px;
 }
 
 .cad-status-toggle {
-  border-radius: 5px;
+  border-radius: 4px;
   font-size: 9.5px;
   letter-spacing: 0.5px;
   padding: 2px 9px;
@@ -3063,13 +3063,13 @@
 }
 
 .cad-model-tab {
-  border-radius: 6px;
+  border-radius: 4px;
   font-weight: 700;
 }
 
 /* ── Layout (paper-space) tabs ────────────────────────────────────────────── */
 .cad-layout-tab {
-  border-radius: 6px 6px 0 0;
+  border-radius: 4px 4px 0 0;
   letter-spacing: 0.15px;
 }
 
@@ -3083,7 +3083,7 @@
 .cad-hud-tool {
   background: var(--cad-bg-2);
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 4px;
   box-shadow: var(--cad-shadow-sm);
   color: var(--cad-text);
 }
@@ -3100,13 +3100,13 @@
 .cad-dyn-input-wrap {
   background: var(--cad-bg-2);
   border: 1px solid var(--cad-border-2);
-  border-radius: 8px;
+  border-radius: 4px;
   box-shadow: var(--cad-shadow-md);
   color: var(--cad-text);
 }
 
 .cad-chip-btn {
-  border-radius: 5px;
+  border-radius: 4px;
 }
 
 /* ── Settings popover switch-style toggles ────────────────────────────────── */
@@ -3157,7 +3157,7 @@
 .cad-3d-cutfill-legend {
   background: rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(15, 23, 42, 0.1);
-  border-radius: 8px;
+  border-radius: 4px;
   box-shadow: var(--cad-shadow-sm);
   backdrop-filter: blur(4px);
 }

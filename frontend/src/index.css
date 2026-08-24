@@ -28,7 +28,7 @@
   --radius-sm: var(--radius-sm);
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
-  --radius-xl: calc(var(--radius-lg) + 4px);
+  --radius-xl: calc(var(--radius-lg) + 2px);
 }
 
 :root {
@@ -79,10 +79,10 @@
   --color-count: var(--accent);
   --cad-text-dim: #6b7280;
 
-  /* Radii */
-  --radius-sm: 8px;
-  --radius-md: 10px;
-  --radius-lg: 12px;
+  /* Radii — sharp, technical: minimal curvature on rectangular surfaces */
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
 
   /* Spacing */
   --panel-pad: 16px;
@@ -235,7 +235,7 @@ code {
 
 .input-field {
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px solid var(--border);
   font-family: var(--sans);
   font-size: 14px;
@@ -316,9 +316,9 @@ textarea.input-field {
   --accent: #1d4ed8;
   --accent-bg: rgba(29, 78, 216, 0.09);
   --accent-border: rgba(29, 78, 216, 0.32);
-  --radius-sm: 10px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
   --shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
   --shadow-hover: 0 18px 42px rgba(15, 23, 42, 0.12);

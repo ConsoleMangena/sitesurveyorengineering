@@ -29,7 +29,7 @@
 .auth-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 4px;
   padding: 28px 32px;
   width: 100%;
   max-width: 380px;
@@ -56,7 +56,7 @@
 .account-type-card {
   background: var(--surface);
   border: 2px solid var(--border);
-  border-radius: 10px;
+  border-radius: 4px;
   padding: 12px;
   text-align: left;
   cursor: pointer;
@@ -85,7 +85,7 @@
 .account-type-icon {
   width: 34px;
   height: 34px;
-  border-radius: 9px;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -118,7 +118,7 @@
   color: var(--text);
   background: var(--surface-muted);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 4px;
   padding: 12px 14px;
   margin-top: 4px;
   margin-bottom: 2px;
@@ -255,7 +255,7 @@
 
 .form-input {
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: 4px;
   border: 1px solid var(--border);
   font-family: var(--sans);
   font-size: 14px;
@@ -344,7 +344,7 @@
 .auth-btn {
   width: 100%;
   padding: 10px;
-  border-radius: 8px;
+  border-radius: 4px;
   border: none;
   font-family: var(--sans);
   font-size: 14px;
@@ -567,7 +567,7 @@
 .auth-feature-icon {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -622,7 +622,7 @@
 @media (max-width: 500px) {
   .auth-card {
     padding: 22px 18px;
-    border-radius: 12px;
+    border-radius: 4px;
   }
 
   .form-input {
@@ -868,7 +868,7 @@
 .auth-input {
   min-height: 42px;
   padding: 10px 14px;
-  border-radius: 10px;
+  border-radius: 4px;
   border: 1px solid var(--border);
   background: color-mix(in oklab, var(--surface) 96%, transparent);
   font-size: 14px;
@@ -898,7 +898,7 @@
 /* ── Polished submit button ───────────────────────────────────────────── */
 .auth-submit {
   min-height: 44px;
-  border-radius: 10px;
+  border-radius: 4px;
   font-weight: 600;
   letter-spacing: 0.2px;
   transition:
