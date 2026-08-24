@@ -154,14 +154,31 @@ export async function listWorkspaceMembersAdmin(
 ): Promise<WorkspaceMemberAdmin[]> {
   const { data, error } = await adminDb
     .from("workspace_members")
-    .select("id, user_id, role, status, profiles(full_name, email)")
+    .select("id, user_id, role, status")
     .eq("workspace_id", workspaceId)
     .order("role", { ascending: true });
 
   if (error) throw error;
+  const rows = (data ?? []) as Record<string, unknown>[];
+  if (rows.length === 0) return [];
 
-  return (data ?? []).map((row: Record<string, unknown>) => {
-    const p = row.profiles as { full_name: string | null; email: string | null } | null;
+  // workspace_members.user_id references auth.users (no FK to public.profiles),
+  // so PostgREST cannot embed profiles here — fetch and join manually.
+  const userIds = [...new Set(rows.map((row) => row.user_id as string))];
+  const { data: profiles, error: profileError } = await adminDb
+    .from("profiles")
+    .select("id, full_name, email")
+    .in("id", userIds);
+
+  if (profileError) throw profileError;
+
+  const profileMap = new Map(
+    ((profiles ?? []) as { id: string; full_name: string | null; email: string | null }[])
+      .map((p) => [p.id, p]),
+  );
+
+  return rows.map((row) => {
+    const p = profileMap.get(row.user_id as string);
     return {
       id: row.id as string,
       user_id: row.user_id as string,
