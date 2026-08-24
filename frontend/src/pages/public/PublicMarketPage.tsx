@@ -234,7 +234,6 @@ export default function PublicMarketPage() {
   const [attempt, setAttempt] = useState(0);
   const [search, setSearch] = useState("");
   const [scope, setScope] = useState<Scope>("all");
-  const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [sort, setSort] = useState<SortKey>("newest");
   const [listingCategory, setListingCategory] = useState<ListingCategory>("all");
   const [listingPage, setListingPage] = useState(1);
@@ -342,46 +341,12 @@ export default function PublicMarketPage() {
   const failed = failure !== null;
   const loading = data === null;
 
-  // ── Derived: locations ──
-
-  const allLocations = useMemo(() => {
-    if (!data) return [];
-    return [
-      ...data.listings,
-      ...data.professionals,
-      ...data.jobs,
-      ...data.firms,
-    ].map((row) => row.location);
-  }, [data]);
-
-  const countries = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const location of allLocations) {
-      const country = countryOf(location);
-      if (!country) continue;
-      counts.set(country, (counts.get(country) ?? 0) + 1);
-    }
-    return [...counts.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, 12);
-  }, [allLocations]);
-
-  const inLocation = useCallback(
-    (location: string) =>
-      locationFilter === null || countryOf(location) === locationFilter,
-    [locationFilter],
-  );
-
-  // ── Derived: registry rows (search + location [+ category]) ──
+  // ── Derived: registry rows (search [+ category]) ──
 
   const filteredListings = useMemo(
     () =>
       (data?.listings ?? [])
-        .filter(
-          (row) =>
-            (listingCategory === "all" || row.category === listingCategory) &&
-            inLocation(row.location),
-        )
+        .filter((row) => listingCategory === "all" || row.category === listingCategory)
         .filter((row) =>
           matches(search, [
             row.name,
@@ -391,13 +356,12 @@ export default function PublicMarketPage() {
             row.description,
           ]),
         ),
-    [data, search, listingCategory, inLocation],
+    [data, search, listingCategory],
   );
 
   const filteredProfessionals = useMemo(
     () =>
       (data?.professionals ?? [])
-        .filter((row) => inLocation(row.location))
         .filter((row) =>
           matches(search, [
             row.name,
@@ -407,13 +371,12 @@ export default function PublicMarketPage() {
             row.bio,
           ]),
         ),
-    [data, search, inLocation],
+    [data, search],
   );
 
   const filteredJobs = useMemo(
     () =>
       (data?.jobs ?? [])
-        .filter((row) => inLocation(row.location))
         .filter((row) =>
           matches(search, [
             row.title,
@@ -422,21 +385,19 @@ export default function PublicMarketPage() {
             row.description,
           ]),
         ),
-    [data, search, inLocation],
+    [data, search],
   );
 
   const filteredFirms = useMemo(
     () =>
       (data?.firms ?? [])
-        .filter((row) => inLocation(row.location))
         .filter((row) => matches(search, [row.name, row.location, row.about])),
-    [data, search, inLocation],
+    [data, search],
   );
 
   const filteredEvents = useMemo(
     () =>
       (data?.events ?? [])
-        .filter((row) => inLocation(row.location))
         .filter((row) =>
           matches(search, [
             row.title,
@@ -446,7 +407,7 @@ export default function PublicMarketPage() {
             row.description,
           ]),
         ),
-    [data, search, inLocation],
+    [data, search],
   );
 
   // ── Derived: sorting (price where it exists; events lead with schedule) ──
@@ -551,11 +512,6 @@ export default function PublicMarketPage() {
     longitude: row.longitude,
   });
 
-  const inScopeLocation = useCallback(
-    (row: { location: string }) => inLocation(row.location),
-    [inLocation],
-  );
-
   const scopeGroups = useMemo(() => {
     const all = {
       listings: data?.listings ?? [],
@@ -574,13 +530,13 @@ export default function PublicMarketPage() {
           events: scope === "event" ? all.events : [],
         };
     return [
-      { rows: scoped.listings.filter(inScopeLocation).map(toSource), kind: "listing" as const },
-      { rows: scoped.professionals.filter(inScopeLocation).map(toSource), kind: "professional" as const },
-      { rows: scoped.jobs.filter(inScopeLocation).map(toSource), kind: "job" as const },
-      { rows: scoped.firms.filter(inScopeLocation).map(toSource), kind: "firm" as const },
-      { rows: scoped.events.filter(inScopeLocation).map(toSource), kind: "event" as const },
+      { rows: scoped.listings.map(toSource), kind: "listing" as const },
+      { rows: scoped.professionals.map(toSource), kind: "professional" as const },
+      { rows: scoped.jobs.map(toSource), kind: "job" as const },
+      { rows: scoped.firms.map(toSource), kind: "firm" as const },
+      { rows: scoped.events.map(toSource), kind: "event" as const },
     ];
-  }, [data, scope, inScopeLocation]);
+  }, [data, scope]);
 
   const dots = useMemo(
     () => (loading ? null : buildMarketDots(scopeGroups)),
@@ -836,39 +792,6 @@ export default function PublicMarketPage() {
                 </label>
               </div>
             </div>
-
-            {countries.length > 1 ? (
-              <div
-                role="group"
-                aria-label="Filter by location"
-                className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
-              >
-                <Chip
-                  active={locationFilter === null}
-                  onClick={() => {
-                    setLocationFilter(null);
-                    resetRegistryPages();
-                  }}
-                >
-                  All locations
-                </Chip>
-                {countries.map(([country, count]) => (
-                  <Chip
-                    key={country}
-                    active={locationFilter === country}
-                    onClick={() => {
-                      setLocationFilter(country);
-                      resetRegistryPages();
-                    }}
-                  >
-                    {country}
-                    <span className="ml-1.5 font-mono text-xs tabular-nums opacity-70">
-                      {count}
-                    </span>
-                  </Chip>
-                ))}
-              </div>
-            ) : null}
 
             {showPanel("listing") && !loading && benchmarks.length > 0 ? (
               <RateBenchmarks benchmarks={benchmarks} />
@@ -1204,31 +1127,6 @@ function RateBenchmarks({
 }
 
 // ── Shared bits ─────────────────────────────────────────────────────────────
-
-function Chip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={`shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs transition-colors ${
-        active
-          ? "border-primary bg-primary font-medium text-primary-foreground"
-          : "border-border bg-card text-muted-foreground hover:border-foreground/25 hover:text-foreground"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
 
 function NewBadge() {
   return (
