@@ -37,7 +37,6 @@ import {
   createAttachmentVersion,
   listAttachmentVersions,
   listFolders,
-  createFolder,
   listTags,
   createTag,
   getAttachmentTags,
@@ -171,10 +170,6 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
   >([]);
   const [busyFileId, setBusyFileId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("offchain");
-  const [folderId, setFolderId] = useState<string | null>(null);
-  const [folderStack, setFolderStack] = useState<FolderRow[]>([]);
-  const [showNewFolderInput, setShowNewFolderInput] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
   const [moveMenuFileId, setMoveMenuFileId] = useState<string | null>(null);
   const [tagMenuFileId, setTagMenuFileId] = useState<string | null>(null);
   const [detailFile, setDetailFile] = useState<AttachmentRow | null>(null);
@@ -205,10 +200,9 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
       setError(null);
       const [fileData, folderData, tagData, logData] = await Promise.all([
         listAttachments(workspaceId, {
-          folderId: viewMode === "trash" ? undefined : folderId,
           includeDeleted: viewMode === "trash",
         }),
-        listFolders(workspaceId, folderId),
+        listFolders(workspaceId),
         listTags(workspaceId),
         listActivityLog(workspaceId, { limit: 50 }),
       ]);
@@ -229,7 +223,7 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, folderId, viewMode]);
+  }, [workspaceId, viewMode]);
 
   useAsyncAction(fetchFiles, [fetchFiles]);
 
@@ -298,37 +292,6 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
     setSearch("");
     setActiveType("ALL");
     setActiveTagId("all");
-  };
-
-  const navigateToFolder = (folder: FolderRow | null) => {
-    if (folder === null) {
-      setFolderId(null);
-      setFolderStack([]);
-    } else {
-      const existingIndex = folderStack.findIndex((f) => f.id === folder.id);
-      if (existingIndex >= 0) {
-        setFolderStack(folderStack.slice(0, existingIndex + 1));
-      } else {
-        setFolderStack([...folderStack, folder]);
-      }
-      setFolderId(folder.id);
-    }
-    setSelectedFiles(new Set());
-    setViewMode("offchain");
-  };
-
-  const handleCreateFolder = async () => {
-    const name = newFolderName.trim();
-    if (!name) return;
-    try {
-      await createFolder(workspaceId, name, folderId);
-      setNewFolderName("");
-      setShowNewFolderInput(false);
-      await fetchFiles();
-      showNotice("Folder created.");
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to create folder.");
-    }
   };
 
   const handleMoveToFolder = async (attachmentId: string, targetFolderId: string | null) => {
@@ -790,14 +753,14 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
 
   return (
     <DashboardShell className="hub-body file-manager-page">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">File Manager</h1>
           <p className="text-sm text-muted-foreground">
             Secure storage for CAD files, plans, and survey data.
           </p>
         </div>
-        <Button onClick={openFilePicker} disabled={uploading || viewMode === "trash"} className="gap-2">
+        <Button onClick={openFilePicker} disabled={uploading || viewMode === "trash"} className="gap-2 w-full sm:w-auto">
           <Upload size={16} />
           {uploading ? "Uploading..." : viewMode === "trash" ? "Upload disabled in trash" : "Upload Files"}
         </Button>
@@ -846,57 +809,7 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
         </div>
       )}
 
-      <div className={`grid gap-4 ${showActivityPanel ? "grid-cols-1 lg:grid-cols-[200px_1fr_200px]" : "grid-cols-1 lg:grid-cols-[200px_1fr]"}`}>
-        {/* Sidebar */}
-        <div className="h-fit space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-muted-foreground">Folders</h3>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setShowNewFolderInput((p) => !p)} aria-label="Create folder">
-                <Upload size={14} />
-              </Button>
-            </div>
-            {showNewFolderInput && (
-              <div className="space-y-2">
-                <Input
-                  size={10}
-                  placeholder="Folder name"
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") void handleCreateFolder(); if (e.key === "Escape") { setShowNewFolderInput(false); setNewFolderName(""); } }}
-                  autoFocus
-                />
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={() => void handleCreateFolder()}>Create</Button>
-                  <Button size="sm" variant="outline" onClick={() => { setShowNewFolderInput(false); setNewFolderName(""); }}>Cancel</Button>
-                </div>
-              </div>
-            )}
-            <div className="space-y-1">
-              {folders.length === 0 && !showNewFolderInput && (
-                <p className="text-sm text-muted-foreground">No folders yet.</p>
-              )}
-              <Button
-                variant={folderId === null ? "secondary" : "ghost"}
-                size="sm"
-                className="w-full justify-start gap-2"
-                onClick={() => navigateToFolder(null)}
-              >
-                <Folder size={16} /> Files
-              </Button>
-              {folders.map((folder) => (
-                <Button
-                  key={folder.id}
-                  variant={folderId === folder.id ? "secondary" : "ghost"}
-                  size="sm"
-                  className="w-full justify-start gap-2"
-                  onClick={() => navigateToFolder(folder)}
-                >
-                  <Folder size={16} /> {folder.name}
-                </Button>
-              ))}
-            </div>
-          </div>
-
+      <div className={`grid gap-4 ${showActivityPanel ? "grid-cols-1 lg:grid-cols-[1fr_280px]" : "grid-cols-1"}`}>
         {/* Main table */}
         <div className="space-y-3 min-w-0">
           <div className="flex flex-col gap-3">
@@ -918,7 +831,7 @@ export default function FileManagerPage({ workspaceId }: FileManagerPageProps) {
               <Button
                 variant={viewMode === "trash" ? "default" : "outline"}
                 size="sm"
-                onClick={() => { setViewMode("trash"); setFolderId(null); setFolderStack([]); setSelectedFiles(new Set()); }}
+                onClick={() => { setViewMode("trash"); setSelectedFiles(new Set()); }}
               >
                 Trash
               </Button>
