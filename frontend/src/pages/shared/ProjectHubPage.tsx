@@ -1710,43 +1710,35 @@ function ToolCategoryView({
             <section key={cat} className="mb-5">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">{cat}</h4>
               {cat === 'COGO & Computation' ? (
-                <div className="rounded-md border overflow-hidden">
-                  <Table className="min-w-[640px]">
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[48px] text-center">#</TableHead>
-                        <TableHead className="min-w-[180px]">Tool</TableHead>
-                        <TableHead className="min-w-[240px]">Description</TableHead>
-                        <TableHead className="w-[120px] text-right"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {tools.map((tool, index) => (
-                        <TableRow
-                          key={tool.id}
-                          className="cursor-pointer"
-                          onClick={() => handleToolOpen(tool.id)}
-                        >
-                          <TableCell className="text-center text-sm text-muted-foreground">
-                            {index + 1}
-                          </TableCell>
-                          <TableCell className="align-middle font-medium">
-                            <span className="truncate">{tool.label}</span>
-                          </TableCell>
-                          <TableCell className="align-middle text-muted-foreground">
-                            <span className="block max-w-[280px] truncate" title={tool.description}>
+                <div className="flex flex-col gap-3" role="list">
+                  {tools.map((tool) => (
+                    <article
+                      key={tool.id}
+                      className="cursor-pointer rounded-lg border border-border/40 bg-muted/30 p-3 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      role="listitem"
+                      onClick={() => handleToolOpen(tool.id)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleToolOpen(tool.id); } }}
+                      tabIndex={0}
+                      aria-label={`Open ${tool.label}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-background">
+                            <tool.icon size={16} strokeWidth={2} aria-hidden="true" />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold truncate">{tool.label}</p>
+                            <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2" title={tool.description}>
                               {tool.description}
-                            </span>
-                          </TableCell>
-                          <TableCell className="align-middle text-right">
-                            <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); handleToolOpen(tool.id) }}>
-                              Open
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                            </p>
+                          </div>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); handleToolOpen(tool.id) }}>
+                          Open
+                        </Button>
+                      </div>
+                    </article>
+                  ))}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-2" role="list">
