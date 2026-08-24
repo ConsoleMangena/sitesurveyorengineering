@@ -12,6 +12,23 @@ import {
 // Generous: slow connections beat a false error (bizintel uses the same value).
 const LOAD_FAILURE_TIMEOUT_MS = 10_000;
 
+const CARTO_DARK_STYLE =
+  "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+
+// Self-contained style with zero network deps: if the basemap CDN is blocked
+// or slow, the globe still renders as a dark sphere and the pins carry it.
+const BLANK_STYLE: maplibregl.StyleSpecification = {
+  version: 8,
+  sources: {},
+  layers: [
+    {
+      id: "market-background",
+      type: "background",
+      paint: { "background-color": "#0b1424" },
+    },
+  ],
+};
+
 interface PublicMarketGlobeProps {
   /** null while the parent is fetching. */
   dots: MarketDot[] | null;
@@ -66,13 +83,23 @@ export default function PublicMarketGlobe({
     setLoaded(false);
     setTimedOut(false);
 
-    const map = new maplibregl.Map({
-      container,
-      style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
-      center: [15, 15],
-      zoom: 1.4,
-      attributionControl: { compact: true },
-    });
+    // First try uses the Carto basemap; any later attempt (or an automatic
+    // fallback below) uses the guaranteed blank style so a blocked tile CDN
+    // can never leave the globe permanently dark.
+    let map: maplibregl.Map;
+    try {
+      map = new maplibregl.Map({
+        container,
+        style: attempt === 0 ? CARTO_DARK_STYLE : BLANK_STYLE,
+        center: [15, 15],
+        zoom: 1.4,
+        attributionControl: { compact: true },
+      });
+    } catch {
+      // Construction throws when WebGL is unavailable.
+      setTimedOut(true);
+      return;
+    }
     // v6 dropped the constructor option and rejects setProjection until the
     // style has loaded ("Style is not done loading"), so it moves into the
     // load handler below — same gating bizintel's BaseMap applies.
@@ -84,8 +111,30 @@ export default function PublicMarketGlobe({
       LOAD_FAILURE_TIMEOUT_MS,
     );
 
+    let styleSettled = false;
+    let swappedToBlank = false;
+    map.on("error", (event) => {
+      if (styleSettled || swappedToBlank) return;
+      const status = (
+        event.error as unknown as { status?: number } | undefined
+      )?.status;
+      const message = String(event.error?.message ?? "");
+      const styleFetchFailed =
+        /style|fetch|network/i.test(message) ||
+        status === 0 ||
+        status === 403 ||
+        status === 404;
+      if (!styleFetchFailed) return;
+      // The basemap document can't be fetched — switch to the blank world
+      // immediately instead of waiting out the timeout.
+      swappedToBlank = true;
+      window.clearTimeout(timeoutId);
+      map.setStyle(BLANK_STYLE, { diff: false });
+    });
+
     map.on("load", () => {
       window.clearTimeout(timeoutId);
+      styleSettled = true;
       // Style is guaranteed loaded here, so globe projection is safe to set.
       map.setProjection({ type: "globe" });
       map.addSource("market-points", {
@@ -280,8 +329,9 @@ export default function PublicMarketGlobe({
               Couldn&rsquo;t acquire the feed
             </p>
             <p className="max-w-sm text-sm text-slate-400">
-              The globe tiles didn&rsquo;t arrive in time. Everything is still
-              browsable in the registry below.
+              Map tiles didn&rsquo;t arrive in time — your network may be
+              blocking them. Retry switches to a self-contained globe that
+              needs no tiles. The registry below always works.
             </p>
             <Button
               size="sm"
@@ -289,7 +339,7 @@ export default function PublicMarketGlobe({
               onClick={handleRetry}
               className="border-white/15 bg-transparent text-slate-200 hover:bg-white/5 hover:text-white"
             >
-              Retry acquisition
+              Retry without map tiles
             </Button>
           </div>
         )}
