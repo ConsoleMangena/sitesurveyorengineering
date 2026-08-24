@@ -1,16 +1,18 @@
 /*
-Design contract — /market public surface (code-led, brief-pinned "mission
-control"): THESIS: the market is a live orbital feed on a night-side Earth,
-not a boxed SaaS directory. OWN-WORLD: deep space-navy ground (#050910),
-hairline white borders, amber=listings and cyan=professionals carried from
-the pins into every accent; mono strictly for telemetry values; Chakra Petch
-display face. STORY: a visitor sees Earth and its pinned activity within
-seconds, reads scale from HUD telemetry, filters and searches the registry,
-and opens a detail dialog with a sign-in path. FIRST VIEWPORT: slim top bar,
-then an edge-to-edge globe at ~68vh carrying the display heading bottom-left,
-telemetry top-left, legend bottom-right, cursor coordinate readout top-right.
-SIGNATURE: live lat/lng readout tracking the cursor over the globe, pins
-surfacing once like acquired plots. FINISH: unreviewed and undocumented is
+Design contract — /market public surface (REVISED after user review: light
+theme pinned over the earlier mission-control dark world): THESIS: the open
+market as a live directory — an edge-to-edge light basemap globe carrying the
+headline over a legibility scrim, followed by divided registry rows instead
+of card grids. OWN-WORLD: app shadcn tokens throughout (background, card,
+muted, border, primary); amber=listings / cyan=professionals survive as pin,
+tick, legend and hover accents; tabular numerals for prices/rates/counts;
+no custom display face. STORY: visitor sees Earth and its pinned activity in
+seconds, reads scale from HUD pills, filters/searches the registry, opens a
+detail dialog with a sign-in path. FIRST VIEWPORT: slim sticky header, then
+the full-width globe at ~68vh with the display heading bottom-left over a
+scrim, telemetry pill top-left, legend pill bottom-right, cursor coordinate
+pill top-right. SIGNATURE: live lat/lng readout tracking the cursor; pins
+reveal once like acquired plots. FINISH: unreviewed and undocumented is
 unfinished; this build ends with the finish review, the verdict, and
 DESIGN.md.
 */
@@ -201,28 +203,24 @@ export default function PublicMarketPage() {
       : null;
 
   return (
-    <div className="market-dark min-h-screen">
-      <header className="sticky top-0 z-30 border-b border-white/5 bg-[#050910]/90">
+    <div className="min-h-screen bg-background text-foreground">
+      <header className="sticky top-0 z-30 border-b border-border/60 bg-background/90 backdrop-blur">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
           <span className="flex items-baseline gap-2">
-            <span className="flex items-center gap-2 font-display text-base font-semibold tracking-tight text-white">
-              <Globe2 className="size-4 translate-y-px text-amber-400" aria-hidden="true" />
+            <span className="flex items-center gap-2 text-base font-semibold tracking-tight">
+              <Globe2 className="size-4 translate-y-px text-primary" aria-hidden="true" />
               SiteSurveyor
             </span>
-            <span className="text-sm text-slate-400">/ Market</span>
+            <span className="text-sm text-muted-foreground">/ Market</span>
           </span>
-          <Button
-            size="sm"
-            asChild
-            className="bg-amber-400 text-[#050910] hover:bg-amber-300"
-          >
+          <Button size="sm" asChild>
             <Link to="/login">Sign in</Link>
           </Button>
         </div>
       </header>
 
       <main>
-        <Suspense fallback={<div className="h-[68vh] min-h-[480px] w-full bg-[#03060c]" />}>
+        <Suspense fallback={<div className="h-[68vh] min-h-[480px] w-full bg-muted/40" />}>
           <PublicMarketGlobe
             dots={dots}
             totalListings={listings?.length ?? 0}
@@ -231,12 +229,12 @@ export default function PublicMarketPage() {
             onSelect={(dot) => setSelectedId({ kind: dot.kind, id: dot.id })}
             onRetry={retry}
           >
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#03060c] via-[#03060c]/70 to-transparent pb-8 pt-20 sm:pb-10">
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 via-black/25 to-transparent pb-8 pt-20 sm:pb-10">
               <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-                <h1 className="font-display max-w-xl text-3xl font-bold leading-tight tracking-[-0.02em] text-white sm:text-5xl">
+                <h1 className="max-w-xl text-3xl font-bold leading-tight tracking-tight text-white sm:text-5xl">
                   The open surveying market.
                 </h1>
-                <p className="mt-3 max-w-lg text-sm leading-relaxed text-slate-400 sm:text-base">
+                <p className="mt-3 max-w-lg text-sm leading-relaxed text-white/85 sm:text-base">
                   Instruments for sale or hire and survey professionals
                   worldwide — published live by SiteSurveyor workspaces. No
                   account needed to browse.
@@ -247,9 +245,11 @@ export default function PublicMarketPage() {
               type="button"
               onClick={scrollToRegistry}
               aria-label="Scroll to the registry"
-              className="absolute bottom-8 right-4 hidden flex-col items-center gap-1 text-slate-400 transition-colors hover:text-slate-200 sm:right-6 md:flex"
+              className="absolute bottom-8 right-4 hidden flex-col items-center gap-1 text-white/85 transition-colors hover:text-white sm:right-6 md:flex"
             >
-              <span className="mono-data text-[11px] tracking-widest">REGISTRY</span>
+              <span className="text-[11px] font-medium tracking-widest drop-shadow-sm">
+                REGISTRY
+              </span>
               <ChevronDown className="size-4" aria-hidden="true" />
             </button>
           </PublicMarketGlobe>
@@ -257,7 +257,7 @@ export default function PublicMarketPage() {
 
         <section ref={registryRef} className="mx-auto w-full max-w-6xl scroll-mt-16 space-y-12 px-4 py-12 sm:px-6 sm:py-16">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div role="group" aria-label="Filter by kind" className="inline-flex w-fit rounded-lg border border-white/10 p-1">
+            <div role="group" aria-label="Filter by kind" className="inline-flex w-fit rounded-lg bg-muted p-1">
               {(
                 [
                   ["all", "Everything", listings?.length, professionals?.length],
@@ -272,13 +272,13 @@ export default function PublicMarketPage() {
                   onClick={() => setScope(value)}
                   className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
                     scope === value
-                      ? "bg-white/[0.08] font-medium text-white"
-                      : "text-slate-400 hover:text-slate-200"
+                      ? "bg-background font-medium text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   {label}
                   {listingCount !== undefined || professionalCount !== undefined ? (
-                    <span className="mono-data ml-2 text-xs text-slate-400">
+                    <span className="ml-2 font-mono text-xs tabular-nums text-muted-foreground">
                       {(listingCount ?? 0) + (professionalCount ?? 0)}
                     </span>
                   ) : null}
@@ -287,14 +287,14 @@ export default function PublicMarketPage() {
             </div>
             <div className="relative w-full lg:w-[320px]">
               <Search
-                className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"
+                className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                 aria-hidden="true"
               />
               <Input
                 placeholder="Search instruments, people, places…"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                className="border-white/10 bg-white/[0.03] pl-9 text-slate-200 placeholder:text-slate-400 focus-visible:border-amber-400/60 focus-visible:ring-amber-400/30"
+                className="pl-9"
               />
             </div>
           </div>
@@ -358,13 +358,28 @@ export default function PublicMarketPage() {
         </section>
       </main>
 
-      <footer className="border-t border-white/5 py-8">
+      <footer className="border-t border-border/60 py-8">
         <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 sm:px-6">
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-muted-foreground">
             Published by SiteSurveyor workspaces · refreshes live
           </p>
-          <p className="mono-data text-xs text-slate-400">
-            AMBER LISTINGS · CYAN PROFESSIONALS
+          <p className="flex items-center gap-4 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <span
+                className="size-2 shrink-0 rounded-full"
+                style={{ backgroundColor: MARKET_DOT_COLORS.listing }}
+                aria-hidden="true"
+              />
+              Listings
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span
+                className="size-2 shrink-0 rounded-full"
+                style={{ backgroundColor: MARKET_DOT_COLORS.professional }}
+                aria-hidden="true"
+              />
+              Professionals
+            </span>
           </p>
         </div>
       </footer>
@@ -410,28 +425,23 @@ function LoadErrorPanel({
   onRetry: () => void;
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.02] px-6 py-14 text-center">
-      <Globe2 className="mx-auto size-9 text-slate-600" aria-hidden="true" />
-      <h3 className="font-display mt-4 text-lg font-semibold text-slate-100">
+    <div className="rounded-xl border border-border bg-card px-6 py-14 text-center shadow-sm">
+      <Globe2 className="mx-auto size-9 text-muted-foreground/50" aria-hidden="true" />
+      <h3 className="mt-4 text-lg font-semibold">
         Couldn&rsquo;t reach the market
       </h3>
-      <p className="mt-1 text-sm text-slate-400">
+      <p className="mt-1 text-sm text-muted-foreground">
         {failure.reason === "timeout"
           ? "The request didn't complete in time — check your connection."
           : "The market data couldn't be loaded."}
       </p>
       {failure.missingRelation ? (
-        <p className="mono-data mx-auto mt-3 max-w-md rounded-md border border-amber-400/20 bg-amber-400/[0.06] px-3 py-2 text-left text-xs text-amber-300">
-          public_market views not found — run backend/sql/0002_public_market.sql
-          (and 0001 before it) in the Supabase SQL editor.
+        <p className="mx-auto mt-3 max-w-md rounded-md border border-amber-600/30 bg-amber-500/10 px-3 py-2 text-left text-xs text-amber-800">
+          public_market views not found — apply backend/sql/0002_public_market.sql
+          (and 0001 before it) to this Supabase project.
         </p>
       ) : null}
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={onRetry}
-        className="mt-5 border-white/15 bg-transparent text-slate-200 hover:bg-white/5 hover:text-white"
-      >
+      <Button size="sm" variant="outline" onClick={onRetry} className="mt-5">
         <RefreshCw className="mr-1.5 size-3.5" aria-hidden="true" />
         Try again
       </Button>
@@ -442,15 +452,15 @@ function LoadErrorPanel({
 function SkeletonPanel({ label }: { label: string }) {
   return (
     <div aria-hidden="true">
-      <div className="mb-3 h-4 w-32 animate-pulse rounded bg-white/5" />
-      <div className="overflow-hidden rounded-xl border border-white/10">
+      <div className="mb-3 h-4 w-32 animate-pulse rounded bg-muted" />
+      <div className="overflow-hidden rounded-xl border border-border">
         {[0, 1, 2].map((i) => (
           <div
             key={i}
-            className="flex items-center justify-between border-b border-white/5 px-4 py-4 last:border-b-0"
+            className="flex items-center justify-between border-b border-border/60 px-4 py-4 last:border-b-0"
           >
-            <div className="h-3.5 w-48 animate-pulse rounded bg-white/5" />
-            <div className="h-3.5 w-24 animate-pulse rounded bg-white/5" />
+            <div className="h-3.5 w-48 animate-pulse rounded bg-muted" />
+            <div className="h-3.5 w-24 animate-pulse rounded bg-muted" />
           </div>
         ))}
       </div>
@@ -474,31 +484,31 @@ function RegistryPanel({
 }) {
   return (
     <section>
-      <h2 className="font-display mb-4 mt-0 text-xl font-semibold tracking-[-0.02em] text-white">
+      <h2 className="mb-4 text-xl font-semibold tracking-tight">
         {title}{" "}
-        <span className="mono-data ml-1 align-middle text-xs font-normal text-slate-400">
+        <span className="ml-1 align-middle font-mono text-xs font-normal tabular-nums text-muted-foreground">
           ({count})
         </span>
       </h2>
       {isEmpty ? (
-        <div className="rounded-xl border border-dashed border-white/10 px-6 py-12 text-center">
+        <div className="rounded-xl border border-dashed border-border px-6 py-12 text-center">
           <svg
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
             strokeWidth="1.25"
             strokeLinecap="round"
-            className="mx-auto size-7 text-slate-600"
+            className="mx-auto size-7 text-muted-foreground/50"
             aria-hidden="true"
           >
             <circle cx="12" cy="12" r="7" />
             <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
             <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
           </svg>
-          <p className="mt-3 text-sm text-slate-400">{emptyLabel}</p>
+          <p className="mt-3 text-sm text-muted-foreground">{emptyLabel}</p>
         </div>
       ) : (
-        <ul className="market-scroll divide-y divide-white/5 overflow-hidden rounded-xl border border-white/10 bg-white/[0.02]">
+        <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           {children}
         </ul>
       )}
@@ -523,11 +533,11 @@ function RowShell({
         type="button"
         onClick={onClick}
         aria-label={ariaLabel}
-        className="group flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-white/[0.04]"
+        className="group flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-muted/60"
       >
         <span
           className="size-2 shrink-0 rounded-full transition-transform group-hover:scale-125"
-          style={{ backgroundColor: accent, boxShadow: `0 0 6px ${accent}` }}
+          style={{ backgroundColor: accent }}
           aria-hidden="true"
         />
         {children}
@@ -550,28 +560,28 @@ function ListingRowItem({
       ariaLabel={`${row.name}, ${row.type}, ${row.price.toLocaleString()} ${row.currency}${row.listing_type === "hire" ? " per day" : ""}, ${row.location}`}
     >
       <div className="min-w-0 flex-1">
-        <p className="truncate font-medium text-slate-100 transition-colors group-hover:text-amber-300">
+        <p className="truncate font-medium transition-colors group-hover:text-amber-700">
           {row.name}
         </p>
-        <p className="mt-0.5 truncate text-xs text-slate-400">
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">
           {row.type}
           {row.condition ? ` · ${row.condition}` : ""}
           {row.listing_type === "hire" ? " · hire" : ""}
         </p>
       </div>
-      <div className="hidden min-w-0 shrink basis-40 items-center gap-1 text-xs text-slate-400 sm:flex">
+      <div className="hidden min-w-0 shrink basis-40 items-center gap-1 text-xs text-muted-foreground sm:flex">
         <MapPin className="size-3 shrink-0" aria-hidden="true" />
         <span className="truncate">{row.location}</span>
       </div>
-      <p className="mono-data shrink-0 text-sm text-slate-200">
+      <p className="shrink-0 text-sm font-semibold tabular-nums">
         {row.price.toLocaleString()}
-        <span className="ml-1 text-xs text-slate-400">{row.currency}</span>
+        <span className="ml-1 text-xs font-normal text-muted-foreground">{row.currency}</span>
         {row.listing_type === "hire" ? (
-          <span className="text-xs text-slate-400">/day</span>
+          <span className="text-xs font-normal text-muted-foreground">/day</span>
         ) : null}
       </p>
       <Briefcase
-        className="size-4 shrink-0 text-slate-700 transition-colors group-hover:text-slate-400"
+        className="size-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground"
         aria-hidden="true"
       />
     </RowShell>
@@ -592,26 +602,26 @@ function ProfessionalRowItem({
       ariaLabel={`${row.name}, ${row.title}, ${row.rate.toLocaleString()} ${row.currency} per ${row.rate_per}, ${row.location}`}
     >
       <div className="min-w-0 flex-1">
-        <p className="truncate font-medium text-slate-100 transition-colors group-hover:text-cyan-200">
+        <p className="truncate font-medium transition-colors group-hover:text-cyan-800">
           {row.name}
         </p>
-        <p className="mt-0.5 truncate text-xs text-slate-400">
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">
           {row.title} · {row.discipline} · {row.experience}
         </p>
       </div>
-      <div className="hidden min-w-0 shrink basis-40 items-center gap-1 text-xs text-slate-400 sm:flex">
+      <div className="hidden min-w-0 shrink basis-40 items-center gap-1 text-xs text-muted-foreground sm:flex">
         <MapPin className="size-3 shrink-0" aria-hidden="true" />
         <span className="truncate">{row.location}</span>
       </div>
-      <p className="mono-data shrink-0 text-sm text-slate-200">
+      <p className="shrink-0 text-sm font-semibold tabular-nums">
         {row.rating != null && row.rating > 0 ? `${row.rating.toFixed(1)}★ ` : ""}
         {row.rate.toLocaleString()}
-        <span className="ml-1 text-xs text-slate-400">
+        <span className="ml-1 text-xs font-normal text-muted-foreground">
           {row.currency}/{row.rate_per}
         </span>
       </p>
       <UserRound
-        className="size-4 shrink-0 text-slate-700 transition-colors group-hover:text-slate-400"
+        className="size-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground"
         aria-hidden="true"
       />
     </RowShell>
@@ -634,25 +644,24 @@ function MarketDetailDialog({
       open={dot !== null}
       onOpenChange={(open) => (!open ? onClose() : undefined)}
     >
-      <DialogContent className="border-white/10 bg-[#0b1220] text-slate-200 sm:max-w-md [&>button]:text-slate-400 [&>button:hover]:text-white">
+      <DialogContent className="sm:max-w-md">
         {dot ? (
           <>
             <DialogHeader>
-              <DialogTitle className="font-display flex items-center gap-2.5 pr-6 text-lg text-white">
+              <DialogTitle className="flex items-center gap-2.5 pr-6 text-lg">
                 <span
-                  className="size-2.5 rounded-full"
+                  className="size-2.5 shrink-0 rounded-full"
                   style={{
                     backgroundColor:
                       dot.kind === "listing"
                         ? MARKET_DOT_COLORS.listing
                         : MARKET_DOT_COLORS.professional,
-                    boxShadow: `0 0 8px ${dot.kind === "listing" ? MARKET_DOT_COLORS.listing : MARKET_DOT_COLORS.professional}`,
                   }}
                   aria-hidden="true"
                 />
                 {dot.name}
               </DialogTitle>
-              <DialogDescription className="text-slate-400">
+              <DialogDescription>
                 {dot.kind === "listing"
                   ? `Marketplace listing${dot.location ? ` · ${dot.location}` : ""}`
                   : `Survey professional${dot.location ? ` · ${dot.location}` : ""}`}
@@ -662,7 +671,7 @@ function MarketDetailDialog({
               {listing ? (
                 <>
                   <DetailRow label="Price">
-                    <span className="mono-data">
+                    <span className="font-semibold tabular-nums">
                       {listing.price.toLocaleString()} {listing.currency}
                       {listing.listing_type === "hire" ? " / day" : ""}
                     </span>
@@ -682,7 +691,7 @@ function MarketDetailDialog({
                     {professional.title} · {professional.discipline}
                   </DetailRow>
                   <DetailRow label="Rate">
-                    <span className="mono-data">
+                    <span className="font-semibold tabular-nums">
                       {professional.rate.toLocaleString()}{" "}
                       {professional.currency} / {professional.rate_per}
                     </span>
@@ -696,13 +705,13 @@ function MarketDetailDialog({
               ) : null}
               {dot.lat != null && dot.lng != null ? (
                 <DetailRow label="Coordinates">
-                  <span className="mono-data text-xs text-slate-400">
+                  <span className="font-mono text-xs text-muted-foreground">
                     {dot.lat.toFixed(4)}°, {dot.lng.toFixed(4)}°
                   </span>
                 </DetailRow>
               ) : null}
             </dl>
-            <Button asChild className="mt-2 w-full bg-amber-400 text-[#050910] hover:bg-amber-300">
+            <Button asChild className="mt-2 w-full">
               <Link to="/login">Sign in to contact the publisher</Link>
             </Button>
           </>
@@ -721,8 +730,8 @@ function DetailRow({
 }) {
   return (
     <div className="grid grid-cols-[88px_1fr] gap-3">
-      <dt className="text-xs uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="min-w-0 text-slate-300">{children}</dd>
+      <dt className="text-xs uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className="min-w-0">{children}</dd>
     </div>
   );
 }

@@ -20,7 +20,7 @@ interface PublicMarketGlobeProps {
   failed: boolean;
   onSelect: (dot: MarketDot) => void;
   onRetry: () => void;
-  /** Rendered inside the map container (HUD overlays etc.). */
+  /** Rendered inside the map container (heading overlay etc.). */
   children?: ReactNode;
 }
 
@@ -35,8 +35,8 @@ const HALO_LAYER_ID = "market-dots-halo";
 const CORE_LAYER_ID = "market-dots";
 
 /** Adds the market pin source + halo/core circle layers once the mapcn map
- *  is loaded, wires click/hover/cursor handlers, and runs the one-shot
- *  reveal animation. */
+ *  is loaded, wires click/hover handlers, and runs the one-shot reveal
+ *  animation. */
 function MapPins({
   dots,
   onSelect,
@@ -234,7 +234,7 @@ function CoordReadout() {
   }, [map]);
   return (
     <div className="pointer-events-none absolute right-4 top-4 sm:right-6 sm:top-6">
-      <p className="mono-data flex items-center gap-1.5 text-xs text-slate-400">
+      <p className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/85 px-2.5 py-1.5 font-mono text-xs tabular-nums text-muted-foreground shadow-sm backdrop-blur-sm">
         <Crosshair className="size-3" aria-hidden="true" />
         <span ref={coordRef}>——.——° ———.——°</span>
       </p>
@@ -242,9 +242,9 @@ function CoordReadout() {
   );
 }
 
-/** Full-bleed night-side globe of the public market: amber listing pins,
- *  cyan professional pins, live cursor coordinates, tap either pin to open
- *  its detail dialog. Built on the mapcn <Map> primitive. */
+/** Full-bleed globe of the public market: amber listing pins, cyan
+ *  professional pins, live cursor coordinates, tap either pin to open its
+ *  detail dialog. Built on the mapcn <Map> primitive in light theme. */
 export default function PublicMarketGlobe({
   dots,
   totalListings,
@@ -260,7 +260,7 @@ export default function PublicMarketGlobe({
   const [attempt, setAttempt] = useState(0);
 
   // Acquisition watchdog: if the basemap never loads, fall back to the
-  // self-contained tile-free globe rather than pulsing forever.
+  // self-contained tile-free canvas rather than pulsing forever.
   useEffect(() => {
     if (failed || ready || tilesFailed) return;
     const timeoutId = window.setTimeout(() => {
@@ -284,11 +284,7 @@ export default function PublicMarketGlobe({
 
   return (
     <section className="relative">
-      <div
-        className={`relative h-[68vh] min-h-[480px] w-full overflow-hidden border-y border-white/5 ${
-          tilesFailed ? "bg-[#0b1424]" : "bg-[#03060c]"
-        }`}
-      >
+      <div className="relative h-[68vh] min-h-[480px] w-full overflow-hidden border-y border-border/60 bg-muted/40">
         {/* Canvas-only content; the searchable registry rows below carry the
             same information for keyboard and screen-reader users. */}
         <p className="sr-only">
@@ -299,7 +295,7 @@ export default function PublicMarketGlobe({
           <MapcnMap
             key={attempt}
             ref={mapRef}
-            theme="dark"
+            theme="light"
             blank={tilesFailed}
             projection={{ type: "globe" }}
             center={[15, 15]}
@@ -313,53 +309,53 @@ export default function PublicMarketGlobe({
               onBasemapFailure={() => setTilesFailed(true)}
             />
             <CoordReadout />
-            {/* Telemetry block */}
-            <div className="pointer-events-none absolute left-4 top-4 space-y-1 sm:left-6 sm:top-6">
-              <p
-                className="mono-data text-xs text-slate-400"
+            {/* Telemetry pill */}
+            <div className="pointer-events-none absolute left-4 top-4 sm:left-6 sm:top-6">
+              <div
+                className="rounded-lg border border-border/60 bg-background/85 px-3 py-1.5 shadow-sm backdrop-blur-sm"
                 role="status"
                 aria-live="polite"
               >
-                {dots === null ? (
-                  <span>ACQUIRING FEED…</span>
-                ) : (
-                  <>
-                    <span className="text-amber-400">{pinnedListings}</span>
-                    <span className="text-slate-500"> LISTINGS · </span>
-                    <span className="text-cyan-300">{pinnedProfessionals}</span>
-                    <span className="text-slate-500"> PROFESSIONALS</span>
-                  </>
-                )}
-              </p>
-              {dots !== null &&
-              pinnedListings + pinnedProfessionals <
-                totalListings + totalProfessionals ? (
-                <p className="mono-data text-[11px] text-slate-400">
-                  {pinnedListings + pinnedProfessionals} OF{" "}
-                  {totalListings + totalProfessionals} HAVE COORDINATES
+                <p className="font-mono text-xs tabular-nums text-muted-foreground">
+                  {dots === null ? (
+                    <span>ACQUIRING FEED…</span>
+                  ) : (
+                    <>
+                      <span className="font-semibold text-amber-600">
+                        {pinnedListings}
+                      </span>
+                      {" LISTINGS · "}
+                      <span className="font-semibold text-cyan-700">
+                        {pinnedProfessionals}
+                      </span>
+                      {" PROFESSIONALS"}
+                    </>
+                  )}
                 </p>
-              ) : null}
+                {dots !== null &&
+                pinnedListings + pinnedProfessionals <
+                  totalListings + totalProfessionals ? (
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    {pinnedListings + pinnedProfessionals} of{" "}
+                    {totalListings + totalProfessionals} have coordinates
+                  </p>
+                ) : null}
+              </div>
             </div>
             {/* Legend */}
-            <div className="pointer-events-none absolute bottom-4 right-4 flex gap-4 sm:bottom-6 sm:right-6">
-              <span className="flex items-center gap-1.5 text-xs text-slate-300">
+            <div className="pointer-events-none absolute bottom-4 right-4 flex gap-2 sm:bottom-6 sm:right-6">
+              <span className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/85 px-2.5 py-1.5 text-xs shadow-sm backdrop-blur-sm">
                 <span
                   className="size-2 shrink-0 rounded-full"
-                  style={{
-                    backgroundColor: MARKET_DOT_COLORS.listing,
-                    boxShadow: `0 0 8px ${MARKET_DOT_COLORS.listing}`,
-                  }}
+                  style={{ backgroundColor: MARKET_DOT_COLORS.listing }}
                   aria-hidden="true"
                 />
                 Listings
               </span>
-              <span className="flex items-center gap-1.5 text-xs text-slate-300">
+              <span className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/85 px-2.5 py-1.5 text-xs shadow-sm backdrop-blur-sm">
                 <span
                   className="size-2 shrink-0 rounded-full"
-                  style={{
-                    backgroundColor: MARKET_DOT_COLORS.professional,
-                    boxShadow: `0 0 8px ${MARKET_DOT_COLORS.professional}`,
-                  }}
+                  style={{ backgroundColor: MARKET_DOT_COLORS.professional }}
                   aria-hidden="true"
                 />
                 Professionals
@@ -369,37 +365,31 @@ export default function PublicMarketGlobe({
           </MapcnMap>
         ) : (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 p-6 text-center">
-            <Globe2 className="size-9 text-slate-600" aria-hidden="true" />
-            <p className="font-display text-lg font-semibold text-slate-200">
-              Couldn&rsquo;t acquire the feed
+            <Globe2 className="size-9 text-muted-foreground/50" aria-hidden="true" />
+            <p className="text-lg font-semibold">Couldn&rsquo;t acquire the feed</p>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Map tiles didn&rsquo;t arrive in time — your network may be
+              blocking them. Retry switches to a self-contained globe that
+              needs no tiles. The registry below always works.
             </p>
-            <p className="max-w-sm text-sm text-slate-400">
-              The market data couldn&rsquo;t be loaded. Check your connection —
-              everything is still browsable in the registry below.
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleRetry}
-              className="border-white/15 bg-transparent text-slate-200 hover:bg-white/5 hover:text-white"
-            >
-              Try again
+            <Button size="sm" variant="outline" onClick={handleRetry}>
+              Retry without map tiles
             </Button>
           </div>
         )}
         {!failed && !ready && dots === null ? (
           <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 -translate-y-1/2">
-            <div className="flex flex-col items-center gap-3">
+            <div className="mx-auto flex w-fit flex-col items-center gap-3 rounded-xl border border-border/60 bg-background/85 px-5 py-4 shadow-sm backdrop-blur-sm">
               <div
                 className="flex gap-1.5"
                 role="status"
                 aria-label="Loading the market"
               >
-                <span className="size-1.5 animate-pulse rounded-full bg-amber-400/80" />
-                <span className="size-1.5 animate-pulse rounded-full bg-cyan-300/80 [animation-delay:150ms]" />
-                <span className="size-1.5 animate-pulse rounded-full bg-amber-400/80 [animation-delay:300ms]" />
+                <span className="size-1.5 animate-pulse rounded-full bg-amber-500" />
+                <span className="size-1.5 animate-pulse rounded-full bg-cyan-600 [animation-delay:150ms]" />
+                <span className="size-1.5 animate-pulse rounded-full bg-amber-500 [animation-delay:300ms]" />
               </div>
-              <p className="mono-data text-[11px] tracking-widest text-slate-400">
+              <p className="text-[11px] font-medium tracking-widest text-muted-foreground">
                 ACQUIRING FEED…
               </p>
             </div>
@@ -407,11 +397,11 @@ export default function PublicMarketGlobe({
         ) : null}
         {!failed && ready && dots !== null && dots.length === 0 ? (
           <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 -translate-y-1/2 px-6">
-            <p className="mx-auto max-w-md text-center">
-              <span className="font-display block text-lg font-semibold text-slate-200">
+            <p className="mx-auto max-w-md rounded-xl border border-border/60 bg-background/90 px-6 py-4 text-center shadow-sm backdrop-blur-sm">
+              <span className="block text-base font-semibold">
                 Nothing published yet
               </span>
-              <span className="mt-1 block text-sm text-slate-400">
+              <span className="mt-1 block text-sm text-muted-foreground">
                 When workspaces list instruments or professionals, they appear
                 here.
               </span>
