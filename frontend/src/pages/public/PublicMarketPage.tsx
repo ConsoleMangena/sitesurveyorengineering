@@ -686,12 +686,11 @@ export default function PublicMarketPage() {
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 via-black/25 to-transparent pb-8 pt-20 sm:pb-10">
               <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
                 <h1 className="max-w-xl text-3xl font-bold leading-tight tracking-tight text-white sm:text-5xl">
-                  The open surveying market.
+                  The open engineering surveying market.
                 </h1>
                 <p className="mt-3 max-w-lg text-sm leading-relaxed text-white/85 sm:text-base">
                   Instruments, professionals, jobs, firms, and training —
-                  published live by SiteSurveyor workspaces worldwide. No
-                  account needed to browse.
+                  published live by SiteSurveyor workspaces worldwide.
                 </p>
               </div>
             </div>
