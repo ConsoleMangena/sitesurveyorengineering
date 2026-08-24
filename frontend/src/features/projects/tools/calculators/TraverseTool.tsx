@@ -287,75 +287,79 @@ export function TraverseTool({ projectId }: TraverseToolProps) {
           <ToolGuidePanel guide={TRAVERSE_GUIDE} />
         </div>
         <div className="svt-toolbar" style={{ flexWrap: "wrap" }}>
-          <label className="form-label">Type</label>
-          <select
-            className="input-field"
-            style={{ width: 220 }}
-            value={type}
-            onChange={(e) => setType(e.target.value as TraverseType)}
-          >
-            {TRAVERSE_TYPES.map((t) => (
-              <option key={t.id} value={t.id}>{t.label}</option>
-            ))}
-          </select>
-          <label className="form-label">Entry</label>
-          <select
-            className="input-field"
-            style={{ width: 190 }}
-            value={entryMode}
-            onChange={(e) => setEntryMode(e.target.value as typeof entryMode)}
-          >
-            <option value="bearings">Leg bearings</option>
-            <option value="angles">Observed angles</option>
-          </select>
-          {entryMode === "angles" && (
-            <>
-              <label className="form-label">Angles</label>
-              <select
-                className="input-field"
-                style={{ width: 180 }}
-                value={angleMode}
-                onChange={(e) => setAngleMode(e.target.value as TraverseAngleMode)}
-              >
-                {ANGLE_MODES.map((m) => (
-                  <option key={m.id} value={m.id}>{m.label}</option>
-                ))}
-              </select>
-              <AngleInput
-                label="Start azimuth"
-                valueDeg={startAzDeg}
-                onChange={setStartAzDeg}
-              />
-            </>
-          )}
-          {projectId && (
-            <ProjectPointPicker
-              projectId={projectId}
-              label={`Start point`}
-              value={startPointNo}
-              onChange={applyStartPoint}
-            />
-          )}
-          <label className="form-label">Start {ax.first}</label>
-          <input className="input-field" style={{ width: 120 }} value={x0} onChange={(e) => setX0(e.target.value)} />
-          <label className="form-label">Start {ax.second}</label>
-          <input className="input-field" style={{ width: 120 }} value={y0} onChange={(e) => setY0(e.target.value)} />
-          {type === "closed-link" && (
-            <>
-              {projectId && (
-                <ProjectPointPicker
-                  projectId={projectId}
-                  label={`Closing point`}
-                  value={closePointNo}
-                  onChange={applyClosePoint}
+          <div className="svt-toolbar-group">
+            <label className="form-label">Type</label>
+            <select
+              className="input-field"
+              style={{ width: 220 }}
+              value={type}
+              onChange={(e) => setType(e.target.value as TraverseType)}
+            >
+              {TRAVERSE_TYPES.map((t) => (
+                <option key={t.id} value={t.id}>{t.label}</option>
+              ))}
+            </select>
+            <label className="form-label">Entry</label>
+            <select
+              className="input-field"
+              style={{ width: 190 }}
+              value={entryMode}
+              onChange={(e) => setEntryMode(e.target.value as typeof entryMode)}
+            >
+              <option value="bearings">Leg bearings</option>
+              <option value="angles">Observed angles</option>
+            </select>
+            {entryMode === "angles" && (
+              <>
+                <label className="form-label">Angles</label>
+                <select
+                  className="input-field"
+                  style={{ width: 180 }}
+                  value={angleMode}
+                  onChange={(e) => setAngleMode(e.target.value as TraverseAngleMode)}
+                >
+                  {ANGLE_MODES.map((m) => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </select>
+                <AngleInput
+                  label="Start azimuth"
+                  valueDeg={startAzDeg}
+                  onChange={setStartAzDeg}
                 />
-              )}
-              <label className="form-label">Close {ax.first}</label>
-              <input className="input-field" style={{ width: 120 }} value={cx} onChange={(e) => setCx(e.target.value)} />
-              <label className="form-label">Close {ax.second}</label>
-              <input className="input-field" style={{ width: 120 }} value={cy} onChange={(e) => setCy(e.target.value)} />
-            </>
-          )}
+              </>
+            )}
+          </div>
+          <div className="svt-toolbar-group">
+            {projectId && (
+              <ProjectPointPicker
+                projectId={projectId}
+                label={`Start point`}
+                value={startPointNo}
+                onChange={applyStartPoint}
+              />
+            )}
+            <label className="form-label">Start {ax.first}</label>
+            <input className="input-field" style={{ width: 120 }} value={x0} onChange={(e) => setX0(e.target.value)} />
+            <label className="form-label">Start {ax.second}</label>
+            <input className="input-field" style={{ width: 120 }} value={y0} onChange={(e) => setY0(e.target.value)} />
+            {type === "closed-link" && (
+              <>
+                {projectId && (
+                  <ProjectPointPicker
+                    projectId={projectId}
+                    label={`Closing point`}
+                    value={closePointNo}
+                    onChange={applyClosePoint}
+                  />
+                )}
+                <label className="form-label">Close {ax.first}</label>
+                <input className="input-field" style={{ width: 120 }} value={cx} onChange={(e) => setCx(e.target.value)} />
+                <label className="form-label">Close {ax.second}</label>
+                <input className="input-field" style={{ width: 120 }} value={cy} onChange={(e) => setCy(e.target.value)} />
+              </>
+            )}
+          </div>
         </div>
       </div>
 

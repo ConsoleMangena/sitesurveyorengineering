@@ -197,19 +197,20 @@ export function LevellingTool({ projectId }: LevellingToolProps) {
           <ToolGuidePanel guide={LEVELLING_GUIDE} />
         </div>
         <div className="svt-toolbar">
-          <label className="form-label">Method</label>
-          <select className="input-field" style={{ width: 220 }} value={method} onChange={(e) => setMethod(e.target.value as typeof method)}>
-            <option value="rise-fall">Rise &amp; Fall</option>
-            <option value="hpc">Height of Plane of Collimation</option>
-          </select>
+          <div className="svt-toolbar-group">
+            <label className="form-label">Method</label>
+            <select className="input-field" style={{ width: 220 }} value={method} onChange={(e) => setMethod(e.target.value as typeof method)}>
+              <option value="rise-fall">Rise &amp; Fall</option>
+              <option value="hpc">Height of Plane of Collimation</option>
+            </select>
+          </div>
+          <div className="svt-toolbar-group">
+            <label className="form-label">Start RL / Z (m)</label>
+            <input className="input-field" style={{ width: 130 }} value={startRL} onChange={(e) => setStartRL(e.target.value)} />
+            <label className="form-label">Known closing RL (optional)</label>
+            <input className="input-field" style={{ width: 150 }} value={closingRL} onChange={(e) => setClosingRL(e.target.value)} placeholder="blank if none" />
+          </div>
         </div>
-      </div>
-
-      <div className="svt-toolbar">
-        <label className="form-label">Start RL / Z (m)</label>
-        <input className="input-field" style={{ width: 130 }} value={startRL} onChange={(e) => setStartRL(e.target.value)} />
-        <label className="form-label">Known closing RL (optional)</label>
-        <input className="input-field" style={{ width: 150 }} value={closingRL} onChange={(e) => setClosingRL(e.target.value)} placeholder="blank if none" />
       </div>
 
       <div className="svt-toolbar">

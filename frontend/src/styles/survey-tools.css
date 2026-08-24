@@ -9,6 +9,9 @@
   gap: 16px;
   height: 100%;
   min-height: 0;
+  width: 100%;
+  max-width: 1440px;
+  margin-inline: auto;
 }
 
 /* ── True full-screen tool workspace ───────────────────────────────────────
@@ -238,6 +241,7 @@
 .svt-toolbar {
   display: flex;
   gap: 10px;
+  row-gap: 10px;
   align-items: center;
   flex-wrap: wrap;
 }
@@ -247,7 +251,40 @@
   font-size: 12px;
 }
 
-/* Two-column work area: data grid + side panel (summary / plot). */
+/* Labeled cluster of related controls inside a toolbar (e.g. "setup" vs
+   "start point") — separated by hairlines instead of floating loose. */
+.svt-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  row-gap: 10px;
+  flex-wrap: wrap;
+  padding-inline-end: 16px;
+  border-inline-end: 1px solid var(--border);
+}
+
+.svt-toolbar-group:last-child {
+  padding-inline-end: 0;
+  border-inline-end: none;
+}
+
+@media (max-width: 640px) {
+  .svt-toolbar-group {
+    width: 100%;
+    padding-inline-end: 0;
+    border-inline-end: none;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed var(--border);
+  }
+  .svt-toolbar-group:last-child {
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+}
+
+/* Two-column work area: data grid + side panel (summary / plot).
+   The side column sticks while the (often long) entry table scrolls, so
+   misclosure / results stay visible while surveyors key in rows. */
 .svt-grid-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
@@ -255,8 +292,21 @@
   align-items: start;
 }
 
+.svt-grid-layout > :last-child {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 @media (max-width: 1024px) {
   .svt-grid-layout { grid-template-columns: 1fr; }
+  .svt-grid-layout > :last-child {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
 }
 
 .svt-card {

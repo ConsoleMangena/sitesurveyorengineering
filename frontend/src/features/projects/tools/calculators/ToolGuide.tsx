@@ -27,7 +27,7 @@ export interface ToolGuide {
  * never blocks the tool itself.
  */
 export function ToolGuidePanel({ guide }: { guide: ToolGuide }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   return (
     <div className={`svt-guide ${open ? "open" : ""}`}>
       <button
