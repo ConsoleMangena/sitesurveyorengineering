@@ -2,8 +2,8 @@
 Design contract — /market public surface (REVISED after user review: light
 theme pinned over the earlier mission-control dark world): THESIS: the open
 market as a live directory — an edge-to-edge light basemap globe carrying the
-headline over a legibility scrim, a market-pulse stat strip (including live
-USDC/SOL Solana rates), then divided registry rows instead of card grids.
+headline over a legibility scrim, a market-pulse stat strip, then divided
+registry rows instead of card grids.
 OWN-WORLD: app shadcn tokens throughout (background, card, muted, border,
 primary); one accent hue per directory kind carried from data — amber =
 listings/instruments, cyan = professionals, violet = jobs, emerald = firms,
@@ -42,7 +42,6 @@ import {
 } from "lucide-react";
 import { supabase } from "../../lib/supabase/client.ts";
 import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
-import { useCryptoRates } from "../../hooks/useCryptoRates.ts";
 import type { Database } from "../../lib/supabase/types.ts";
 import {
   buildMarketDots,
@@ -977,8 +976,7 @@ export default function PublicMarketPage() {
       <footer className="border-t border-border/60 py-8">
         <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 sm:px-6">
           <p className="text-xs text-muted-foreground">
-            Published by SiteSurveyor workspaces · refreshes live · rates via
-            CoinGecko
+            Published by SiteSurveyor workspaces · refreshes live
           </p>
           <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             {(
@@ -1050,7 +1048,7 @@ function MarketPulseStrip({
       aria-label="Market pulse"
       className="mx-auto w-full max-w-6xl space-y-3 px-4 pt-10 sm:px-6"
     >
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
         {stats.map((stat) => (
           <div
             key={stat.label}
@@ -1071,65 +1069,8 @@ function MarketPulseStrip({
             </p>
           </div>
         ))}
-        <CryptoRatesCard />
       </div>
     </section>
-  );
-}
-
-function CryptoRatesCard() {
-  const rates = useCryptoRates();
-  return (
-    <div className="col-span-2 rounded-xl border border-border bg-card px-3.5 py-3 shadow-sm sm:col-span-4 lg:col-span-2">
-      <p className="text-xs text-muted-foreground">Solana market rates</p>
-      {rates === null ? (
-        <div className="mt-1.5 animate-pulse space-y-1.5" aria-hidden="true">
-          <div className="h-4 w-24 rounded bg-muted" />
-          <div className="h-4 w-20 rounded bg-muted" />
-        </div>
-      ) : (
-        <dl className="mt-1.5 space-y-1">
-          <RateLine
-            symbol="SOL"
-            rate={rates.sol}
-            digits={2}
-          />
-          <RateLine
-            symbol="USDC"
-            rate={rates.usdc}
-            digits={3}
-          />
-        </dl>
-      )}
-    </div>
-  );
-}
-
-function RateLine({
-  symbol,
-  rate,
-  digits,
-}: {
-  symbol: string;
-  rate: { usd: number; change24h: number };
-  digits: number;
-}) {
-  const up = rate.change24h >= 0;
-  return (
-    <div className="flex items-center justify-between text-sm">
-      <dt className="font-mono text-xs tabular-nums text-muted-foreground">
-        {symbol}/USD
-      </dt>
-      <dd className="font-mono tabular-nums">
-        ${rate.usd.toFixed(digits)}{" "}
-        <span
-          className={`text-xs ${up ? "text-emerald-600" : "text-red-600"}`}
-        >
-          {up ? "+" : ""}
-          {rate.change24h.toFixed(1)}%
-        </span>
-      </dd>
-    </div>
   );
 }
 

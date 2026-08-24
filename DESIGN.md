@@ -16,8 +16,8 @@ survey professionals.
 
 - **Thesis:** the open market as a live directory — an edge-to-edge light
   basemap globe carrying the headline over a legibility scrim, a market-pulse
-  stat strip (including live USDC/SOL Solana rates via CoinGecko), then
-  divided registry rows instead of card grids. Globe is the hero at ~68vh.
+  stat strip, then divided registry rows instead of card grids. Globe is the
+  hero at ~68vh.
 - **Ground:** app shadcn tokens throughout (`background`, `card`, `muted`,
   `border`, `primary`); no scoped theme class. The map runs mapcn's Carto
   positron basemap with `theme="light"` set explicitly.
@@ -54,8 +54,7 @@ survey professionals.
   failure = honest error panel naming recovery (12 s abort timeout, tailored
   hint when the public views are missing); basemap unreachable = globe swaps
   to the tile-free blank canvas automatically; empty = dashed reticle panel;
-  no-search-match variants per kind; crypto rates degrade silently (ticker
-  card shows a skeleton, never an error). "NEW" badges mark rows created in
+  no-search-match variants per kind. "NEW" badges mark rows created in
   the last 7 days.
 
 ## Boundaries
