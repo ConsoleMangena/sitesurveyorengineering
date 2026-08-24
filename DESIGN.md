@@ -29,7 +29,9 @@ survey professionals.
   `font-mono tabular-nums` utilities for telemetry values — counts, prices,
   rates, ratings, coordinates. No custom display face.
 - **Composition:** registry rows in one divided list per kind inside
-  `bg-card` panels; HUD overlays pinned inside the globe viewport as white
+  `bg-card` panels, paginated with Previous / Next controls (5 rows per
+  page; pages reset on search; page indicator uses tabular numerals); HUD
+  overlays pinned inside the globe viewport as white
   pills (`bg-background/85 backdrop-blur-sm border shadow-sm`) — telemetry
   top-left, cursor coordinate readout top-right, legend bottom-right,
   heading bottom-left over a black scrim gradient for legibility on the pale

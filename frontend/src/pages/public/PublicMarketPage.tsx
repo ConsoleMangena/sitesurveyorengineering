@@ -7,7 +7,8 @@ of card grids. OWN-WORLD: app shadcn tokens throughout (background, card,
 muted, border, primary); amber=listings / cyan=professionals survive as pin,
 tick, legend and hover accents; tabular numerals for prices/rates/counts;
 no custom display face. STORY: visitor sees Earth and its pinned activity in
-seconds, reads scale from HUD pills, filters/searches the registry, opens a
+seconds, reads scale from HUD pills, filters/searches the paginated registry
+(Previous / Next sections, 5 rows per page), opens a
 detail dialog with a sign-in path. FIRST VIEWPORT: slim sticky header, then
 the full-width globe at ~68vh with the display heading bottom-left over a
 scrim, telemetry pill top-left, legend pill bottom-right, cursor coordinate
@@ -22,6 +23,8 @@ import { Link } from "react-router-dom";
 import {
   Briefcase,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Globe2,
   MapPin,
   RefreshCw,
@@ -64,6 +67,9 @@ interface LoadFailure {
 
 const FETCH_TIMEOUT_MS = 12_000;
 
+/** Registry rows per page — keeps the list scannable instead of endless. */
+const REGISTRY_PAGE_SIZE = 5;
+
 function matches(
   term: string,
   haystack: (string | null | undefined)[],
@@ -82,6 +88,8 @@ export default function PublicMarketPage() {
   const [attempt, setAttempt] = useState(0);
   const [search, setSearch] = useState("");
   const [scope, setScope] = useState<Scope>("all");
+  const [listingPage, setListingPage] = useState(1);
+  const [professionalPage, setProfessionalPage] = useState(1);
   const registryRef = useRef<HTMLDivElement | null>(null);
   const [selectedId, setSelectedId] = useState<{ kind: MarketDot["kind"]; id: string } | null>(
     null,
@@ -184,6 +192,26 @@ export default function PublicMarketPage() {
   const showListings = scope !== "professional";
   const showProfessionals = scope !== "listing";
   const loading = listings === null || professionals === null;
+
+  // Clamp during render (no effects): filtering can shrink the page count.
+  const listingPageCount = Math.max(
+    1,
+    Math.ceil(filteredListings.length / REGISTRY_PAGE_SIZE),
+  );
+  const professionalPageCount = Math.max(
+    1,
+    Math.ceil(filteredProfessionals.length / REGISTRY_PAGE_SIZE),
+  );
+  const safeListingPage = Math.min(listingPage, listingPageCount);
+  const safeProfessionalPage = Math.min(professionalPage, professionalPageCount);
+  const listingSlice = filteredListings.slice(
+    (safeListingPage - 1) * REGISTRY_PAGE_SIZE,
+    safeListingPage * REGISTRY_PAGE_SIZE,
+  );
+  const professionalSlice = filteredProfessionals.slice(
+    (safeProfessionalPage - 1) * REGISTRY_PAGE_SIZE,
+    safeProfessionalPage * REGISTRY_PAGE_SIZE,
+  );
 
   const scrollToRegistry = () => {
     registryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -298,7 +326,11 @@ export default function PublicMarketPage() {
               <Input
                 placeholder="Search instruments, people, places…"
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setListingPage(1);
+                  setProfessionalPage(1);
+                }}
                 className="pl-9"
               />
             </div>
@@ -323,8 +355,16 @@ export default function PublicMarketPage() {
                       : "No listings match your search."
                   }
                   isEmpty={filteredListings.length === 0}
+                  pagination={
+                    <Pagination
+                      page={safeListingPage}
+                      pageCount={listingPageCount}
+                      onPage={setListingPage}
+                      ariaLabel="Listings pagination"
+                    />
+                  }
                 >
-                  {filteredListings.map((row) => (
+                  {listingSlice.map((row) => (
                     <ListingRowItem
                       key={row.id}
                       row={row}
@@ -346,8 +386,16 @@ export default function PublicMarketPage() {
                       : "No professionals match your search."
                   }
                   isEmpty={filteredProfessionals.length === 0}
+                  pagination={
+                    <Pagination
+                      page={safeProfessionalPage}
+                      pageCount={professionalPageCount}
+                      onPage={setProfessionalPage}
+                      ariaLabel="Professionals pagination"
+                    />
+                  }
                 >
-                  {filteredProfessionals.map((row) => (
+                  {professionalSlice.map((row) => (
                     <ProfessionalRowItem
                       key={row.id}
                       row={row}
@@ -479,12 +527,14 @@ function RegistryPanel({
   count,
   isEmpty,
   emptyLabel,
+  pagination,
   children,
 }: {
   title: string;
   count: number;
   isEmpty: boolean;
   emptyLabel: string;
+  pagination: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -513,11 +563,59 @@ function RegistryPanel({
           <p className="mt-3 text-sm text-muted-foreground">{emptyLabel}</p>
         </div>
       ) : (
-        <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-          {children}
-        </ul>
+        <>
+          <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+            {children}
+          </ul>
+          {pagination}
+        </>
       )}
     </section>
+  );
+}
+
+function Pagination({
+  page,
+  pageCount,
+  onPage,
+  ariaLabel,
+}: {
+  page: number;
+  pageCount: number;
+  onPage: (page: number) => void;
+  ariaLabel: string;
+}) {
+  if (pageCount <= 1) return null;
+  return (
+    <nav
+      aria-label={ariaLabel}
+      className="mt-4 flex items-center justify-between gap-3"
+    >
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => onPage(page - 1)}
+        disabled={page <= 1}
+      >
+        <ChevronLeft className="mr-1 size-3.5" aria-hidden="true" />
+        Previous
+      </Button>
+      <p
+        className="font-mono text-xs tabular-nums text-muted-foreground"
+        aria-live="polite"
+      >
+        Page {page} of {pageCount}
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => onPage(page + 1)}
+        disabled={page >= pageCount}
+      >
+        Next
+        <ChevronRight className="ml-1 size-3.5" aria-hidden="true" />
+      </Button>
+    </nav>
   );
 }
 
