@@ -80,8 +80,9 @@ export default function PublicMarketGlobe({
       center: [15, 20],
       zoom: 1.35,
     });
-    // v6 dropped the constructor option; globe is set on the instance.
-    map.setProjection({ type: "globe" });
+    // v6 dropped the constructor option and rejects setProjection until the
+    // style has loaded ("Style is not done loading"), so it moves into the
+    // load handler below — same gating bizintel's BaseMap applies.
     mapRef.current = map;
 
     const timeoutId = window.setTimeout(
@@ -91,6 +92,8 @@ export default function PublicMarketGlobe({
 
     map.on("load", () => {
       window.clearTimeout(timeoutId);
+      // Style is guaranteed loaded here, so globe projection is safe to set.
+      map.setProjection({ type: "globe" });
       map.addSource("market-points", {
         type: "geojson",
         data: toFeatureCollection(dotsRef.current ?? []),
