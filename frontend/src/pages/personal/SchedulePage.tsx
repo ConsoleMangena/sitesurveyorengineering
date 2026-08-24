@@ -101,6 +101,14 @@ const typeBgClass: Record<string, string> = {
   other: "bg-slate-100 text-slate-800 border-slate-200",
 };
 
+const typeDotClass: Record<string, string> = {
+  boundary: "bg-violet-500",
+  topo: "bg-blue-500",
+  construction: "bg-amber-500",
+  pegging: "bg-emerald-500",
+  other: "bg-slate-400",
+};
+
 function formatDuration(start: string | null, end: string | null): string {
   if (!start || !end) return "";
   const [sh, sm] = start.split(":").map(Number);
@@ -456,7 +464,7 @@ export default function SchedulePage({ workspaceId }: SchedulePageProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative w-52">
+          <div className="relative w-full sm:w-52">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search schedule..."
@@ -495,7 +503,7 @@ export default function SchedulePage({ workspaceId }: SchedulePageProps) {
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 lg:h-[600px]">
           <Card className="border-border/60 overflow-hidden flex flex-col">
             <CardContent className="p-0 flex-1 overflow-auto">
-              <div className="grid grid-cols-7 min-w-[700px] h-full divide-x">
+              <div className="grid grid-cols-1 md:grid-cols-7 md:h-full divide-y md:divide-y-0 md:divide-x">
                 {weekDates.map((date, i) => {
                   const dayEvents = filteredEvents
                     .filter((e) => e.event_date === date)
@@ -506,15 +514,15 @@ export default function SchedulePage({ workspaceId }: SchedulePageProps) {
                     <div
                       key={date}
                       className={cn(
-                        "flex flex-col h-full min-h-[320px] p-2 gap-2",
+                        "flex flex-col md:h-full md:min-h-[320px] p-3 gap-2",
                         isTodayDate && "bg-muted/40",
                       )}
                     >
-                      <div className="text-center py-2">
+                      <div className="flex items-center justify-between py-1 md:block md:text-center md:py-2">
                         <div className="text-xs text-muted-foreground uppercase tracking-wide">{WEEK_DAYS[i]}</div>
                         <div
                           className={cn(
-                            "text-lg font-semibold mt-0.5",
+                            "text-lg font-semibold leading-none md:mt-0.5",
                             isTodayDate && "text-primary",
                           )}
                         >
@@ -531,7 +539,7 @@ export default function SchedulePage({ workspaceId }: SchedulePageProps) {
                               setMobileDetailOpen(true);
                             }}
                             className={cn(
-                              "w-full text-left rounded-md border px-2 py-1.5 text-xs transition-all hover:shadow-sm",
+                              "w-full text-left rounded-md border px-2 py-2 md:py-1.5 text-xs transition-all hover:shadow-sm",
                               typeBgClass[ev.event_type] ?? typeBgClass.other,
                               selectedEventId === ev.id && "ring-2 ring-primary ring-offset-1",
                             )}
@@ -544,7 +552,7 @@ export default function SchedulePage({ workspaceId }: SchedulePageProps) {
                         {dayEvents.length === 0 && (
                           <div className="text-xs text-muted-foreground text-center py-4">No events</div>
                         )}
-                        <Button variant="ghost" size="sm" className="w-full h-7 text-xs" onClick={() => openCreate(date)}>
+                        <Button variant="ghost" size="sm" className="w-full h-8 md:h-7 text-xs" onClick={() => openCreate(date)}>
                           + Add
                         </Button>
                       </div>
@@ -674,14 +682,17 @@ export default function SchedulePage({ workspaceId }: SchedulePageProps) {
         </div>
       ) : (
         <Card className="border-border/60 overflow-hidden">
-          <CardContent className="p-0 overflow-x-auto">
-            <div className="min-w-[600px]">
+          <CardContent className="p-0">
+            <div>
               <div className="grid grid-cols-7 border-b text-center text-xs font-semibold text-muted-foreground">
                 {MONTH_DAYS.map((d) => (
-                  <div key={d} className="py-2">{d}</div>
+                  <div key={d} className="py-2">
+                    <span className="sm:hidden">{d[0]}</span>
+                    <span className="hidden sm:inline">{d}</span>
+                  </div>
                 ))}
               </div>
-              <div className="grid grid-cols-7 auto-rows-fr min-h-[480px]">
+              <div className="grid grid-cols-7 auto-rows-fr">
               {monthCells.map((cell) => {
                 const dayEvents = filteredEvents
                   .filter((e) => e.event_date === cell.date)
@@ -693,7 +704,7 @@ export default function SchedulePage({ workspaceId }: SchedulePageProps) {
                   <div
                     key={cell.date}
                     className={cn(
-                      "min-h-[80px] p-1.5 border-b border-r flex flex-col gap-1 cursor-pointer hover:bg-muted/30 transition-colors",
+                      "min-h-[56px] sm:min-h-[80px] p-1 sm:p-1.5 border-b border-r flex flex-col gap-1 cursor-pointer hover:bg-muted/30 transition-colors",
                       cell.outside && "bg-muted/20 text-muted-foreground",
                       isTodayDate && "bg-primary/5",
                     )}
@@ -707,7 +718,7 @@ export default function SchedulePage({ workspaceId }: SchedulePageProps) {
                     >
                       {cell.dayNum}
                     </div>
-                    <div className="flex-1 space-y-1">
+                    <div className="hidden sm:flex flex-1 space-y-1 flex-col gap-1">
                       {visible.map((ev) => (
                         <button
                           key={ev.id}
@@ -730,6 +741,28 @@ export default function SchedulePage({ workspaceId }: SchedulePageProps) {
                         <span className="text-[10px] text-muted-foreground pl-1">+{remaining} more</span>
                       )}
                     </div>
+                    {dayEvents.length > 0 && (
+                      <div className="flex sm:hidden items-center gap-1 mt-auto">
+                        {visible.map((ev) => (
+                          <button
+                            key={ev.id}
+                            aria-label={`${ev.start_time ?? ""} ${ev.title}`}
+                            className={cn(
+                              "size-2.5 shrink-0 rounded-full border border-white/60",
+                              typeDotClass[ev.event_type] ?? typeDotClass.other,
+                            )}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedEventId(ev.id);
+                              setMobileDetailOpen(true);
+                            }}
+                          />
+                        ))}
+                        {remaining > 0 && (
+                          <span className="text-[9px] leading-none text-muted-foreground">+{remaining}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
