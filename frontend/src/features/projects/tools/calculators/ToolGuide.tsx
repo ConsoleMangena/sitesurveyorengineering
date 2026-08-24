@@ -28,12 +28,14 @@ export interface ToolGuide {
  */
 export function ToolGuidePanel({ guide }: { guide: ToolGuide }) {
   const [open, setOpen] = useState(false);
+  const bodyId = "svt-guide-body";
   return (
     <div className={`svt-guide ${open ? "open" : ""}`}>
       <button
         type="button"
         className="svt-guide-toggle"
         aria-expanded={open}
+        aria-controls={bodyId}
         onClick={() => setOpen((v) => !v)}
       >
         <span className="svt-guide-toggle-main">
@@ -42,7 +44,7 @@ export function ToolGuidePanel({ guide }: { guide: ToolGuide }) {
         </span>
         <ChevronDown size={16} className={`svt-guide-chevron ${open ? "open" : ""}`} aria-hidden="true" />
       </button>
-      {open && (
+      <div id={bodyId} className="svt-guide-collapse" data-open={open}>
         <div className="svt-guide-body">
           <p className="svt-guide-summary">{guide.summary}</p>
           <ol className="svt-guide-steps">
@@ -62,7 +64,7 @@ export function ToolGuidePanel({ guide }: { guide: ToolGuide }) {
             </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

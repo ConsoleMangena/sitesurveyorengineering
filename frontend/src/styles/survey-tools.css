@@ -610,17 +610,15 @@
 /* ── Interactive "How to use this tool" guide ────────────────────────────── */
 .svt-guide {
   border: 1px solid var(--border);
-  border-left: 4px solid var(--accent);
   border-radius: 4px;
   background: var(--surface);
   overflow: hidden;
-  margin-bottom: 16px;
   box-shadow: var(--shadow-sm);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .svt-guide.open {
   border-color: var(--accent);
-  border-left: 4px solid var(--accent);
   box-shadow: var(--shadow-md);
 }
 
@@ -633,6 +631,7 @@
   padding: 12px 16px;
   background: var(--surface-muted);
   border: none;
+  border-bottom: 1px solid transparent;
   color: var(--text-h);
   font: inherit;
   font-size: 14px;
@@ -642,6 +641,10 @@
 }
 
 .svt-guide-toggle:hover { background: var(--surface); }
+
+.svt-guide.open .svt-guide-toggle {
+  border-bottom-color: var(--border);
+}
 
 .svt-guide-toggle-main {
   display: flex;
@@ -664,19 +667,37 @@
 .svt-guide-chevron {
   color: var(--text-muted);
   transition: transform 0.2s ease;
+  flex: none;
 }
 
 .svt-guide-chevron.open {
   transform: rotate(180deg);
 }
 
+/* Smooth expand/collapse without measuring content (grid rows 0fr -> 1fr). */
+.svt-guide-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.24s ease;
+}
+
+.svt-guide-collapse[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+
 .svt-guide-body {
-  padding: 16px 18px;
-  border-top: 1px solid var(--border);
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.svt-guide-collapse[data-open="true"] .svt-guide-body {
+  opacity: 1;
 }
 
 .svt-guide-summary {
-  margin: 0 0 14px;
+  margin: 16px 18px 14px;
   font-size: 14px;
   color: var(--text-h);
   line-height: 1.55;
@@ -684,18 +705,18 @@
 }
 
 .svt-guide-steps {
-  margin: 0;
-  padding: 0 0 0 4px;
+  margin: 0 18px;
+  padding: 0;
   list-style: none;
   counter-reset: svt-guide;
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .svt-guide-steps li {
   counter-increment: svt-guide;
   position: relative;
-  padding-left: 36px;
+  padding-left: 38px;
   font-size: 14px;
   line-height: 1.55;
 }
@@ -712,17 +733,27 @@
   justify-content: center;
   border-radius: 50%;
   background: var(--accent);
-  border: 1px solid var(--accent);
   color: #fff;
   font-size: 12px;
   font-weight: 700;
+}
+
+/* Timeline connector between step markers. */
+.svt-guide-steps li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 11.5px;
+  top: 28px;
+  bottom: -16px;
+  width: 1px;
+  background: var(--border-heavy, var(--border));
 }
 
 .svt-guide-step-title {
   display: block;
   font-weight: 700;
   color: var(--text-h);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .svt-guide-step-body {
@@ -731,18 +762,19 @@
 }
 
 .svt-guide-tips {
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px dashed var(--border);
+  margin: 16px 18px;
+  padding: 10px 14px;
+  border-radius: 4px;
+  background: var(--surface-muted);
 }
 
 .svt-guide-tips-title {
   display: block;
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-muted);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   font-weight: 700;
 }
 
