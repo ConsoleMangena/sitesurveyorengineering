@@ -208,7 +208,12 @@ export default function PublicMarketPage() {
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
           <span className="flex items-baseline gap-2">
             <span className="flex items-center gap-2 text-base font-semibold tracking-tight">
-              <Globe2 className="size-4 translate-y-px text-primary" aria-hidden="true" />
+              <img
+                src="/logo.svg"
+                alt=""
+                className="h-7 w-auto"
+                aria-hidden="true"
+              />
               SiteSurveyor
             </span>
             <span className="text-sm text-muted-foreground">/ Market</span>
