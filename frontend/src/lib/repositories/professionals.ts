@@ -1,5 +1,6 @@
 import { supabase } from '../supabase/client.ts'
 import type { Tables, TablesInsert, TablesUpdate } from '../supabase/types.ts'
+import { attachCoordinates } from '../geo/geocode.ts'
 
 export type ProfessionalRow = Tables<'professionals'>
 export type ProfessionalInsert = TablesInsert<'professionals'>
@@ -22,7 +23,7 @@ export async function listProfessionals(workspaceId: string): Promise<Profession
 export async function createProfessional(workspaceId: string, payload: ProfessionalCreateInput): Promise<ProfessionalRow> {
   const { data, error } = await supabase
     .from('professionals')
-    .insert({ ...payload, workspace_id: workspaceId })
+    .insert({ ...(await attachCoordinates(payload)), workspace_id: workspaceId })
     .select()
     .single()
 
@@ -51,7 +52,7 @@ export async function updateProfessional(
 ): Promise<ProfessionalRow> {
   const { data, error } = await supabase
     .from('professionals')
-    .update({ ...patch, updated_at: new Date().toISOString() })
+    .update({ ...(await attachCoordinates(patch)), updated_at: new Date().toISOString() })
     .eq('id', id)
     .select()
     .single()

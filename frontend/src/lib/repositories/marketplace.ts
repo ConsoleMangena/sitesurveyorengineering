@@ -1,5 +1,6 @@
 import { supabase } from '../supabase/client.ts'
 import type { Tables, TablesInsert, TablesUpdate } from '../supabase/types.ts'
+import { attachCoordinates } from '../geo/geocode.ts'
 
 export type MarketplaceListingRow = Tables<'marketplace_listings'>
 export type MarketplaceListingInsert = TablesInsert<'marketplace_listings'>
@@ -38,7 +39,7 @@ export async function getMarketplaceListingByAssetId(assetId: string): Promise<M
 export async function createMarketplaceListing(workspaceId: string, payload: MarketplaceListingCreateInput): Promise<MarketplaceListingRow> {
   const { data, error } = await supabase
     .from('marketplace_listings')
-    .insert({ ...payload, workspace_id: workspaceId })
+    .insert({ ...(await attachCoordinates(payload)), workspace_id: workspaceId })
     .select()
     .single()
 
@@ -54,7 +55,7 @@ export async function updateMarketplaceListing(
 ): Promise<MarketplaceListingRow> {
   const { data, error } = await supabase
     .from('marketplace_listings')
-    .update({ ...patch, updated_at: new Date().toISOString() })
+    .update({ ...(await attachCoordinates(patch)), updated_at: new Date().toISOString() })
     .eq('id', id)
     .select()
     .single()
