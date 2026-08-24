@@ -408,3 +408,44 @@ h2 {
   letter-spacing: -0.025em;
 }
 
+
+/* ── Public market (/market) — mission-control dark world ─────────────── */
+
+.market-dark {
+  background-color: #050910;
+  color: #e2e8f0;
+}
+
+.market-dark ::selection {
+  background-color: rgba(245, 158, 11, 0.85);
+  color: #050910;
+}
+
+.market-dark *:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #050910, 0 0 0 4px rgba(245, 158, 11, 0.75);
+  border-radius: 4px;
+}
+
+.market-dark input,
+.market-dark textarea {
+  caret-color: #f59e0b;
+}
+
+.market-dark .market-scroll {
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+  scrollbar-width: thin;
+}
+
+.market-dark .font-display {
+  font-family: "Chakra Petch", ui-sans-serif, system-ui, sans-serif;
+}
+
+.market-dark .tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.market-dark .mono-data {
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
