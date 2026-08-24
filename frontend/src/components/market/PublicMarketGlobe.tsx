@@ -96,8 +96,9 @@ export default function PublicMarketGlobe({
         attributionControl: { compact: true },
       });
     } catch {
-      // Construction throws when WebGL is unavailable.
-      setTimedOut(true);
+      // Construction throws when WebGL is unavailable. Defer so the state
+      // update doesn't happen synchronously inside the effect body.
+      window.setTimeout(() => setTimedOut(true), 0);
       return;
     }
     // v6 dropped the constructor option and rejects setProjection until the
