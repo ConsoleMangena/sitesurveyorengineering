@@ -20,7 +20,7 @@ day-rate benchmark chips computed live from hire listings. FINISH:
 unreviewed and undocumented is unfinished; this build ends with the finish
 review, the verdict, and DESIGN.md.
 */
-import { lazy, Suspense, useCallback, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -43,6 +43,7 @@ import {
 import { supabase } from "../../lib/supabase/client.ts";
 import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
 import type { Database } from "../../lib/supabase/types.ts";
+import { portfolioMediaUrl } from "../../lib/repositories/portfolioMedia.ts";
 import {
   buildMarketDots,
   MARKET_DOT_COLORS,
@@ -72,6 +73,8 @@ type DbProfessional =
 type DbJob = Database["public"]["Views"]["public_market_jobs"]["Row"];
 type DbFirm = Database["public"]["Views"]["public_market_firms"]["Row"];
 type DbEvent = Database["public"]["Views"]["public_market_events"]["Row"];
+type DbPortfolioItem =
+  Database["public"]["Views"]["public_market_portfolio_items"]["Row"];
 
 type ListingRow = Omit<DbListing, "id" | "name" | "price" | "location" | "created_at"> & {
   id: string;
@@ -133,6 +136,23 @@ const toJobRows = (rows: DbJob[]): JobRow[] =>
     location: r.location ?? "",
     created_at: r.created_at ?? "",
   }));
+type ShowcaseItemRow = {
+  id: string;
+  title: string;
+  year: string | null;
+  description: string | null;
+  image_path: string | null;
+};
+const toPortfolioItemRows = (rows: DbPortfolioItem[]): ShowcaseItemRow[] =>
+  rows
+    .filter((r) => r.image_path != null)
+    .map((r) => ({
+      id: r.id ?? "",
+      title: r.title ?? "",
+      year: r.year,
+      description: r.description,
+      image_path: r.image_path,
+    }));
 const toFirmRows = (rows: DbFirm[]): FirmRow[] =>
   rows.map((r) => ({
     ...r,
@@ -1469,6 +1489,12 @@ function ProfessionalRowItem({
       <div className="min-w-0 flex-1">
         <p className="flex items-center gap-2 truncate font-medium transition-colors group-hover:text-cyan-700">
           <span className="truncate">{row.name}</span>
+          {row.is_verified ? (
+            <BadgeCheck
+              className="size-3.5 shrink-0 text-cyan-600"
+              aria-label="Verified"
+            />
+          ) : null}
           {isNew(row.created_at) ? <NewBadge /> : null}
         </p>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -1643,6 +1669,28 @@ function MarketDetailDialog({
   event: EventRow | null;
   onClose: () => void;
 }) {
+  const [showcase, setShowcase] = useState<ShowcaseItemRow[]>([]);
+  const professionalId = professional?.id ?? null;
+
+  // Lazy-load showcase projects only while a professional detail is open.
+  useEffect(() => {
+    if (!professionalId) return;
+    let cancelled = false;
+    const clear = window.setTimeout(() => setShowcase([]), 0);
+    supabase
+      .from("public_market_portfolio_items")
+      .select("*")
+      .eq("professional_id", professionalId)
+      .order("sort_order", { ascending: true })
+      .then(({ data }) => {
+        if (!cancelled) setShowcase(toPortfolioItemRows((data ?? []) as DbPortfolioItem[]));
+      });
+    return () => {
+      cancelled = true;
+      window.clearTimeout(clear);
+    };
+  }, [professionalId]);
+
   const subtitle = dot
     ? dot.kind === "listing"
       ? `Marketplace listing${dot.location ? ` · ${dot.location}` : ""}`
@@ -1670,6 +1718,12 @@ function MarketDetailDialog({
                   aria-hidden="true"
                 />
                 {dot.name}
+                {professional?.is_verified ? (
+                  <BadgeCheck
+                    className="size-4 shrink-0 text-cyan-600"
+                    aria-label="Verified"
+                  />
+                ) : null}
               </DialogTitle>
               <DialogDescription>{subtitle}</DialogDescription>
             </DialogHeader>
@@ -1716,6 +1770,21 @@ function MarketDetailDialog({
                   ) : null}
                   {professional.bio ? (
                     <DetailRow label="About">{professional.bio}</DetailRow>
+                  ) : null}
+                  {showcase.length > 0 ? (
+                    <DetailRow label="Projects">
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {showcase.map((item) => (
+                          <img
+                            key={item.id}
+                            src={portfolioMediaUrl(item.image_path) ?? undefined}
+                            alt={item.title}
+                            loading="lazy"
+                            className="aspect-square w-full rounded-md border object-cover"
+                          />
+                        ))}
+                      </div>
+                    </DetailRow>
                   ) : null}
                 </>
               ) : null}

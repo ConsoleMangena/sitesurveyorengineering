@@ -32,7 +32,9 @@ import {
   Pencil,
   Trash2,
   Loader2,
+  BadgeCheck,
 } from "lucide-react";
+import { portfolioMediaUrl } from "../../lib/repositories/portfolioMedia.ts";
 
 const availabilityVariant: Record<string, "success" | "warning" | "destructive" | "secondary"> = {
   Available: "success",
@@ -92,6 +94,7 @@ export default function ProfessionalsPage({
   const [pSkills, setPSkills] = useState("");
   const [pCerts, setPCerts] = useState("");
   const [pIsGlobal, setPIsGlobal] = useState(false);
+  const [pIsVerified, setPIsVerified] = useState(false);
 
   const fetchPros = useCallback(async () => {
     try {
@@ -126,6 +129,7 @@ export default function ProfessionalsPage({
     setPSkills("");
     setPCerts("");
     setPIsGlobal(false);
+    setPIsVerified(false);
     setEditorOpen(true);
   };
 
@@ -146,6 +150,7 @@ export default function ProfessionalsPage({
     setPSkills((p.skills ?? []).join(", "));
     setPCerts((p.certifications ?? []).join(", "));
     setPIsGlobal(p.is_global ?? false);
+    setPIsVerified(p.is_verified ?? false);
     setEditorOpen(true);
     setSelectedPro(null);
   };
@@ -183,6 +188,7 @@ export default function ProfessionalsPage({
         skills: skillsArr.length ? skillsArr : null,
         certifications: certsArr.length ? certsArr : null,
         is_global: isPlatformAdmin ? pIsGlobal : false,
+        is_verified: isPlatformAdmin ? pIsVerified : undefined,
       };
       if (editingId) {
         await updateProfessional(editingId, payload);
@@ -212,6 +218,9 @@ export default function ProfessionalsPage({
 
   const getAvatarUrl = (name: string) =>
     `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(name)}&radius=50&backgroundColor=e5e7eb&textColor=111827`;
+
+  const resolveAvatar = (p: { avatar_path: string | null; name: string }) =>
+    portfolioMediaUrl(p.avatar_path) ?? getAvatarUrl(p.name);
 
   const filtered = professionals.filter((p) => {
     if (discFilter !== "all" && p.discipline !== discFilter) return false;
@@ -323,7 +332,7 @@ export default function ProfessionalsPage({
             <div className="flex items-start gap-4">
               <img
                 className="h-16 w-16 rounded-full object-cover border"
-                src={getAvatarUrl(selectedPro.name)}
+                src={resolveAvatar(selectedPro)}
                 alt=""
                 onError={(e) => {
                   e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
@@ -333,6 +342,12 @@ export default function ProfessionalsPage({
               />
               <div className="flex flex-wrap items-center gap-3">
                 {selectedPro.is_global && <Badge variant="outline">Global</Badge>}
+                {selectedPro.is_verified && (
+                  <Badge variant="outline" className="gap-1 text-primary border-primary/40">
+                    <BadgeCheck size={12} />
+                    Verified
+                  </Badge>
+                )}
                 <Badge variant={availabilityVariant[selectedPro.availability] ?? "secondary"}>
                   {selectedPro.availability}
                 </Badge>
@@ -561,15 +576,26 @@ export default function ProfessionalsPage({
             />
           </div>
           {isPlatformAdmin && (
-            <label className="flex items-center gap-2 text-sm sm:col-span-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={pIsGlobal}
-                onChange={(e) => setPIsGlobal(e.target.checked)}
-                className="h-4 w-4 rounded border-border text-primary accent-primary"
-              />
-              Visible to all accounts (global)
-            </label>
+            <>
+              <label className="flex items-center gap-2 text-sm sm:col-span-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={pIsGlobal}
+                  onChange={(e) => setPIsGlobal(e.target.checked)}
+                  className="h-4 w-4 rounded border-border text-primary accent-primary"
+                />
+                Visible to all accounts (global)
+              </label>
+              <label className="flex items-center gap-2 text-sm sm:col-span-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={pIsVerified}
+                  onChange={(e) => setPIsVerified(e.target.checked)}
+                  className="h-4 w-4 rounded border-border text-primary accent-primary"
+                />
+                Platform verified (shows a verified badge)
+              </label>
+            </>
           )}
         </div>
       </DialogTemplate>
@@ -603,7 +629,7 @@ export default function ProfessionalsPage({
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <img
-                      src={getAvatarUrl(p.name)}
+                      src={resolveAvatar(p)}
                       alt=""
                       className="h-12 w-12 rounded-full object-cover border"
                       onError={(e) => {
@@ -623,7 +649,12 @@ export default function ProfessionalsPage({
                       </Badge>
                     </div>
                   </div>
-                  <h3 className="text-sm font-semibold truncate">{p.name}</h3>
+                  <h3 className="text-sm font-semibold truncate flex items-center gap-1">
+                    <span className="truncate">{p.name}</span>
+                    {p.is_verified && (
+                      <BadgeCheck size={14} className="shrink-0 text-primary" aria-label="Verified" />
+                    )}
+                  </h3>
                   <p className="text-xs text-muted-foreground truncate">{p.title}</p>
                   <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                     <div className="flex items-center gap-1.5 truncate">

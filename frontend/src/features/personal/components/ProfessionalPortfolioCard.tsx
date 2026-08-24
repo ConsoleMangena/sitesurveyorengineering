@@ -1,15 +1,19 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Award,
   Briefcase,
+  Camera,
   ChevronDown,
   ChevronUp,
   DollarSign,
   Globe,
+  ImagePlus,
+  Images,
   Loader2,
   Phone,
   Save,
   Sparkles,
+  Trash2,
   User,
   Wrench,
 } from "lucide-react";
@@ -35,8 +39,17 @@ import { useAsyncAction } from "../../../hooks/useAsyncAction.ts";
 import {
   getProfessionalByWorkspace,
   upsertProfessionalProfile,
+  createPortfolioItem,
+  deletePortfolioItem,
+  listPortfolioItems,
+  type PortfolioItemRow,
   type ProfessionalRow,
 } from "../../../lib/repositories/professionals.ts";
+import {
+  portfolioMediaUrl,
+  removePortfolioMedia,
+  uploadPortfolioMedia,
+} from "../../../lib/repositories/portfolioMedia.ts";
 
 const DISCIPLINES = [
   "Land Surveying",
@@ -55,6 +68,13 @@ interface ProfessionalPortfolioCardProps {
   workspaceId: string;
   userName?: string;
 }
+
+interface MediaSelection {
+  path: string | null;
+  url: string | null;
+}
+
+const NO_MEDIA: MediaSelection = { path: null, url: null };
 
 function parseNumber(value: string): number {
   const n = parseFloat(value);
@@ -97,6 +117,25 @@ export function ProfessionalPortfolioCard({
   const [certifications, setCertifications] = useState("");
   const [isAvailable, setIsAvailable] = useState(false);
 
+  const [avatarMedia, setAvatarMedia] = useState<MediaSelection>(NO_MEDIA);
+  const [bannerMedia, setBannerMedia] = useState<MediaSelection>(NO_MEDIA);
+  const [showcaseItems, setShowcaseItems] = useState<PortfolioItemRow[]>([]);
+  const [uploadingKind, setUploadingKind] = useState<
+    "avatar" | "banner" | "showcase" | null
+  >(null);
+  const [newItemTitle, setNewItemTitle] = useState("");
+  const [newItemYear, setNewItemYear] = useState("");
+  const [newItemDescription, setNewItemDescription] = useState("");
+  const [newItemFile, setNewItemFile] = useState<File | null>(null);
+  const [newItemPreview, setNewItemPreview] = useState<string | null>(null);
+
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
+  const itemInputRef = useRef<HTMLInputElement>(null);
+  // Paths currently in the DB — replaced/deleted files are cleaned up on save.
+  const originalAvatarPathRef = useRef<string | null>(null);
+  const originalBannerPathRef = useRef<string | null>(null);
+
   const loadProfile = async () => {
     try {
       setLoading(true);
@@ -120,8 +159,23 @@ export function ProfessionalPortfolioCard({
         setSkills(arrayToText(data.skills));
         setCertifications(arrayToText(data.certifications));
         setIsAvailable(data.availability === "Available");
+        originalAvatarPathRef.current = data.avatar_path;
+        originalBannerPathRef.current = data.banner_path;
+        setAvatarMedia({
+          path: data.avatar_path,
+          url: portfolioMediaUrl(data.avatar_path),
+        });
+        setBannerMedia({
+          path: data.banner_path,
+          url: portfolioMediaUrl(data.banner_path),
+        });
       } else {
         setName(userName ?? "");
+        setShowcaseItems([]);
+      }
+      if (data) {
+        const items = await listPortfolioItems(data.id);
+        setShowcaseItems(items);
       }
     } catch (err: unknown) {
       setNotice({
@@ -157,7 +211,20 @@ export function ProfessionalPortfolioCard({
         bio: bio.trim() || null,
         skills: textToArray(skills),
         certifications: textToArray(certifications),
+        avatar_path: avatarMedia.path,
+        banner_path: bannerMedia.path,
       });
+      // Clean up files that were replaced or removed this session.
+      const prevAvatar = originalAvatarPathRef.current;
+      const prevBanner = originalBannerPathRef.current;
+      if (prevAvatar && prevAvatar !== saved.avatar_path) {
+        await removePortfolioMedia(prevAvatar);
+      }
+      if (prevBanner && prevBanner !== saved.banner_path) {
+        await removePortfolioMedia(prevBanner);
+      }
+      originalAvatarPathRef.current = saved.avatar_path;
+      originalBannerPathRef.current = saved.banner_path;
       setProfile(saved);
       setNotice({ type: "success", message: "Profile published and visible globally." });
     } catch (err: unknown) {
@@ -167,6 +234,77 @@ export function ProfessionalPortfolioCard({
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleMediaPick = async (
+    file: File | undefined,
+    kind: "avatar" | "banner",
+  ) => {
+    if (!file) return;
+    setUploadingKind(kind);
+    setNotice(null);
+    try {
+      const path = await uploadPortfolioMedia(file, workspaceId, kind);
+      const next = { path, url: portfolioMediaUrl(path) };
+      if (kind === "avatar") setAvatarMedia(next);
+      else setBannerMedia(next);
+    } catch (err: unknown) {
+      setNotice({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to upload image.",
+      });
+    } finally {
+      setUploadingKind(null);
+    }
+  };
+
+  const handleAddShowcaseItem = async () => {
+    if (!profile) return;
+    if (!newItemTitle.trim()) {
+      setNotice({ type: "error", message: "Give the project a title first." });
+      return;
+    }
+    setUploadingKind("showcase");
+    setNotice(null);
+    try {
+      const imagePath = newItemFile
+        ? await uploadPortfolioMedia(newItemFile, workspaceId, "showcase")
+        : null;
+      const created = await createPortfolioItem({
+        professional_id: profile.id,
+        workspace_id: workspaceId,
+        title: newItemTitle.trim(),
+        year: newItemYear.trim() || null,
+        description: newItemDescription.trim() || null,
+        image_path: imagePath,
+      });
+      setShowcaseItems((prev) => [...prev, created]);
+      setNewItemTitle("");
+      setNewItemYear("");
+      setNewItemDescription("");
+      setNewItemFile(null);
+      setNewItemPreview(null);
+      if (itemInputRef.current) itemInputRef.current.value = "";
+    } catch (err: unknown) {
+      setNotice({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to add project.",
+      });
+    } finally {
+      setUploadingKind(null);
+    }
+  };
+
+  const handleDeleteShowcaseItem = async (id: string) => {
+    try {
+      await deletePortfolioItem(id);
+      setShowcaseItems((prev) => prev.filter((item) => item.id !== id));
+    } catch (err: unknown) {
+      setNotice({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to remove project.",
+      });
     }
   };
 
@@ -184,10 +322,26 @@ export function ProfessionalPortfolioCard({
       bio.trim().length >= 30,
       skillTags.length > 0,
       certTags.length > 0,
+      !!avatarMedia.path,
+      !!bannerMedia.path,
+      showcaseItems.length > 0,
     ];
     const filled = fields.filter(Boolean).length;
     return Math.round((filled / fields.length) * 100);
-  }, [name, title, discipline, experience, location, rate, bio, skillTags.length, certTags.length]);
+  }, [
+    name,
+    title,
+    discipline,
+    experience,
+    location,
+    rate,
+    bio,
+    skillTags.length,
+    certTags.length,
+    avatarMedia.path,
+    bannerMedia.path,
+    showcaseItems.length,
+  ]);
 
   const profilePreviewData = {
     name,
@@ -206,6 +360,16 @@ export function ProfessionalPortfolioCard({
     email: sessionEmail,
     rating: profile?.rating ?? null,
     reviews: profile?.reviews ?? null,
+    verified: profile?.is_verified ?? false,
+    avatarUrl: avatarMedia.url,
+    bannerUrl: bannerMedia.url,
+    showcase: showcaseItems.map((item) => ({
+      id: item.id,
+      title: item.title,
+      description: item.description,
+      year: item.year,
+      imageUrl: portfolioMediaUrl(item.image_path),
+    })),
     fallbackInitials: userName,
   };
 
@@ -480,6 +644,246 @@ export function ProfessionalPortfolioCard({
                       </div>
                     )}
                   </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Camera size={16} className="text-primary" /> Photos & Showcase
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-[auto_1fr]">
+                  <div className="space-y-1.5">
+                    <Label>Profile photo</Label>
+                    <div className="flex items-center gap-3">
+                      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full border bg-muted">
+                        {avatarMedia.url ? (
+                          <img
+                            src={avatarMedia.url}
+                            alt="Profile"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <span className="flex h-full w-full items-center justify-center text-muted-foreground">
+                            <User size={24} />
+                          </span>
+                        )}
+                        {uploadingKind === "avatar" && (
+                          <span className="absolute inset-0 flex items-center justify-center bg-background/70">
+                            <Loader2 size={16} className="animate-spin" />
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => avatarInputRef.current?.click()}
+                          disabled={uploadingKind !== null}
+                        >
+                          {avatarMedia.path ? "Replace" : "Upload"}
+                        </Button>
+                        {avatarMedia.path && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => setAvatarMedia(NO_MEDIA)}
+                            disabled={uploadingKind !== null}
+                          >
+                            Remove
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <input
+                      ref={avatarInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        void handleMediaPick(e.target.files?.[0], "avatar");
+                        e.target.value = "";
+                      }}
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label>Cover banner</Label>
+                    <button
+                      type="button"
+                      onClick={() => bannerInputRef.current?.click()}
+                      disabled={uploadingKind !== null}
+                      className="group relative block h-20 w-full overflow-hidden rounded-lg border bg-gradient-to-r from-primary/80 to-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {bannerMedia.url && (
+                        <img
+                          src={bannerMedia.url}
+                          alt=""
+                          className="absolute inset-0 h-full w-full object-cover"
+                        />
+                      )}
+                      {!bannerMedia.url && (
+                        <span className="absolute inset-0 flex items-center justify-center gap-2 text-xs font-medium text-primary-foreground">
+                          <ImagePlus size={14} /> Add a cover image (1600px wide works best)
+                        </span>
+                      )}
+                      {uploadingKind === "banner" && (
+                        <span className="absolute inset-0 flex items-center justify-center bg-background/70">
+                          <Loader2 size={16} className="animate-spin" />
+                        </span>
+                      )}
+                    </button>
+                    {bannerMedia.path && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-destructive hover:text-destructive"
+                        onClick={() => setBannerMedia(NO_MEDIA)}
+                        disabled={uploadingKind !== null}
+                      >
+                        Remove banner
+                      </Button>
+                    )}
+                    <input
+                      ref={bannerInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        void handleMediaPick(e.target.files?.[0], "banner");
+                        e.target.value = "";
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Images size={14} className="text-muted-foreground" />
+                      Project showcase ({showcaseItems.length})
+                    </div>
+                  </div>
+                  {showcaseItems.length > 0 && (
+                    <ul className="space-y-2">
+                      {showcaseItems.map((item) => (
+                        <li
+                          key={item.id}
+                          className="flex items-center gap-3 rounded-lg border border-border/40 bg-muted/30 p-2"
+                        >
+                          <div className="h-12 w-16 shrink-0 overflow-hidden rounded-md border bg-muted">
+                            {item.image_path ? (
+                              <img
+                                src={portfolioMediaUrl(item.image_path) ?? undefined}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <span className="flex h-full w-full items-center justify-center text-muted-foreground">
+                                <Images size={14} />
+                              </span>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{item.title}</p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {[item.year, item.description].filter(Boolean).join(" · ") || "—"}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 shrink-0 text-destructive"
+                            onClick={() => void handleDeleteShowcaseItem(item.id)}
+                            aria-label={`Remove project ${item.title}`}
+                          >
+                            <Trash2 size={15} />
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {profile ? (
+                    <div className="space-y-2 rounded-lg border border-dashed p-3">
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_100px]">
+                        <Input
+                          placeholder="Project title (e.g. Mine haul road survey)"
+                          value={newItemTitle}
+                          onChange={(e) => setNewItemTitle(e.target.value)}
+                        />
+                        <Input
+                          placeholder="Year"
+                          value={newItemYear}
+                          onChange={(e) => setNewItemYear(e.target.value)}
+                        />
+                      </div>
+                      <Textarea
+                        rows={2}
+                        placeholder="One or two lines about the project (optional)"
+                        value={newItemDescription}
+                        onChange={(e) => setNewItemDescription(e.target.value)}
+                      />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => itemInputRef.current?.click()}
+                          disabled={uploadingKind !== null}
+                          className="gap-2"
+                        >
+                          <ImagePlus size={14} />
+                          {newItemFile ? newItemFile.name.slice(0, 24) : "Choose photo"}
+                        </Button>
+                        {newItemPreview && (
+                          <img
+                            src={newItemPreview}
+                            alt=""
+                            className="h-9 w-12 rounded border object-cover"
+                          />
+                        )}
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => void handleAddShowcaseItem()}
+                          disabled={uploadingKind !== null || !newItemTitle.trim()}
+                          className="gap-2 ml-auto"
+                        >
+                          {uploadingKind === "showcase" ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <ImagePlus size={14} />
+                          )}
+                          Add project
+                        </Button>
+                      </div>
+                      <input
+                        ref={itemInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] ?? null;
+                          setNewItemFile(file);
+                          setNewItemPreview(file ? URL.createObjectURL(file) : null);
+                          e.target.value = "";
+                        }}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Projects appear in your public gallery. Photos are resized automatically.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                      Publish your profile first, then add past projects to your showcase gallery.
+                    </p>
+                  )}
                 </div>
               </div>
 
