@@ -3,6 +3,9 @@ import type * as GeoJSON from "geojson";
 export const MARKET_DOT_COLORS = {
   listing: "#f59e0b",
   professional: "#06b6d4",
+  job: "#8b5cf6",
+  firm: "#10b981",
+  event: "#f43f5e",
 } as const;
 
 export type MarketDotKind = keyof typeof MARKET_DOT_COLORS;
@@ -25,18 +28,15 @@ export interface MarketDotSource {
   longitude: number | null;
 }
 
-/** Plot every row that has coordinates, listings first, capped overall. */
-export function buildMarketDots(
-  listings: MarketDotSource[],
-  professionals: MarketDotSource[],
-  cap = 500,
-): MarketDot[] {
+export interface MarketDotGroup {
+  rows: MarketDotSource[];
+  kind: MarketDotKind;
+}
+
+/** Plot every row that has coordinates, in group order, capped overall. */
+export function buildMarketDots(groups: MarketDotGroup[], cap = 500): MarketDot[] {
   const dots: MarketDot[] = [];
-  const groups = [
-    [listings, "listing"],
-    [professionals, "professional"],
-  ] as const;
-  for (const [rows, kind] of groups) {
+  for (const { rows, kind } of groups) {
     for (const row of rows) {
       if (dots.length >= cap) return dots;
       if (!Number.isFinite(row.latitude) || !Number.isFinite(row.longitude)) continue;

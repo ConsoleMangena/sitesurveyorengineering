@@ -2459,8 +2459,63 @@ export type Database = {
       }
     }
     Views: {
+      public_market_events: {
+        Row: {
+          certification_body: string | null
+          created_at: string
+          currency: string
+          description: string | null
+          ends_at: string | null
+          id: string
+          kind: string
+          location: string
+          price: number
+          provider: string
+          seats_left: number | null
+          starts_at: string
+          title: string
+          latitude: number | null
+          longitude: number | null
+        }
+        Relationships: []
+      }
+      public_market_firms: {
+        Row: {
+          about: string | null
+          created_at: string
+          founded_year: number | null
+          id: string
+          latitude: number | null
+          location: string
+          longitude: number | null
+          name: string
+          services: string[] | null
+          staff_count: number | null
+          verified: boolean
+        }
+        Relationships: []
+      }
+      public_market_jobs: {
+        Row: {
+          created_at: string
+          currency: string
+          description: string | null
+          discipline: string
+          employment_type: string
+          id: string
+          latitude: number | null
+          location: string
+          longitude: number | null
+          rate: number | null
+          rate_per: string | null
+          requirements: string[] | null
+          title: string
+        }
+        Relationships: []
+      }
       public_market_listings: {
         Row: {
+          category: string
           condition: string
           created_at: string
           currency: string
@@ -2483,6 +2538,7 @@ export type Database = {
           availability: string
           bio: string | null
           certifications: string[] | null
+          created_at: string
           currency: string
           discipline: string
           experience: string

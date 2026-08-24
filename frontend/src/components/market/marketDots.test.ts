@@ -4,6 +4,7 @@ import {
   MARKET_DOT_COLORS,
   toFeatureCollection,
   type MarketDot,
+  type MarketDotGroup,
 } from "./marketDots";
 
 function row(id: string, overrides: Record<string, unknown> = {}) {
@@ -17,17 +18,27 @@ function row(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
+function group(
+  rows: ReturnType<typeof row>[],
+  kind: MarketDotGroup["kind"],
+): MarketDotGroup {
+  return { rows, kind };
+}
+
 describe("buildMarketDots", () => {
   it("drops rows without finite coordinates", () => {
-    const dots = buildMarketDots(
-      [row("a"), row("b", { latitude: null })],
-      [row("c", { longitude: NaN })],
-    );
+    const dots = buildMarketDots([
+      group([row("a"), row("b", { latitude: null })], "listing"),
+      group([row("c", { longitude: NaN })], "professional"),
+    ]);
     expect(dots.map((d) => d.id)).toEqual(["a"]);
   });
 
   it("tags kinds and maps coordinates", () => {
-    const dots = buildMarketDots([row("a")], [row("p")]);
+    const dots = buildMarketDots([
+      group([row("a")], "listing"),
+      group([row("p")], "professional"),
+    ]);
     expect(dots).toEqual([
       {
         kind: "listing",
@@ -48,15 +59,37 @@ describe("buildMarketDots", () => {
     ]);
   });
 
-  it("caps the total across both kinds, listings first", () => {
+  it("supports all five directory kinds", () => {
+    const dots = buildMarketDots([
+      group([row("a")], "listing"),
+      group([row("p")], "professional"),
+      group([row("j")], "job"),
+      group([row("f")], "firm"),
+      group([row("e")], "event"),
+    ]);
+    expect(dots.map((d) => d.kind)).toEqual([
+      "listing",
+      "professional",
+      "job",
+      "firm",
+      "event",
+    ]);
+  });
+
+  it("caps the total across groups, in group order", () => {
     const listings = ["a", "b"].map((i) => row(i));
     const professionals = ["p", "q"].map((i) => row(i));
-    const dots = buildMarketDots(listings, professionals, 3);
+    const dots = buildMarketDots(
+      [group(listings, "listing"), group(professionals, "professional")],
+      3,
+    );
     expect(dots.map((d) => d.id)).toEqual(["a", "b", "p"]);
   });
 
   it("treats a null location as an empty string", () => {
-    const dots = buildMarketDots([row("a", { location: null })], []);
+    const dots = buildMarketDots([
+      group([row("a", { location: null })], "listing"),
+    ]);
     expect(dots[0]?.location).toBe("");
   });
 });
@@ -80,8 +113,11 @@ describe("toFeatureCollection", () => {
 });
 
 describe("MARKET_DOT_COLORS", () => {
-  it("uses amber for listings and cyan for professionals", () => {
+  it("keeps one stable hue per directory kind", () => {
     expect(MARKET_DOT_COLORS.listing).toBe("#f59e0b");
     expect(MARKET_DOT_COLORS.professional).toBe("#06b6d4");
+    expect(MARKET_DOT_COLORS.job).toBe("#8b5cf6");
+    expect(MARKET_DOT_COLORS.firm).toBe("#10b981");
+    expect(MARKET_DOT_COLORS.event).toBe("#f43f5e");
   });
 });

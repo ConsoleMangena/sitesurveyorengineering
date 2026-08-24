@@ -2,30 +2,39 @@
 Design contract — /market public surface (REVISED after user review: light
 theme pinned over the earlier mission-control dark world): THESIS: the open
 market as a live directory — an edge-to-edge light basemap globe carrying the
-headline over a legibility scrim, followed by divided registry rows instead
-of card grids. OWN-WORLD: app shadcn tokens throughout (background, card,
-muted, border, primary); amber=listings / cyan=professionals survive as pin,
-tick, legend and hover accents; tabular numerals for prices/rates/counts;
-no custom display face. STORY: visitor sees Earth and its pinned activity in
-seconds, reads scale from HUD pills, filters/searches the paginated registry
-(Previous / Next sections, 5 rows per page), opens a
-detail dialog with a sign-in path. FIRST VIEWPORT: slim sticky header, then
-the full-width globe at ~68vh with the display heading bottom-left over a
-scrim, telemetry pill top-left, legend pill bottom-right, cursor coordinate
-pill top-right. SIGNATURE: live lat/lng readout tracking the cursor; pins
-reveal once like acquired plots. FINISH: unreviewed and undocumented is
-unfinished; this build ends with the finish review, the verdict, and
-DESIGN.md.
+headline over a legibility scrim, a market-pulse stat strip (including live
+USDC/SOL Solana rates), then divided registry rows instead of card grids.
+OWN-WORLD: app shadcn tokens throughout (background, card, muted, border,
+primary); one accent hue per directory kind carried from data — amber =
+listings/instruments, cyan = professionals, violet = jobs, emerald = firms,
+rose = training — echoed in pins, ticks, legend, stat cards and hover tints;
+tabular numerals for prices/rates/counts; no custom display face. STORY:
+visitor sees Earth and its pinned activity in seconds, reads scale from the
+pulse strip and HUD pills, narrows by kind/location/sort, paginates through
+registry sections (Previous / Next), opens a detail dialog with a sign-in
+path. FIRST VIEWPORT: slim sticky header, then the full-width globe at ~68vh
+with the display heading bottom-left over a scrim, telemetry pill top-left,
+legend bottom-right, cursor coordinate pill top-right. SIGNATURE: live
+lat/lng readout tracking the cursor; pins reveal once like acquired plots;
+day-rate benchmark chips computed live from hire listings. FINISH:
+unreviewed and undocumented is unfinished; this build ends with the finish
+review, the verdict, and DESIGN.md.
 */
 import { lazy, Suspense, useCallback, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
+  ArrowDownWideNarrow,
+  BadgeCheck,
   Briefcase,
+  Building2,
+  CalendarDays,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Globe2,
+  GraduationCap,
+  HardHat,
   MapPin,
   RefreshCw,
   Search,
@@ -33,11 +42,13 @@ import {
 } from "lucide-react";
 import { supabase } from "../../lib/supabase/client.ts";
 import { useAsyncAction } from "../../hooks/useAsyncAction.ts";
+import { useCryptoRates } from "../../hooks/useCryptoRates.ts";
 import type { Database } from "../../lib/supabase/types.ts";
 import {
   buildMarketDots,
   MARKET_DOT_COLORS,
   type MarketDot,
+  type MarketDotKind,
 } from "../../components/market/marketDots";
 import { Button } from "../../components/ui/button.tsx";
 import {
@@ -56,8 +67,21 @@ const PublicMarketGlobe = lazy(
 type ListingRow = Database["public"]["Views"]["public_market_listings"]["Row"];
 type ProfessionalRow =
   Database["public"]["Views"]["public_market_professionals"]["Row"];
+type JobRow = Database["public"]["Views"]["public_market_jobs"]["Row"];
+type FirmRow = Database["public"]["Views"]["public_market_firms"]["Row"];
+type EventRow = Database["public"]["Views"]["public_market_events"]["Row"];
 
-type Scope = "all" | "listing" | "professional";
+interface MarketData {
+  listings: ListingRow[];
+  professionals: ProfessionalRow[];
+  jobs: JobRow[];
+  firms: FirmRow[];
+  events: EventRow[];
+}
+
+type Scope = "all" | "listing" | "professional" | "job" | "firm" | "event";
+type SortKey = "newest" | "price-asc" | "price-desc";
+type ListingCategory = "all" | "instrument" | "accessory";
 
 interface LoadFailure {
   reason: "timeout" | "error";
@@ -70,6 +94,8 @@ const FETCH_TIMEOUT_MS = 12_000;
 /** Registry rows per page — keeps the list scannable instead of endless. */
 const REGISTRY_PAGE_SIZE = 5;
 
+const NEW_WINDOW_MS = 7 * 24 * 60 * 60_000;
+
 function matches(
   term: string,
   haystack: (string | null | undefined)[],
@@ -79,21 +105,48 @@ function matches(
   return haystack.some((field) => (field ?? "").toLowerCase().includes(needle));
 }
 
+/** "Harare, Zimbabwe" -> "Zimbabwe"; single-part locations pass through. */
+function countryOf(location: string): string {
+  const parts = location.split(",");
+  return parts[parts.length - 1].trim();
+}
+
+function isNew(createdAt: string | null | undefined): boolean {
+  if (!createdAt) return false;
+  const time = Date.parse(createdAt);
+  if (!Number.isFinite(time)) return false;
+  const age = Date.now() - time;
+  return age >= 0 && age < NEW_WINDOW_MS;
+}
+
+function formatDate(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
 export default function PublicMarketPage() {
-  const [listings, setListings] = useState<ListingRow[] | null>(null);
-  const [professionals, setProfessionals] = useState<ProfessionalRow[] | null>(
-    null,
-  );
+  const [data, setData] = useState<MarketData | null>(null);
   const [failure, setFailure] = useState<LoadFailure | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [search, setSearch] = useState("");
   const [scope, setScope] = useState<Scope>("all");
+  const [locationFilter, setLocationFilter] = useState<string | null>(null);
+  const [sort, setSort] = useState<SortKey>("newest");
+  const [listingCategory, setListingCategory] = useState<ListingCategory>("all");
   const [listingPage, setListingPage] = useState(1);
   const [professionalPage, setProfessionalPage] = useState(1);
+  const [jobPage, setJobPage] = useState(1);
+  const [firmPage, setFirmPage] = useState(1);
+  const [eventPage, setEventPage] = useState(1);
   const registryRef = useRef<HTMLDivElement | null>(null);
-  const [selectedId, setSelectedId] = useState<{ kind: MarketDot["kind"]; id: string } | null>(
-    null,
-  );
+  const [selectedId, setSelectedId] = useState<{
+    kind: MarketDotKind;
+    id: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     const controller = new AbortController();
@@ -102,21 +155,49 @@ export default function PublicMarketPage() {
       FETCH_TIMEOUT_MS,
     );
     try {
-      const [listingsRes, professionalsRes] = await Promise.all([
-        supabase
-          .from("public_market_listings")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .abortSignal(controller.signal),
-        supabase
-          .from("public_market_professionals")
-          .select("*")
-          .abortSignal(controller.signal),
-      ]);
-      if (listingsRes.error) throw listingsRes.error;
-      if (professionalsRes.error) throw professionalsRes.error;
-      setListings(listingsRes.data ?? []);
-      setProfessionals(professionalsRes.data ?? []);
+      const [listingsRes, professionalsRes, jobsRes, firmsRes, eventsRes] =
+        await Promise.all([
+          supabase
+            .from("public_market_listings")
+            .select("*")
+            .order("created_at", { ascending: false })
+            .abortSignal(controller.signal),
+          supabase
+            .from("public_market_professionals")
+            .select("*")
+            .abortSignal(controller.signal),
+          supabase
+            .from("public_market_jobs")
+            .select("*")
+            .order("created_at", { ascending: false })
+            .abortSignal(controller.signal),
+          supabase
+            .from("public_market_firms")
+            .select("*")
+            .order("created_at", { ascending: false })
+            .abortSignal(controller.signal),
+          supabase
+            .from("public_market_events")
+            .select("*")
+            .order("starts_at", { ascending: true })
+            .abortSignal(controller.signal),
+        ]);
+      for (const res of [
+        listingsRes,
+        professionalsRes,
+        jobsRes,
+        firmsRes,
+        eventsRes,
+      ]) {
+        if (res.error) throw res.error;
+      }
+      setData({
+        listings: listingsRes.data ?? [],
+        professionals: professionalsRes.data ?? [],
+        jobs: jobsRes.data ?? [],
+        firms: firmsRes.data ?? [],
+        events: eventsRes.data ?? [],
+      });
       setFailure(null);
     } catch (error) {
       const aborted =
@@ -125,8 +206,7 @@ export default function PublicMarketPage() {
       const postgrestError = error as { code?: string; message?: string };
       setFailure({
         reason: aborted ? "timeout" : "error",
-        message:
-          !aborted ? (postgrestError.message ?? "Unknown error") : "",
+        message: !aborted ? (postgrestError.message ?? "Unknown error") : "",
         missingRelation:
           !aborted &&
           (postgrestError.code === "42P01" ||
@@ -146,89 +226,375 @@ export default function PublicMarketPage() {
   // Reset to the loading state synchronously here (event handler, not render)
   // so the globe and registry show placeholders while refetching.
   const retry = useCallback(() => {
-    setListings(null);
-    setProfessionals(null);
+    setData(null);
     setFailure(null);
     setAttempt((value) => value + 1);
   }, []);
 
-  const failed = failure !== null;
+  const resetRegistryPages = () => {
+    setListingPage(1);
+    setProfessionalPage(1);
+    setJobPage(1);
+    setFirmPage(1);
+    setEventPage(1);
+  };
 
-  const dots = useMemo(
-    () =>
-      listings !== null && professionals !== null
-        ? buildMarketDots(listings, professionals)
-        : null,
-    [listings, professionals],
+  const failed = failure !== null;
+  const loading = data === null;
+
+  // ── Derived: locations ──
+
+  const allLocations = useMemo(() => {
+    if (!data) return [];
+    return [
+      ...data.listings,
+      ...data.professionals,
+      ...data.jobs,
+      ...data.firms,
+    ].map((row) => row.location);
+  }, [data]);
+
+  const countries = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const location of allLocations) {
+      const country = countryOf(location);
+      if (!country) continue;
+      counts.set(country, (counts.get(country) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 12);
+  }, [allLocations]);
+
+  const inLocation = useCallback(
+    (location: string) =>
+      locationFilter === null || countryOf(location) === locationFilter,
+    [locationFilter],
   );
+
+  // ── Derived: registry rows (search + location [+ category]) ──
 
   const filteredListings = useMemo(
     () =>
-      (listings ?? []).filter((row) =>
-        matches(search, [
-          row.name,
-          row.type,
-          row.seller,
-          row.location,
-          row.description,
-        ]),
-      ),
-    [listings, search],
+      (data?.listings ?? [])
+        .filter(
+          (row) =>
+            (listingCategory === "all" || row.category === listingCategory) &&
+            inLocation(row.location),
+        )
+        .filter((row) =>
+          matches(search, [
+            row.name,
+            row.type,
+            row.seller,
+            row.location,
+            row.description,
+          ]),
+        ),
+    [data, search, listingCategory, inLocation],
   );
+
   const filteredProfessionals = useMemo(
     () =>
-      (professionals ?? []).filter((row) =>
-        matches(search, [
-          row.name,
-          row.title,
-          row.discipline,
-          row.location,
-          row.bio,
-        ]),
-      ),
-    [professionals, search],
+      (data?.professionals ?? [])
+        .filter((row) => inLocation(row.location))
+        .filter((row) =>
+          matches(search, [
+            row.name,
+            row.title,
+            row.discipline,
+            row.location,
+            row.bio,
+          ]),
+        ),
+    [data, search, inLocation],
   );
 
-  const showListings = scope !== "professional";
-  const showProfessionals = scope !== "listing";
-  const loading = listings === null || professionals === null;
+  const filteredJobs = useMemo(
+    () =>
+      (data?.jobs ?? [])
+        .filter((row) => inLocation(row.location))
+        .filter((row) =>
+          matches(search, [
+            row.title,
+            row.discipline,
+            row.location,
+            row.description,
+          ]),
+        ),
+    [data, search, inLocation],
+  );
 
-  // Clamp during render (no effects): filtering can shrink the page count.
-  const listingPageCount = Math.max(
-    1,
-    Math.ceil(filteredListings.length / REGISTRY_PAGE_SIZE),
+  const filteredFirms = useMemo(
+    () =>
+      (data?.firms ?? [])
+        .filter((row) => inLocation(row.location))
+        .filter((row) => matches(search, [row.name, row.location, row.about])),
+    [data, search, inLocation],
   );
-  const professionalPageCount = Math.max(
-    1,
-    Math.ceil(filteredProfessionals.length / REGISTRY_PAGE_SIZE),
+
+  const filteredEvents = useMemo(
+    () =>
+      (data?.events ?? [])
+        .filter((row) => inLocation(row.location))
+        .filter((row) =>
+          matches(search, [
+            row.title,
+            row.provider,
+            row.kind,
+            row.location,
+            row.description,
+          ]),
+        ),
+    [data, search, inLocation],
   );
-  const safeListingPage = Math.min(listingPage, listingPageCount);
-  const safeProfessionalPage = Math.min(professionalPage, professionalPageCount);
-  const listingSlice = filteredListings.slice(
-    (safeListingPage - 1) * REGISTRY_PAGE_SIZE,
-    safeListingPage * REGISTRY_PAGE_SIZE,
+
+  // ── Derived: sorting (price where it exists; events lead with schedule) ──
+
+  const priceDir = sort === "price-asc" ? 1 : -1;
+
+  const sortedListings = useMemo(() => {
+    const rows = [...filteredListings];
+    if (sort === "newest") {
+      rows.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    } else {
+      rows.sort((a, b) => (a.price - b.price) * priceDir);
+    }
+    return rows;
+  }, [filteredListings, sort, priceDir]);
+
+  const sortedProfessionals = useMemo(() => {
+    const rows = [...filteredProfessionals];
+    if (sort === "newest") {
+      rows.sort((a, b) =>
+        (b.created_at ? Date.parse(b.created_at) : 0) -
+        (a.created_at ? Date.parse(a.created_at) : 0),
+      );
+    } else {
+      rows.sort((a, b) => (a.rate - b.rate) * priceDir);
+    }
+    return rows;
+  }, [filteredProfessionals, sort, priceDir]);
+
+  const sortedJobs = useMemo(() => {
+    const rows = [...filteredJobs];
+    if (sort === "newest") {
+      rows.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    } else {
+      rows.sort(
+        (a, b) =>
+          ((a.rate ?? Number.MAX_SAFE_INTEGER) -
+            (b.rate ?? Number.MAX_SAFE_INTEGER)) * priceDir,
+      );
+    }
+    return rows;
+  }, [filteredJobs, sort, priceDir]);
+
+  const sortedFirms = useMemo(() => {
+    const rows = [...filteredFirms];
+    if (sort === "newest") {
+      rows.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+    } else {
+      rows.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return rows;
+  }, [filteredFirms, sort]);
+
+  const sortedEvents = useMemo(() => {
+    const rows = [...filteredEvents];
+    if (sort === "newest") {
+      rows.sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
+    } else {
+      rows.sort((a, b) => (a.price - b.price) * priceDir);
+    }
+    return rows;
+  }, [filteredEvents, sort, priceDir]);
+
+  // ── Derived: pagination (clamped during render; no effects) ──
+
+  const pageCount = (total: number) =>
+    Math.max(1, Math.ceil(total / REGISTRY_PAGE_SIZE));
+
+  const listingPageCount = pageCount(sortedListings.length);
+  const professionalPageCount = pageCount(sortedProfessionals.length);
+  const jobPageCount = pageCount(sortedJobs.length);
+  const firmPageCount = pageCount(sortedFirms.length);
+  const eventPageCount = pageCount(sortedEvents.length);
+
+  const sliceFor = <T,>(rows: T[], rawPage: number, count: number): T[] => {
+    const page = Math.min(rawPage, count);
+    return rows.slice((page - 1) * REGISTRY_PAGE_SIZE, page * REGISTRY_PAGE_SIZE);
+  };
+
+  const listingSlice = sliceFor(sortedListings, listingPage, listingPageCount);
+  const professionalSlice = sliceFor(
+    sortedProfessionals,
+    professionalPage,
+    professionalPageCount,
   );
-  const professionalSlice = filteredProfessionals.slice(
-    (safeProfessionalPage - 1) * REGISTRY_PAGE_SIZE,
-    safeProfessionalPage * REGISTRY_PAGE_SIZE,
+  const jobSlice = sliceFor(sortedJobs, jobPage, jobPageCount);
+  const firmSlice = sliceFor(sortedFirms, firmPage, firmPageCount);
+  const eventSlice = sliceFor(sortedEvents, eventPage, eventPageCount);
+
+  // ── Derived: globe dots (scope + location; search stays a registry tool) ──
+
+  const toSource = (
+    row: { id: string; location: string; latitude: number | null; longitude: number | null } & {
+      name?: string;
+      title?: string;
+    },
+  ) => ({
+    id: row.id,
+    name: row.name ?? row.title ?? "",
+    location: row.location,
+    latitude: row.latitude,
+    longitude: row.longitude,
+  });
+
+  const inScopeLocation = useCallback(
+    (row: { location: string }) => inLocation(row.location),
+    [inLocation],
   );
+
+  const scopeGroups = useMemo(() => {
+    const all = {
+      listings: data?.listings ?? [],
+      professionals: data?.professionals ?? [],
+      jobs: data?.jobs ?? [],
+      firms: data?.firms ?? [],
+      events: data?.events ?? [],
+    };
+    const scoped = scope === "all"
+      ? all
+      : {
+          listings: scope === "listing" ? all.listings : [],
+          professionals: scope === "professional" ? all.professionals : [],
+          jobs: scope === "job" ? all.jobs : [],
+          firms: scope === "firm" ? all.firms : [],
+          events: scope === "event" ? all.events : [],
+        };
+    return [
+      { rows: scoped.listings.filter(inScopeLocation).map(toSource), kind: "listing" as const },
+      { rows: scoped.professionals.filter(inScopeLocation).map(toSource), kind: "professional" as const },
+      { rows: scoped.jobs.filter(inScopeLocation).map(toSource), kind: "job" as const },
+      { rows: scoped.firms.filter(inScopeLocation).map(toSource), kind: "firm" as const },
+      { rows: scoped.events.filter(inScopeLocation).map(toSource), kind: "event" as const },
+    ];
+  }, [data, scope, inScopeLocation]);
+
+  const dots = useMemo(
+    () => (loading ? null : buildMarketDots(scopeGroups)),
+    [loading, scopeGroups],
+  );
+  const totalPoints = useMemo(() => {
+    if (!data) return 0;
+    return buildMarketDots([
+      { rows: data.listings.map(toSource), kind: "listing" },
+      { rows: data.professionals.map(toSource), kind: "professional" },
+      { rows: data.jobs.map(toSource), kind: "job" },
+      { rows: data.firms.map(toSource), kind: "firm" },
+      { rows: data.events.map(toSource), kind: "event" },
+    ]).length;
+  }, [data]);
+
+  // ── Derived: pulse stats + benchmarks ──
+
+  const addedThisWeek = useMemo(() => {
+    if (!data) return 0;
+    return [
+      data.listings,
+      data.professionals.map((row) => ({ created_at: row.created_at ?? "" })),
+      data.jobs,
+      data.firms,
+      data.events,
+    ]
+      .flat()
+      .filter((row) => isNew(row.created_at)).length;
+  }, [data]);
+
+  const benchmarks = useMemo(() => {
+    const hireRows = filteredListings.filter(
+      (row) => row.listing_type === "hire",
+    );
+    const groups = new Map<string, number[]>();
+    for (const row of hireRows) {
+      const bucket = groups.get(row.type) ?? [];
+      bucket.push(row.price);
+      groups.set(row.type, bucket);
+    }
+    return [...groups.entries()]
+      .map(([type, prices]) => {
+        prices.sort((a, b) => a - b);
+        const mid = Math.floor(prices.length / 2);
+        const median =
+          prices.length % 2 === 1
+            ? prices[mid]
+            : (prices[mid - 1] + prices[mid]) / 2;
+        return { type, median, count: prices.length };
+      })
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 4);
+  }, [filteredListings]);
+
+  // ── Detail selection ──
 
   const scrollToRegistry = () => {
     registryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const selectedDot: MarketDot | null = useMemo(() => {
-    if (!selectedId) return null;
-    return dotOf(listings ?? [], professionals ?? [], selectedId.kind, selectedId.id);
-  }, [selectedId, listings, professionals]);
+    if (!selectedId || !data) return null;
+    const findIn = <
+      T extends { id: string; location: string; latitude: number | null; longitude: number | null },
+    >(
+      rows: T[],
+    ) => rows.find((row) => row.id === selectedId.id);
+    const source =
+      selectedId.kind === "listing"
+        ? findIn(data.listings)
+        : selectedId.kind === "professional"
+          ? findIn(data.professionals)
+          : selectedId.kind === "job"
+            ? findIn(data.jobs)
+            : selectedId.kind === "firm"
+              ? findIn(data.firms)
+              : findIn(data.events);
+    if (!source || source.latitude == null || source.longitude == null) {
+      return null;
+    }
+    return {
+      kind: selectedId.kind,
+      id: source.id,
+      name: "name" in source ? source.name : source.title,
+      location: source.location,
+      lat: source.latitude,
+      lng: source.longitude,
+    };
+  }, [selectedId, data]);
   const selectedListing =
     selectedId?.kind === "listing"
-      ? (listings ?? []).find((row) => row.id === selectedId.id) ?? null
+      ? (data?.listings ?? []).find((row) => row.id === selectedId.id) ?? null
       : null;
   const selectedProfessional =
     selectedId?.kind === "professional"
-      ? (professionals ?? []).find((row) => row.id === selectedId.id) ?? null
+      ? (data?.professionals ?? []).find((row) => row.id === selectedId.id) ??
+        null
       : null;
+  const selectedJob =
+    selectedId?.kind === "job"
+      ? (data?.jobs ?? []).find((row) => row.id === selectedId.id) ?? null
+      : null;
+  const selectedFirm =
+    selectedId?.kind === "firm"
+      ? (data?.firms ?? []).find((row) => row.id === selectedId.id) ?? null
+      : null;
+  const selectedEvent =
+    selectedId?.kind === "event"
+      ? (data?.events ?? []).find((row) => row.id === selectedId.id) ?? null
+      : null;
+
+  const showPanel = (kind: Exclude<Scope, "all">) =>
+    scope === "all" || scope === kind;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -256,8 +622,7 @@ export default function PublicMarketPage() {
         <Suspense fallback={<div className="h-[68vh] min-h-[480px] w-full bg-muted/40" />}>
           <PublicMarketGlobe
             dots={dots}
-            totalListings={listings?.length ?? 0}
-            totalProfessionals={professionals?.length ?? 0}
+            totalPoints={totalPoints}
             failed={failed}
             onSelect={(dot) => setSelectedId({ kind: dot.kind, id: dot.id })}
             onRetry={retry}
@@ -268,8 +633,8 @@ export default function PublicMarketPage() {
                   The open surveying market.
                 </h1>
                 <p className="mt-3 max-w-lg text-sm leading-relaxed text-white/85 sm:text-base">
-                  Instruments for sale or hire and survey professionals
-                  worldwide — published live by SiteSurveyor workspaces. No
+                  Instruments, professionals, jobs, firms, and training —
+                  published live by SiteSurveyor workspaces worldwide. No
                   account needed to browse.
                 </p>
               </div>
@@ -278,7 +643,7 @@ export default function PublicMarketPage() {
               type="button"
               onClick={scrollToRegistry}
               aria-label="Scroll to the registry"
-              className="absolute bottom-8 right-4 hidden flex-col items-center gap-1 text-white/85 transition-colors hover:text-white sm:right-6 md:flex"
+              className="absolute bottom-8 right-4 hidden flex-col items-center gap-1 text-white/85 transition-colors hover:text-white md:flex lg:hidden"
             >
               <span className="text-[11px] font-medium tracking-widest drop-shadow-sm">
                 REGISTRY
@@ -288,52 +653,126 @@ export default function PublicMarketPage() {
           </PublicMarketGlobe>
         </Suspense>
 
+        {!failed && !loading ? (
+          <MarketPulseStrip data={data} addedThisWeek={addedThisWeek} />
+        ) : null}
+
         <section ref={registryRef} className="mx-auto w-full max-w-6xl scroll-mt-16 space-y-12 px-4 py-12 sm:px-6 sm:py-16">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div role="group" aria-label="Filter by kind" className="inline-flex w-fit rounded-lg bg-muted p-1">
-              {(
-                [
-                  ["all", "Everything", listings?.length, professionals?.length],
-                  ["listing", "Listings", listings?.length, undefined],
-                  ["professional", "Professionals", undefined, professionals?.length],
-                ] as const
-              ).map(([value, label, listingCount, professionalCount]) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={scope === value}
-                  onClick={() => setScope(value)}
-                  className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-                    scope === value
-                      ? "bg-background font-medium text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div role="group" aria-label="Filter by kind" className="inline-flex w-fit flex-wrap gap-1 rounded-lg bg-muted p-1">
+                {(
+                  [
+                    ["all", "Everything", true],
+                    ["listing", "Listings", true],
+                    ["professional", "Professionals", true],
+                    ["job", "Jobs", true],
+                    ["firm", "Firms", true],
+                    ["event", "Training", true],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={scope === value}
+                    onClick={() => setScope(value)}
+                    className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                      scope === value
+                        ? "bg-background font-medium text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {label}
+                    {value !== "all" ? (
+                      <span className="ml-2 font-mono text-xs tabular-nums text-muted-foreground">
+                        {(value === "listing" && data?.listings.length) ||
+                          (value === "professional" &&
+                            data?.professionals.length) ||
+                          (value === "job" && data?.jobs.length) ||
+                          (value === "firm" && data?.firms.length) ||
+                          (value === "event" && data?.events.length) || 0}
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+              <div className="flex w-full items-center gap-2 lg:w-auto">
+                <div className="relative min-w-0 flex-1 lg:w-[320px]">
+                  <Search
+                    className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <Input
+                    placeholder="Search instruments, people, places…"
+                    value={search}
+                    onChange={(event) => {
+                      setSearch(event.target.value);
+                      resetRegistryPages();
+                    }}
+                    className="pl-9"
+                  />
+                </div>
+                <label className="relative shrink-0">
+                  <span className="sr-only">Sort results</span>
+                  <ArrowDownWideNarrow
+                    className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <select
+                    value={sort}
+                    onChange={(event) =>
+                      setSort(event.target.value as SortKey)
+                    }
+                    className="h-9 appearance-none rounded-md border border-input bg-transparent py-1 pl-9 pr-8 text-sm shadow-xs transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                  >
+                    <option value="newest">Newest first</option>
+                    <option value="price-asc">Price: low to high</option>
+                    <option value="price-desc">Price: high to low</option>
+                  </select>
+                  <ChevronDown
+                    className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {countries.length > 1 ? (
+              <div
+                role="group"
+                aria-label="Filter by location"
+                className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
+              >
+                <Chip
+                  active={locationFilter === null}
+                  onClick={() => {
+                    setLocationFilter(null);
+                    resetRegistryPages();
+                  }}
                 >
-                  {label}
-                  {listingCount !== undefined || professionalCount !== undefined ? (
-                    <span className="ml-2 font-mono text-xs tabular-nums text-muted-foreground">
-                      {(listingCount ?? 0) + (professionalCount ?? 0)}
+                  All locations
+                </Chip>
+                {countries.map(([country, count]) => (
+                  <Chip
+                    key={country}
+                    active={locationFilter === country}
+                    onClick={() => {
+                      setLocationFilter(country);
+                      resetRegistryPages();
+                    }}
+                  >
+                    {country}
+                    <span className="ml-1.5 font-mono text-xs tabular-nums opacity-70">
+                      {count}
                     </span>
-                  ) : null}
-                </button>
-              ))}
-            </div>
-            <div className="relative w-full lg:w-[320px]">
-              <Search
-                className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                aria-hidden="true"
-              />
-              <Input
-                placeholder="Search instruments, people, places…"
-                value={search}
-                onChange={(event) => {
-                  setSearch(event.target.value);
-                  setListingPage(1);
-                  setProfessionalPage(1);
-                }}
-                className="pl-9"
-              />
-            </div>
+                  </Chip>
+                ))}
+              </div>
+            ) : null}
+
+            {showPanel("listing") && !loading && benchmarks.length > 0 ? (
+              <RateBenchmarks benchmarks={benchmarks} />
+            ) : null}
           </div>
 
           {failed ? (
@@ -345,25 +784,58 @@ export default function PublicMarketPage() {
             </div>
           ) : (
             <>
-              {showListings ? (
+              {showPanel("listing") ? (
                 <RegistryPanel
                   title="Listings"
-                  count={filteredListings.length}
+                  count={sortedListings.length}
                   emptyLabel={
-                    (listings ?? []).length === 0
+                    (data?.listings ?? []).length === 0
                       ? "No instruments published yet."
                       : "No listings match your search."
                   }
-                  isEmpty={filteredListings.length === 0}
+                  isEmpty={sortedListings.length === 0}
                   pagination={
                     <Pagination
-                      page={safeListingPage}
+                      page={Math.min(listingPage, listingPageCount)}
                       pageCount={listingPageCount}
                       onPage={setListingPage}
                       ariaLabel="Listings pagination"
                     />
                   }
                 >
+                  <div className="flex gap-2 border-b border-border/60 bg-muted/40 px-4 py-2.5">
+                    {(
+                      [
+                        ["all", "Everything"],
+                        ["instrument", "Instruments"],
+                        ["accessory", "Accessories"],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        aria-pressed={listingCategory === value}
+                        onClick={() => {
+                          setListingCategory(value);
+                          setListingPage(1);
+                        }}
+                        className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
+                          listingCategory === value
+                            ? "bg-primary font-medium text-primary-foreground"
+                            : "border border-border bg-background text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {label}
+                        <span className="ml-1.5 font-mono tabular-nums opacity-70">
+                          {value === "all"
+                            ? (data?.listings ?? []).length
+                            : (data?.listings ?? []).filter(
+                                (row) => row.category === value,
+                              ).length}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                   {listingSlice.map((row) => (
                     <ListingRowItem
                       key={row.id}
@@ -376,19 +848,19 @@ export default function PublicMarketPage() {
                 </RegistryPanel>
               ) : null}
 
-              {showProfessionals ? (
+              {showPanel("professional") ? (
                 <RegistryPanel
                   title="Professionals"
-                  count={filteredProfessionals.length}
+                  count={sortedProfessionals.length}
                   emptyLabel={
-                    (professionals ?? []).length === 0
+                    (data?.professionals ?? []).length === 0
                       ? "No professionals published yet."
                       : "No professionals match your search."
                   }
-                  isEmpty={filteredProfessionals.length === 0}
+                  isEmpty={sortedProfessionals.length === 0}
                   pagination={
                     <Pagination
-                      page={safeProfessionalPage}
+                      page={Math.min(professionalPage, professionalPageCount)}
                       pageCount={professionalPageCount}
                       onPage={setProfessionalPage}
                       ariaLabel="Professionals pagination"
@@ -406,6 +878,97 @@ export default function PublicMarketPage() {
                   ))}
                 </RegistryPanel>
               ) : null}
+
+              {showPanel("job") ? (
+                <RegistryPanel
+                  title="Open Jobs"
+                  count={sortedJobs.length}
+                  emptyLabel={
+                    (data?.jobs ?? []).length === 0
+                      ? "No jobs published yet."
+                      : "No jobs match your search."
+                  }
+                  isEmpty={sortedJobs.length === 0}
+                  pagination={
+                    <Pagination
+                      page={Math.min(jobPage, jobPageCount)}
+                      pageCount={jobPageCount}
+                      onPage={setJobPage}
+                      ariaLabel="Jobs pagination"
+                    />
+                  }
+                >
+                  {jobSlice.map((row) => (
+                    <JobRowItem
+                      key={row.id}
+                      row={row}
+                      onOpen={() => setSelectedId({ kind: "job", id: row.id })}
+                    />
+                  ))}
+                </RegistryPanel>
+              ) : null}
+
+              {showPanel("firm") ? (
+                <RegistryPanel
+                  title="Survey Firms"
+                  count={sortedFirms.length}
+                  emptyLabel={
+                    (data?.firms ?? []).length === 0
+                      ? "No firms listed yet."
+                      : "No firms match your search."
+                  }
+                  isEmpty={sortedFirms.length === 0}
+                  pagination={
+                    <Pagination
+                      page={Math.min(firmPage, firmPageCount)}
+                      pageCount={firmPageCount}
+                      onPage={setFirmPage}
+                      ariaLabel="Firms pagination"
+                    />
+                  }
+                >
+                  {firmSlice.map((row) => (
+                    <FirmRowItem
+                      key={row.id}
+                      row={row}
+                      onOpen={() =>
+                        setSelectedId({ kind: "firm", id: row.id })
+                      }
+                    />
+                  ))}
+                </RegistryPanel>
+              ) : null}
+
+              {showPanel("event") ? (
+                <RegistryPanel
+                  title="Training & Events"
+                  count={sortedEvents.length}
+                  emptyLabel={
+                    (data?.events ?? []).length === 0
+                      ? "No training published yet."
+                      : "No training matches your search."
+                  }
+                  isEmpty={sortedEvents.length === 0}
+                  pagination={
+                    <Pagination
+                      page={Math.min(eventPage, eventPageCount)}
+                      pageCount={eventPageCount}
+                      onPage={setEventPage}
+                      ariaLabel="Training pagination"
+                    />
+                  }
+                >
+                  {eventSlice.map((row) => (
+                    <EventRowItem
+                      key={row.id}
+                      row={row}
+                      onOpen={() =>
+                        setSelectedId({ kind: "event", id: row.id })
+                      }
+                    />
+                  ))}
+                </RegistryPanel>
+              ) : null}
             </>
           )}
         </section>
@@ -414,25 +977,28 @@ export default function PublicMarketPage() {
       <footer className="border-t border-border/60 py-8">
         <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 sm:px-6">
           <p className="text-xs text-muted-foreground">
-            Published by SiteSurveyor workspaces · refreshes live
+            Published by SiteSurveyor workspaces · refreshes live · rates via
+            CoinGecko
           </p>
-          <p className="flex items-center gap-4 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1.5">
-              <span
-                className="size-2 shrink-0 rounded-full"
-                style={{ backgroundColor: MARKET_DOT_COLORS.listing }}
-                aria-hidden="true"
-              />
-              Listings
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span
-                className="size-2 shrink-0 rounded-full"
-                style={{ backgroundColor: MARKET_DOT_COLORS.professional }}
-                aria-hidden="true"
-              />
-              Professionals
-            </span>
+          <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            {(
+              [
+                ["listing", "Listings"],
+                ["professional", "Pros"],
+                ["job", "Jobs"],
+                ["firm", "Firms"],
+                ["event", "Training"],
+              ] as const
+            ).map(([kind, label]) => (
+              <span key={kind} className="flex items-center gap-1.5">
+                <span
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: MARKET_DOT_COLORS[kind] }}
+                  aria-hidden="true"
+                />
+                {label}
+              </span>
+            ))}
           </p>
         </div>
       </footer>
@@ -441,33 +1007,193 @@ export default function PublicMarketPage() {
         dot={selectedDot}
         listing={selectedListing}
         professional={selectedProfessional}
+        job={selectedJob}
+        firm={selectedFirm}
+        event={selectedEvent}
         onClose={() => setSelectedId(null)}
       />
     </div>
   );
 }
 
-function dotOf(
-  listings: ListingRow[],
-  professionals: ProfessionalRow[],
-  kind: MarketDot["kind"],
-  id: string,
-): MarketDot | null {
-  const source =
-    kind === "listing"
-      ? listings.find((row) => row.id === id)
-      : professionals.find((row) => row.id === id);
-  if (!source || source.latitude == null || source.longitude == null) {
-    return null;
+// ── Pulse strip ─────────────────────────────────────────────────────────────
+
+function MarketPulseStrip({
+  data,
+  addedThisWeek,
+}: {
+  data: MarketData;
+  addedThisWeek: number;
+}) {
+  const countrySet = new Set<string>();
+  for (const row of [
+    ...data.listings,
+    ...data.professionals,
+    ...data.jobs,
+    ...data.firms,
+  ]) {
+    countrySet.add(countryOf(row.location));
   }
-  return {
-    kind,
-    id,
-    name: source.name,
-    location: source.location ?? "",
-    lat: source.latitude,
-    lng: source.longitude,
-  };
+
+  const stats: { label: string; value: number; color: string }[] = [
+    { label: "Instruments & gear", value: data.listings.length, color: MARKET_DOT_COLORS.listing },
+    { label: "Professionals", value: data.professionals.length, color: MARKET_DOT_COLORS.professional },
+    { label: "Open jobs", value: data.jobs.length, color: MARKET_DOT_COLORS.job },
+    { label: "Firms", value: data.firms.length, color: MARKET_DOT_COLORS.firm },
+    { label: "Trainings", value: data.events.length, color: MARKET_DOT_COLORS.event },
+    { label: "Countries", value: countrySet.size, color: "" },
+    { label: "Added this week", value: addedThisWeek, color: "" },
+  ];
+
+  return (
+    <section
+      aria-label="Market pulse"
+      className="mx-auto w-full max-w-6xl space-y-3 px-4 pt-10 sm:px-6"
+    >
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+        {stats.map((stat) => (
+          <div
+            key={stat.label}
+            className="rounded-xl border border-border bg-card px-3.5 py-3 shadow-sm"
+          >
+            <p className="flex items-center gap-1.5 font-mono text-xl font-semibold tabular-nums">
+              {stat.color ? (
+                <span
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: stat.color }}
+                  aria-hidden="true"
+                />
+              ) : null}
+              {stat.value}
+            </p>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {stat.label}
+            </p>
+          </div>
+        ))}
+        <CryptoRatesCard />
+      </div>
+    </section>
+  );
+}
+
+function CryptoRatesCard() {
+  const rates = useCryptoRates();
+  return (
+    <div className="col-span-2 rounded-xl border border-border bg-card px-3.5 py-3 shadow-sm sm:col-span-4 lg:col-span-2">
+      <p className="text-xs text-muted-foreground">Solana market rates</p>
+      {rates === null ? (
+        <div className="mt-1.5 animate-pulse space-y-1.5" aria-hidden="true">
+          <div className="h-4 w-24 rounded bg-muted" />
+          <div className="h-4 w-20 rounded bg-muted" />
+        </div>
+      ) : (
+        <dl className="mt-1.5 space-y-1">
+          <RateLine
+            symbol="SOL"
+            rate={rates.sol}
+            digits={2}
+          />
+          <RateLine
+            symbol="USDC"
+            rate={rates.usdc}
+            digits={3}
+          />
+        </dl>
+      )}
+    </div>
+  );
+}
+
+function RateLine({
+  symbol,
+  rate,
+  digits,
+}: {
+  symbol: string;
+  rate: { usd: number; change24h: number };
+  digits: number;
+}) {
+  const up = rate.change24h >= 0;
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <dt className="font-mono text-xs tabular-nums text-muted-foreground">
+        {symbol}/USD
+      </dt>
+      <dd className="font-mono tabular-nums">
+        ${rate.usd.toFixed(digits)}{" "}
+        <span
+          className={`text-xs ${up ? "text-emerald-600" : "text-red-600"}`}
+        >
+          {up ? "+" : ""}
+          {rate.change24h.toFixed(1)}%
+        </span>
+      </dd>
+    </div>
+  );
+}
+
+// ── Benchmarks ──────────────────────────────────────────────────────────────
+
+function RateBenchmarks({
+  benchmarks,
+}: {
+  benchmarks: { type: string; median: number; count: number }[];
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Day-rate benchmarks
+      </span>
+      {benchmarks.map(({ type, median, count }) => (
+        <span
+          key={type}
+          className="rounded-full border border-amber-600/25 bg-amber-500/10 px-2.5 py-1 text-xs"
+        >
+          <span className="font-medium">{type}</span>{" "}
+          <span className="font-mono tabular-nums text-amber-800">
+            ${median.toLocaleString()}
+          </span>
+          <span className="text-muted-foreground">/day · n={count}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ── Shared bits ─────────────────────────────────────────────────────────────
+
+function Chip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs transition-colors ${
+        active
+          ? "border-primary bg-primary font-medium text-primary-foreground"
+          : "border-border bg-card text-muted-foreground hover:border-foreground/25 hover:text-foreground"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function NewBadge() {
+  return (
+    <span className="inline-flex shrink-0 items-center rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+      New
+    </span>
+  );
 }
 
 function LoadErrorPanel({
@@ -490,8 +1216,8 @@ function LoadErrorPanel({
       </p>
       {failure.missingRelation ? (
         <p className="mx-auto mt-3 max-w-md rounded-md border border-amber-600/30 bg-amber-500/10 px-3 py-2 text-left text-xs text-amber-800">
-          public_market views not found — apply backend/sql/0002_public_market.sql
-          (and 0001 before it) to this Supabase project.
+          public_market views not found — apply backend/sql migrations 0001–0004
+          to this Supabase project (supabase db push).
         </p>
       ) : null}
       <Button size="sm" variant="outline" onClick={onRetry} className="mt-5">
@@ -622,11 +1348,13 @@ function Pagination({
 function RowShell({
   onClick,
   accent,
+  icon,
   children,
   ariaLabel,
 }: {
   onClick: () => void;
   accent: string;
+  icon: ReactNode;
   children: ReactNode;
   ariaLabel: string;
 }) {
@@ -644,10 +1372,13 @@ function RowShell({
           aria-hidden="true"
         />
         {children}
+        {icon}
       </button>
     </li>
   );
 }
+
+// ── Registry rows ───────────────────────────────────────────────────────────
 
 function ListingRowItem({
   row,
@@ -660,14 +1391,21 @@ function ListingRowItem({
     <RowShell
       onClick={onOpen}
       accent={MARKET_DOT_COLORS.listing}
+      icon={
+        <Briefcase
+          className="size-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground"
+          aria-hidden="true"
+        />
+      }
       ariaLabel={`${row.name}, ${row.type}, ${row.price.toLocaleString()} ${row.currency}${row.listing_type === "hire" ? " per day" : ""}, ${row.location}`}
     >
       <div className="min-w-0 flex-1">
-        <p className="truncate font-medium transition-colors group-hover:text-amber-700">
-          {row.name}
+        <p className="flex items-center gap-2 truncate font-medium transition-colors group-hover:text-amber-700">
+          <span className="truncate">{row.name}</span>
+          {isNew(row.created_at) ? <NewBadge /> : null}
         </p>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">
-          {row.type}
+          {row.category === "accessory" ? "Accessory" : row.type}
           {row.condition ? ` · ${row.condition}` : ""}
           {row.listing_type === "hire" ? " · hire" : ""}
         </p>
@@ -683,10 +1421,6 @@ function ListingRowItem({
           <span className="text-xs font-normal text-muted-foreground">/day</span>
         ) : null}
       </p>
-      <Briefcase
-        className="size-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground"
-        aria-hidden="true"
-      />
     </RowShell>
   );
 }
@@ -702,11 +1436,18 @@ function ProfessionalRowItem({
     <RowShell
       onClick={onOpen}
       accent={MARKET_DOT_COLORS.professional}
+      icon={
+        <UserRound
+          className="size-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground"
+          aria-hidden="true"
+        />
+      }
       ariaLabel={`${row.name}, ${row.title}, ${row.rate.toLocaleString()} ${row.currency} per ${row.rate_per}, ${row.location}`}
     >
       <div className="min-w-0 flex-1">
-        <p className="truncate font-medium transition-colors group-hover:text-cyan-800">
-          {row.name}
+        <p className="flex items-center gap-2 truncate font-medium transition-colors group-hover:text-cyan-700">
+          <span className="truncate">{row.name}</span>
+          {isNew(row.created_at) ? <NewBadge /> : null}
         </p>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">
           {row.title} · {row.discipline} · {row.experience}
@@ -723,52 +1464,192 @@ function ProfessionalRowItem({
           {row.currency}/{row.rate_per}
         </span>
       </p>
-      <UserRound
-        className="size-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground"
-        aria-hidden="true"
-      />
     </RowShell>
   );
 }
+
+function JobRowItem({ row, onOpen }: { row: JobRow; onOpen: () => void }) {
+  return (
+    <RowShell
+      onClick={onOpen}
+      accent={MARKET_DOT_COLORS.job}
+      icon={
+        <HardHat
+          className="size-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground"
+          aria-hidden="true"
+        />
+      }
+      ariaLabel={`${row.title}, ${row.discipline}, ${row.location}`}
+    >
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-2 truncate font-medium transition-colors group-hover:text-violet-700">
+          <span className="truncate">{row.title}</span>
+          {isNew(row.created_at) ? <NewBadge /> : null}
+        </p>
+        <p className="mt-0.5 truncate text-xs capitalize text-muted-foreground">
+          {row.discipline} · {row.employment_type}
+        </p>
+      </div>
+      <div className="hidden min-w-0 shrink basis-40 items-center gap-1 text-xs text-muted-foreground sm:flex">
+        <MapPin className="size-3 shrink-0" aria-hidden="true" />
+        <span className="truncate">{row.location}</span>
+      </div>
+      <p className="shrink-0 text-sm font-semibold tabular-nums">
+        {row.rate != null ? (
+          <>
+            {row.rate.toLocaleString()}
+            <span className="ml-1 text-xs font-normal text-muted-foreground">
+              {row.currency}/{row.rate_per ?? "day"}
+            </span>
+          </>
+        ) : (
+          <span className="text-xs font-normal text-muted-foreground">
+            Negotiable
+          </span>
+        )}
+      </p>
+    </RowShell>
+  );
+}
+
+function FirmRowItem({ row, onOpen }: { row: FirmRow; onOpen: () => void }) {
+  return (
+    <RowShell
+      onClick={onOpen}
+      accent={MARKET_DOT_COLORS.firm}
+      icon={
+        <Building2
+          className="size-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground"
+          aria-hidden="true"
+        />
+      }
+      ariaLabel={`${row.name}, ${(row.services ?? []).slice(0, 3).join(", ")}, ${row.location}`}
+    >
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-2 truncate font-medium transition-colors group-hover:text-emerald-700">
+          <span className="truncate">{row.name}</span>
+          {row.verified ? (
+            <BadgeCheck
+              className="size-3.5 shrink-0 text-emerald-600"
+              aria-label="Verified"
+            />
+          ) : null}
+          {isNew(row.created_at) ? <NewBadge /> : null}
+        </p>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          {(row.services ?? []).slice(0, 3).join(" · ")}
+        </p>
+      </div>
+      <div className="hidden min-w-0 shrink basis-40 items-center gap-1 text-xs text-muted-foreground sm:flex">
+        <MapPin className="size-3 shrink-0" aria-hidden="true" />
+        <span className="truncate">{row.location}</span>
+      </div>
+      <p className="shrink-0 hidden text-xs tabular-nums text-muted-foreground md:block">
+        {row.staff_count != null ? `${row.staff_count} staff` : ""}
+        {row.staff_count != null && row.founded_year != null ? " · " : ""}
+        {row.founded_year != null ? `est. ${row.founded_year}` : ""}
+      </p>
+    </RowShell>
+  );
+}
+
+function EventRowItem({ row, onOpen }: { row: EventRow; onOpen: () => void }) {
+  return (
+    <RowShell
+      onClick={onOpen}
+      accent={MARKET_DOT_COLORS.event}
+      icon={
+        <GraduationCap
+          className="size-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-muted-foreground"
+          aria-hidden="true"
+        />
+      }
+      ariaLabel={`${row.title}, ${row.provider}, ${formatDate(row.starts_at)}, ${row.location}`}
+    >
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-2 truncate font-medium transition-colors group-hover:text-rose-700">
+          <span className="truncate">{row.title}</span>
+          {isNew(row.created_at) ? <NewBadge /> : null}
+        </p>
+        <p className="mt-0.5 truncate text-xs capitalize text-muted-foreground">
+          {row.kind} · {row.provider}
+        </p>
+      </div>
+      <div className="hidden min-w-0 shrink basis-52 items-center gap-1 text-xs text-muted-foreground sm:flex">
+        <CalendarDays className="size-3 shrink-0" aria-hidden="true" />
+        <span className="truncate">{formatDate(row.starts_at)}</span>
+      </div>
+      <p className="shrink-0 text-sm font-semibold tabular-nums">
+        {row.price > 0 ? (
+          <>
+            {row.price.toLocaleString()}
+            <span className="ml-1 text-xs font-normal text-muted-foreground">
+              {row.currency}
+            </span>
+          </>
+        ) : (
+          <span className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+            Free
+          </span>
+        )}
+        {row.seats_left != null ? (
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            {row.seats_left} seats
+          </span>
+        ) : null}
+      </p>
+    </RowShell>
+  );
+}
+
+// ── Detail dialog ───────────────────────────────────────────────────────────
 
 function MarketDetailDialog({
   dot,
   listing,
   professional,
+  job,
+  firm,
+  event,
   onClose,
 }: {
   dot: MarketDot | null;
   listing: ListingRow | null;
   professional: ProfessionalRow | null;
+  job: JobRow | null;
+  firm: FirmRow | null;
+  event: EventRow | null;
   onClose: () => void;
 }) {
+  const subtitle = dot
+    ? dot.kind === "listing"
+      ? `Marketplace listing${dot.location ? ` · ${dot.location}` : ""}`
+      : dot.kind === "professional"
+        ? `Survey professional${dot.location ? ` · ${dot.location}` : ""}`
+        : dot.kind === "job"
+          ? `Job opening${dot.location ? ` · ${dot.location}` : ""}`
+          : dot.kind === "firm"
+            ? `Survey firm${dot.location ? ` · ${dot.location}` : ""}`
+            : `Training & events${dot.location ? ` · ${dot.location}` : ""}`
+    : "";
   return (
     <Dialog
       open={dot !== null}
       onOpenChange={(open) => (!open ? onClose() : undefined)}
     >
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-md">
         {dot ? (
           <>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2.5 pr-6 text-lg">
                 <span
                   className="size-2.5 shrink-0 rounded-full"
-                  style={{
-                    backgroundColor:
-                      dot.kind === "listing"
-                        ? MARKET_DOT_COLORS.listing
-                        : MARKET_DOT_COLORS.professional,
-                  }}
+                  style={{ backgroundColor: MARKET_DOT_COLORS[dot.kind] }}
                   aria-hidden="true"
                 />
                 {dot.name}
               </DialogTitle>
-              <DialogDescription>
-                {dot.kind === "listing"
-                  ? `Marketplace listing${dot.location ? ` · ${dot.location}` : ""}`
-                  : `Survey professional${dot.location ? ` · ${dot.location}` : ""}`}
-              </DialogDescription>
+              <DialogDescription>{subtitle}</DialogDescription>
             </DialogHeader>
             <dl className="space-y-2.5 text-sm">
               {listing ? (
@@ -783,6 +1664,11 @@ function MarketDetailDialog({
                     <DetailRow label="Condition">{listing.condition}</DetailRow>
                   ) : null}
                   <DetailRow label="Seller">{listing.seller}</DetailRow>
+                  {listing.specs && listing.specs.length > 0 ? (
+                    <DetailRow label="Specs">
+                      <span>{listing.specs.join(" · ")}</span>
+                    </DetailRow>
+                  ) : null}
                   {listing.description ? (
                     <DetailRow label="Notes">{listing.description}</DetailRow>
                   ) : null}
@@ -801,8 +1687,102 @@ function MarketDetailDialog({
                   </DetailRow>
                   <DetailRow label="Experience">{professional.experience}</DetailRow>
                   <DetailRow label="Availability">{professional.availability}</DetailRow>
+                  {professional.skills && professional.skills.length > 0 ? (
+                    <DetailRow label="Skills">
+                      <span>{professional.skills.join(" · ")}</span>
+                    </DetailRow>
+                  ) : null}
                   {professional.bio ? (
                     <DetailRow label="About">{professional.bio}</DetailRow>
+                  ) : null}
+                </>
+              ) : null}
+              {job ? (
+                <>
+                  <DetailRow label="Discipline">
+                    {job.discipline} · <span className="capitalize">{job.employment_type}</span>
+                  </DetailRow>
+                  <DetailRow label="Pay">
+                    {job.rate != null ? (
+                      <span className="font-semibold tabular-nums">
+                        {job.rate.toLocaleString()} {job.currency} /{" "}
+                        {job.rate_per ?? "day"}
+                      </span>
+                    ) : (
+                      "Negotiable"
+                    )}
+                  </DetailRow>
+                  {job.requirements && job.requirements.length > 0 ? (
+                    <DetailRow label="Requirements">
+                      <ul className="list-disc space-y-0.5 pl-4">
+                        {job.requirements.map((requirement) => (
+                          <li key={requirement}>{requirement}</li>
+                        ))}
+                      </ul>
+                    </DetailRow>
+                  ) : null}
+                  {job.description ? (
+                    <DetailRow label="About">{job.description}</DetailRow>
+                  ) : null}
+                </>
+              ) : null}
+              {firm ? (
+                <>
+                  <DetailRow label="Services">
+                    <span>{(firm.services ?? []).join(" · ")}</span>
+                  </DetailRow>
+                  {firm.staff_count != null || firm.founded_year != null ? (
+                    <DetailRow label="Profile">
+                      <span className="tabular-nums">
+                        {firm.staff_count != null
+                          ? `${firm.staff_count} staff`
+                          : ""}
+                        {firm.staff_count != null && firm.founded_year != null
+                          ? " · "
+                          : ""}
+                        {firm.founded_year != null
+                          ? `founded ${firm.founded_year}`
+                          : ""}
+                      </span>
+                    </DetailRow>
+                  ) : null}
+                  {firm.about ? (
+                    <DetailRow label="About">{firm.about}</DetailRow>
+                  ) : null}
+                </>
+              ) : null}
+              {event ? (
+                <>
+                  <DetailRow label="Schedule">
+                    <span className="capitalize">
+                      {formatDate(event.starts_at)}
+                      {event.ends_at ? ` → ${formatDate(event.ends_at)}` : ""}
+                    </span>
+                  </DetailRow>
+                  <DetailRow label="Price">
+                    {event.price > 0 ? (
+                      <span className="font-semibold tabular-nums">
+                        {event.price.toLocaleString()} {event.currency}
+                      </span>
+                    ) : (
+                      <span className="font-semibold uppercase tracking-wide text-emerald-700">
+                        Free
+                      </span>
+                    )}
+                  </DetailRow>
+                  <DetailRow label="Provider">{event.provider}</DetailRow>
+                  {event.certification_body ? (
+                    <DetailRow label="Certification">
+                      {event.certification_body}
+                    </DetailRow>
+                  ) : null}
+                  {event.seats_left != null ? (
+                    <DetailRow label="Seats left">
+                      <span className="tabular-nums">{event.seats_left}</span>
+                    </DetailRow>
+                  ) : null}
+                  {event.description ? (
+                    <DetailRow label="About">{event.description}</DetailRow>
                   ) : null}
                 </>
               ) : null}
@@ -815,7 +1795,15 @@ function MarketDetailDialog({
               ) : null}
             </dl>
             <Button asChild className="mt-2 w-full">
-              <Link to="/login">Sign in to contact the publisher</Link>
+              <Link to="/login">
+                {dot.kind === "job"
+                  ? "Sign in to apply"
+                  : dot.kind === "event"
+                    ? "Sign in to register"
+                    : dot.kind === "firm"
+                      ? "Sign in to request services"
+                      : "Sign in to contact the publisher"}
+              </Link>
             </Button>
           </>
         ) : null}

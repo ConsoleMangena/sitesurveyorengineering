@@ -7,16 +7,17 @@ import {
   MARKET_DOT_COLORS,
   toFeatureCollection,
   type MarketDot,
+  type MarketDotKind,
 } from "./marketDots";
 
 // Generous: slow connections beat a false error (bizintel uses the same value).
 const LOAD_FAILURE_TIMEOUT_MS = 10_000;
 
 interface PublicMarketGlobeProps {
-  /** null while the parent is fetching. */
+  /** null while the parent is fetching. Already filtered by scope/location. */
   dots: MarketDot[] | null;
-  totalListings: number;
-  totalProfessionals: number;
+  /** Pins that exist in total (before scope/location filtering). */
+  totalPoints: number;
   failed: boolean;
   onSelect: (dot: MarketDot) => void;
   onRetry: () => void;
@@ -33,6 +34,21 @@ function formatCoord(lngLat: maplibregl.LngLat): string {
 const SOURCE_ID = "market-points";
 const HALO_LAYER_ID = "market-dots-halo";
 const CORE_LAYER_ID = "market-dots";
+
+const KIND_COLOR_EXPR =
+  [
+    "match",
+    ["get", "kind"],
+    "professional",
+    MARKET_DOT_COLORS.professional,
+    "job",
+    MARKET_DOT_COLORS.job,
+    "firm",
+    MARKET_DOT_COLORS.firm,
+    "event",
+    MARKET_DOT_COLORS.event,
+    MARKET_DOT_COLORS.listing,
+  ] as unknown as maplibregl.DataDrivenPropertyValueSpecification<string>;
 
 /** Adds the market pin source + halo/core circle layers once the mapcn map
  *  is loaded, wires click/hover handlers, and runs the one-shot reveal
@@ -104,13 +120,7 @@ function MapPins({
         source: SOURCE_ID,
         paint: {
           "circle-radius": 14,
-          "circle-color": [
-            "match",
-            ["get", "kind"],
-            "professional",
-            MARKET_DOT_COLORS.professional,
-            MARKET_DOT_COLORS.listing,
-          ],
+          "circle-color": KIND_COLOR_EXPR,
           "circle-blur": 0.9,
           "circle-opacity": 0,
         },
@@ -123,13 +133,7 @@ function MapPins({
         source: SOURCE_ID,
         paint: {
           "circle-radius": 5.5,
-          "circle-color": [
-            "match",
-            ["get", "kind"],
-            "professional",
-            MARKET_DOT_COLORS.professional,
-            MARKET_DOT_COLORS.listing,
-          ],
+          "circle-color": KIND_COLOR_EXPR,
           "circle-stroke-width": 1.25,
           "circle-stroke-color": "#ffffff",
           "circle-opacity": 0,
@@ -242,13 +246,12 @@ function CoordReadout() {
   );
 }
 
-/** Full-bleed globe of the public market: amber listing pins, cyan
- *  professional pins, live cursor coordinates, tap either pin to open its
- *  detail dialog. Built on the mapcn <Map> primitive in light theme. */
+/** Full-bleed globe of the public market: one pin colour per directory kind,
+ *  live cursor coordinates, tap any pin to open its detail dialog. Built on
+ *  the mapcn <Map> primitive in light theme. */
 export default function PublicMarketGlobe({
   dots,
-  totalListings,
-  totalProfessionals,
+  totalPoints,
   failed,
   onSelect,
   onRetry,
@@ -271,8 +274,7 @@ export default function PublicMarketGlobe({
     };
   }, [failed, ready, tilesFailed, attempt]);
 
-  const pinnedListings = dots?.filter((d) => d.kind === "listing").length ?? 0;
-  const pinnedProfessionals = (dots?.length ?? 0) - pinnedListings;
+  const plottedCount = dots?.length ?? 0;
 
   const handleRetry = () => {
     // Event-handler context: synchronous updates are fine here.
@@ -288,8 +290,8 @@ export default function PublicMarketGlobe({
         {/* Canvas-only content; the searchable registry rows below carry the
             same information for keyboard and screen-reader users. */}
         <p className="sr-only">
-          Interactive globe of published listings and professionals. The same
-          items are listed below the globe.
+          Interactive globe of published listings, professionals, jobs, firms,
+          and training events. The same items are listed below the globe.
         </p>
         {!failed ? (
           <MapcnMap
@@ -310,7 +312,7 @@ export default function PublicMarketGlobe({
             />
             <CoordReadout />
             {/* Telemetry pill */}
-            <div className="pointer-events-none absolute left-4 top-4 sm:left-6 sm:top-6">
+            <div className="pointer-events-none absolute left-4 top-4 max-w-[calc(100%-5rem)] sm:left-6 sm:top-6">
               <div
                 className="rounded-lg border border-border/60 bg-background/85 px-3 py-1.5 shadow-sm backdrop-blur-sm"
                 role="status"
@@ -319,47 +321,58 @@ export default function PublicMarketGlobe({
                 <p className="font-mono text-xs tabular-nums text-muted-foreground">
                   {dots === null ? (
                     <span>ACQUIRING FEED…</span>
+                  ) : plottedCount === 0 ? (
+                    <span>NO PINS IN VIEW</span>
                   ) : (
-                    <>
-                      <span className="font-semibold text-amber-600">
-                        {pinnedListings}
-                      </span>
-                      {" LISTINGS · "}
-                      <span className="font-semibold text-cyan-700">
-                        {pinnedProfessionals}
-                      </span>
-                      {" PROFESSIONALS"}
-                    </>
+                    <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      {(Object.keys(MARKET_DOT_COLORS) as MarketDotKind[]).map(
+                        (kind) => {
+                          const count =
+                            dots?.filter((dot) => dot.kind === kind).length ??
+                            0;
+                          if (count === 0) return null;
+                          return (
+                            <span key={kind} className="flex items-center gap-1.5">
+                              <span
+                                className="size-2 shrink-0 rounded-full"
+                                style={{
+                                  backgroundColor: MARKET_DOT_COLORS[kind],
+                                }}
+                                aria-hidden="true"
+                              />
+                              {count}
+                            </span>
+                          );
+                        },
+                      )}
+                    </span>
                   )}
                 </p>
-                {dots !== null &&
-                pinnedListings + pinnedProfessionals <
-                  totalListings + totalProfessionals ? (
+                {dots !== null && plottedCount < totalPoints ? (
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    {pinnedListings + pinnedProfessionals} of{" "}
-                    {totalListings + totalProfessionals} have coordinates
+                    showing {plottedCount} of {totalPoints} pins · filters
+                    applied
                   </p>
                 ) : null}
               </div>
             </div>
             {/* Legend */}
-            <div className="pointer-events-none absolute bottom-4 right-4 flex gap-2 sm:bottom-6 sm:right-6">
-              <span className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/85 px-2.5 py-1.5 text-xs shadow-sm backdrop-blur-sm">
-                <span
-                  className="size-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: MARKET_DOT_COLORS.listing }}
-                  aria-hidden="true"
-                />
-                Listings
-              </span>
-              <span className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/85 px-2.5 py-1.5 text-xs shadow-sm backdrop-blur-sm">
-                <span
-                  className="size-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: MARKET_DOT_COLORS.professional }}
-                  aria-hidden="true"
-                />
-                Professionals
-              </span>
+            <div className="pointer-events-none absolute bottom-4 right-4 hidden flex-col items-end gap-1.5 sm:bottom-6 sm:right-6 md:flex">
+              {(Object.keys(MARKET_DOT_COLORS) as MarketDotKind[]).map(
+                (kind) => (
+                  <span
+                    key={kind}
+                    className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-background/85 px-2.5 py-1 text-xs capitalize shadow-sm backdrop-blur-sm"
+                  >
+                    <span
+                      className="size-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: MARKET_DOT_COLORS[kind] }}
+                      aria-hidden="true"
+                    />
+                    {kind === "event" ? "Training" : `${kind}s`}
+                  </span>
+                ),
+              )}
             </div>
             {children}
           </MapcnMap>
@@ -387,7 +400,7 @@ export default function PublicMarketGlobe({
               >
                 <span className="size-1.5 animate-pulse rounded-full bg-amber-500" />
                 <span className="size-1.5 animate-pulse rounded-full bg-cyan-600 [animation-delay:150ms]" />
-                <span className="size-1.5 animate-pulse rounded-full bg-amber-500 [animation-delay:300ms]" />
+                <span className="size-1.5 animate-pulse rounded-full bg-violet-500 [animation-delay:300ms]" />
               </div>
               <p className="text-[11px] font-medium tracking-widest text-muted-foreground">
                 ACQUIRING FEED…
@@ -402,8 +415,8 @@ export default function PublicMarketGlobe({
                 Nothing published yet
               </span>
               <span className="mt-1 block text-sm text-muted-foreground">
-                When workspaces list instruments or professionals, they appear
-                here.
+                When workspaces list instruments, jobs, or services, they
+                appear here.
               </span>
             </p>
           </div>
