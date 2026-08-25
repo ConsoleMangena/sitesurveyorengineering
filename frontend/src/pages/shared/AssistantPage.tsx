@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Check,
   Loader2,
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import PageLoader from "@/components/PageLoader.tsx";
 import { AiMessageText } from "./AiMessageText.tsx";
+import { parseAssistantBlocks } from "@/lib/assistantBlocks.ts";
 import {
   createAiConversation,
   deleteAiConversation,
@@ -77,12 +78,18 @@ interface AssistantPageProps {
   embedded?: boolean;
   /** Fires when the agent finishes a full reply. */
   onAssistantFinal?: (text: string) => void;
+  /**
+   * Renders interactive `[CAD]` command cards under an assistant message.
+   * When omitted, blocks are simply stripped from the displayed prose.
+   */
+  renderCadCommands?: (messageText: string) => ReactNode;
 }
 
 export default function AssistantPage({
   contextProjectId,
   embedded,
   onAssistantFinal,
+  renderCadCommands,
 }: AssistantPageProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -218,8 +225,8 @@ export default function AssistantPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const send = useCallback(async () => {
-    const text = draft.trim();
+  const send = useCallback(async (override?: string) => {
+    const text = (override ?? draft).trim();
     const conversationId = activeIdRef.current;
     if (!text || streaming || !conversationId) return;
 
@@ -578,31 +585,66 @@ export default function AssistantPage({
             </div>
           ) : (
             <div className="space-y-3">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                >
-                  <div
-                    className={`rounded-lg ${
-                      embedded ? "max-w-[92%] px-3 py-2 text-[13px]" : "max-w-[85%] px-3.5 py-2.5 text-sm"
-                    } ${
-                      message.role === "user"
-                        ? "whitespace-pre-wrap bg-primary leading-relaxed text-primary-foreground"
-                        : "border border-border/60 bg-muted/60 text-card-foreground"
-                    }`}
-                  >
-                    {message.role === "assistant" ? (
-                      <AiMessageText text={message.text} />
-                    ) : (
-                      message.text
-                    )}
-                    {message.streaming && (
-                      <span className="ml-1 inline-block h-3.5 w-1.5 animate-pulse rounded-sm bg-current align-middle" />
+              {messages.map((message) => {
+                const parsed =
+                  message.role === "assistant"
+                    ? parseAssistantBlocks(message.text)
+                    : null;
+                return (
+                  <div key={message.id} className="space-y-1.5">
+                    <div
+                      className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                    >
+                      <div
+                        className={`rounded-lg ${
+                          embedded ? "max-w-[92%] px-3 py-2 text-[13px]" : "max-w-[85%] px-3.5 py-2.5 text-sm"
+                        } ${
+                          message.role === "user"
+                            ? "whitespace-pre-wrap bg-primary leading-relaxed text-primary-foreground"
+                            : "border border-border/60 bg-muted/60 text-card-foreground"
+                        }`}
+                      >
+                        {message.role === "assistant" ? (
+                          <AiMessageText text={parsed?.clean ?? message.text} />
+                        ) : (
+                          message.text
+                        )}
+                        {message.streaming && (
+                          <span className="ml-1 inline-block h-3.5 w-1.5 animate-pulse rounded-sm bg-current align-middle" />
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Executable drawing commands, rendered in the flow of
+                        the message that proposed them. */}
+                    {parsed && parsed.cadBlocks.length > 0 && renderCadCommands?.(message.text)}
+
+                    {/* Clarifying question with quick-reply options. */}
+                    {parsed?.ask && !message.streaming && (
+                      <div className={`flex ${embedded ? "justify-start" : "justify-start"}`}>
+                        <div className="max-w-[92%] rounded-lg border border-primary/25 bg-primary/5 px-3 py-2">
+                          <p className="text-xs font-medium text-card-foreground">
+                            {parsed.ask.question}
+                          </p>
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {parsed.ask.options.map((option) => (
+                              <button
+                                key={option}
+                                type="button"
+                                disabled={streaming}
+                                onClick={() => void send(option)}
+                                className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-foreground disabled:opacity-50"
+                              >
+                                {option}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
                     )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               {/* Thinking skeleton: shown while the agent works before any
                   reply text streams, with live tool activity underneath once

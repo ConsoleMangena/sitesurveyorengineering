@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Bot, X } from "lucide-react";
 
 import { CadCommandBridge } from "./CadCommandBridge.tsx";
@@ -13,14 +12,11 @@ interface CadChatPanelProps {
 
 /**
  * Chat side panel for the CAD workspace: embeds the assistant beside the
- * canvas and surfaces `[CAD]` command blocks from the latest reply as
- * executable cards. Skinned with the CAD shell's own `--cad-*` tokens so it
- * reads as part of the drafting chrome rather than a floating app page.
+ * canvas. `[CAD]` command cards render INLINE under the message that proposed
+ * them (so they scroll away with the conversation instead of squatting at the
+ * bottom while typing), skinned with the CAD shell's `--cad-*` tokens.
  */
 export function CadChatPanel({ projectId, cad, onClose }: CadChatPanelProps) {
-  const [lastReply, setLastReply] = useState("");
-  const hasReply = lastReply.trim().length > 0;
-
   return (
     <div
       className="flex h-full flex-col border-l bg-[var(--cad-bg-2)] text-[var(--cad-text)]"
@@ -51,17 +47,14 @@ export function CadChatPanel({ projectId, cad, onClose }: CadChatPanelProps) {
       {/* AssistantPage fills height via its own h-full root, so the embedded
           chat scrolls internally instead of stretching the panel. */}
       <div className="min-h-0 flex-1 overflow-hidden p-2 [&>*]:h-full">
-        <AssistantPage embedded contextProjectId={projectId} onAssistantFinal={setLastReply} />
+        <AssistantPage
+          embedded
+          contextProjectId={projectId}
+          renderCadCommands={(messageText) => (
+            <CadCommandBridge messageText={messageText} cad={cad} />
+          )}
+        />
       </div>
-
-      {hasReply && (
-        <footer
-          className="max-h-[45%] shrink-0 overflow-y-auto border-t p-2"
-          style={{ borderColor: "var(--cad-border)", background: "var(--cad-bg)" }}
-        >
-          <CadCommandBridge messageText={lastReply} cad={cad} />
-        </footer>
-      )}
     </div>
   );
 }
