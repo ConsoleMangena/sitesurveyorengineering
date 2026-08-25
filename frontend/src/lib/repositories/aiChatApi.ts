@@ -9,6 +9,8 @@ export interface AiStreamHandlers {
   /** Called once with the complete reply. */
   onFinal: (text: string) => void;
   onError: (message: string) => void;
+  /** Agent activity for the thinking indicator ("thinking" | tool name). */
+  onActivity?: (label: string | null) => void;
 }
 
 /**
@@ -80,7 +82,7 @@ export async function streamAiReply(
   const consumeLine = (line: string) => {
     const trimmed = line.trim();
     if (!trimmed) return;
-    let event: { type?: string; text?: string; message?: string };
+    let event: { type?: string; text?: string; message?: string; name?: string; phase?: string };
     try {
       event = JSON.parse(trimmed);
     } catch {
@@ -89,6 +91,8 @@ export async function streamAiReply(
     if (event.type === "delta") handlers.onDelta(event.text ?? "");
     else if (event.type === "final") finalText = event.text ?? "";
     else if (event.type === "error") streamError = event.message ?? "Agent error.";
+    else if (event.type === "tool") handlers.onActivity?.(event.name ?? null);
+    else if (event.type === "status") handlers.onActivity?.(event.phase ?? null);
   };
 
   try {

@@ -18,7 +18,9 @@ export interface ChatTurn {
 export type AgentEvent =
   | { type: "delta"; text: string }
   | { type: "final"; text: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "status"; phase: string }
+  | { type: "tool"; name: string };
 
 export interface RunAgentOptions {
   history: ChatTurn[];
@@ -36,20 +38,42 @@ const MAX_HISTORY_TURNS = 24;
 
 /** Tables the agent may read. */
 const READ_TABLES = new Set([
+  "workspaces",
+  "workspace_members",
+  "profiles",
   "projects",
+  "project_activities",
   "quotes",
+  "quote_items",
   "invoices",
+  "invoice_items",
   "contacts",
   "assets",
-  "calibrations",
+  "asset_calibrations",
+  "asset_maintenance_events",
   "jobs",
   "job_events",
+  "job_assignments",
+  "time_entries",
+  "expense_entries",
+  "notifications",
   "marketplace_listings",
   "professionals",
+  "market_firms",
+  "market_events",
+  "market_job_posts",
 ]);
 
 /** Tables the agent may mutate. */
-const WRITE_TABLES = new Set(["quotes", "projects", "contacts", "jobs", "invoices"]);
+const WRITE_TABLES = new Set([
+  "quotes",
+  "projects",
+  "contacts",
+  "jobs",
+  "invoices",
+  "assets",
+  "job_events",
+]);
 
 const FILTER_OPS = new Set(["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike"]);
 
@@ -84,6 +108,22 @@ function filterSchema(): Record<string, unknown> {
 }
 
 const TOOLS: ToolSchema[] = [
+  {
+    type: "function",
+    function: {
+      name: "inspect_columns",
+      description:
+        "List the column names of a table (from one sample row). Use when unsure which columns exist before filtering or writing.",
+      parameters: {
+        type: "object",
+        properties: {
+          table: { type: "string", enum: [...READ_TABLES] },
+        },
+        required: ["table"],
+        additionalProperties: false,
+      },
+    },
+  },
   {
     type: "function",
     function: {
@@ -192,21 +232,29 @@ function systemPrompt(supabaseUrl: string): string {
   return [
     "You are SiteSurveyor, the AI agent of the SiteSurveyor Engineering platform -",
     "a multi-tenant survey operations product (projects, dispatching, assets,",
-    "quotes, invoicing, public market). When asked who you are, say you are",
-    "SiteSurveyor. Tagline: your surveying reference point.",
+    "quotes, invoicing, time tracking, public market). When asked who you are,",
+    "say you are SiteSurveyor. Tagline: your surveying reference point.",
     "",
-    "You act on the platform database through your tools. Data lives in Supabase",
+    "You interact with system functionality through your tools:",
+    "- Reporting & analysis across projects, quotes, invoices, payments,",
+    "  contacts, assets, calibrations, maintenance, jobs/dispatch, schedule",
+    "  events (job_events), assignments, time & expense entries, notifications,",
+    "  and the public market (listings, professionals, firms, training).",
+    "- Creating/updating records: quotes, projects, contacts, jobs, invoices,",
+    "  assets (e.g. status changes), and scheduling via job_events entries.",
+    "Data lives in Supabase",
     `(REST base: ${supabaseUrl}).`,
     "",
     "Rules:",
     "1. Answer questions with real numbers from count/query tools - never guess.",
     "2. Cap exploratory queries (limit <= 20) unless the user asks for more.",
-    "3. Money/date formatting follows what the data uses; never invent values.",
-    "4. Writes: describe the exact change first and wait for an explicit yes;",
+    "3. Use inspect_columns first when unsure which columns exist on a table.",
+    "4. Money/date formatting follows what the data uses; never invent values.",
+    "5. Writes: describe the exact change first and wait for an explicit yes;",
     "   only then call the write tool with confirmed=true. Deletes: remind the",
     "   user it is permanent and prefer archiving via update when possible.",
-    "5. If a tool fails, report the error verbatim; do not retry blindly.",
-    "6. Keep answers compact: headline number first, then notable exceptions.",
+    "6. If a tool fails, report the error verbatim; do not retry blindly.",
+    "7. Keep answers compact: headline number first, then notable exceptions.",
   ].join("\n");
 }
 
@@ -294,6 +342,19 @@ async function executeTool(
   }
 
   const str = (v: unknown) => (typeof v === "string" ? v : "");
+
+  if (name === "inspect_columns") {
+    const table = str(args.table);
+    if (!READ_TABLES.has(table)) return JSON.stringify({ error: `Table '${table}' is not readable.` });
+    const out = await supabaseFetch({
+      ...ctx,
+      method: "GET",
+      path: `${table}?select=*&limit=1`,
+    });
+    if (!out.ok) return JSON.stringify({ error: `HTTP ${out.status}`, details: out.json });
+    const row = Array.isArray(out.json) ? out.json[0] : null;
+    return JSON.stringify({ table, columns: row ? Object.keys(row) : [] });
+  }
 
   if (name === "query_site_data" || name === "count_site_data") {
     const table = str(args.table);
@@ -425,6 +486,7 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
   let round = 0;
   while (round < (opts.maxToolRounds ?? MAX_TOOL_ROUNDS)) {
     round += 1;
+    if (round === 1) yield { type: "status", phase: "thinking" };
     let res: Response;
     try {
       res = await fetch(OPENROUTER_URL, {
@@ -505,6 +567,7 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
           : {}),
       });
       for (const [, tc] of [...toolCalls.entries()].sort((a, b) => a[0] - b[0])) {
+        yield { type: "tool", name: tc.name };
         let result: string;
         try {
           result = await executeTool(tc.name, tc.arguments, ctx);

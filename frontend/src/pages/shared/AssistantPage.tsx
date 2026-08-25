@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
+  Loader2,
   MessageSquarePlus,
   PanelLeft,
   Pencil,
@@ -41,6 +42,21 @@ function nextId(prefix: string): string {
   return `${prefix}${Date.now()}-${idCounter}`;
 }
 
+/** Friendly labels for agent activity events (thinking / tool names). */
+const TOOL_LABELS: Record<string, string> = {
+  query_site_data: "Fetching workspace data…",
+  count_site_data: "Counting records…",
+  inspect_columns: "Inspecting data structure…",
+  insert_site_record: "Creating the record…",
+  update_site_record: "Applying the change…",
+  delete_site_record: "Deleting…",
+};
+
+function activityLabel(event: string | null): string {
+  if (!event) return "Thinking…";
+  return TOOL_LABELS[event] ?? `Working: ${event}…`;
+}
+
 export default function AssistantPage() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -52,6 +68,7 @@ export default function AssistantPage() {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [activity, setActivity] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
@@ -183,6 +200,7 @@ export default function AssistantPage() {
     const conversation = conversations.find((c) => c.id === conversationId);
     setDraft("");
     setStreaming(true);
+    setActivity(null);
     setError(null);
     setMessages((prev) => [
       ...prev,
@@ -203,6 +221,7 @@ export default function AssistantPage() {
 
     await streamAiReply(conversationId, text, {
       onDelta: (delta) => {
+        setActivity(null);
         setMessages((prev) => {
           const existing = prev.find((m) => m.id === "live");
           if (!existing)
@@ -217,6 +236,7 @@ export default function AssistantPage() {
         scrollToBottom();
       },
       onFinal: (finalText) => {
+        setActivity(null);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === "live"
@@ -234,6 +254,7 @@ export default function AssistantPage() {
       },
       onError: (message) => {
         setMessages((prev) => prev.filter((m) => m.id !== "live"));
+        setActivity(null);
         setError(message);
         setStreaming(false);
       },
@@ -284,6 +305,7 @@ export default function AssistantPage() {
         {conversations.map((conversation) => {
           const isActive = conversation.id === activeId;
           const isRenaming = renamingId === conversation.id;
+
           return (
             <div
               key={conversation.id}
@@ -359,6 +381,8 @@ export default function AssistantPage() {
       </nav>
     </div>
   );
+
+  const hasLiveText = messages.some((m) => m.id === "live" && m.text.trim());
 
   return (
     <div className="relative flex h-full min-h-0 gap-4">
@@ -497,6 +521,33 @@ export default function AssistantPage() {
                   </div>
                 </div>
               ))}
+
+              {/* Thinking skeleton: shown while the agent works before any
+                  reply text streams, with live tool activity underneath once
+                  partial output exists. */}
+              {streaming && !hasLiveText && (
+                <div className="flex justify-start">
+                  <div className="max-w-[85%] space-y-2.5 rounded-lg border border-border/60 bg-muted/60 px-3.5 py-3">
+                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <Loader2 className="size-3.5 animate-spin" />
+                      {activityLabel(activity)}
+                    </div>
+                    <div className="space-y-1.5 pt-0.5" aria-hidden>
+                      <div className="h-3 w-[82%] animate-pulse rounded-sm bg-muted-foreground/15" />
+                      <div className="h-3 w-[64%] animate-pulse rounded-sm bg-muted-foreground/15 [animation-delay:150ms]" />
+                      <div className="h-3 w-[42%] animate-pulse rounded-sm bg-muted-foreground/15 [animation-delay:300ms]" />
+                    </div>
+                  </div>
+                </div>
+              )}
+              {streaming && hasLiveText && activity && (
+                <div className="flex justify-start">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/50 px-2.5 py-1 text-[11px] text-muted-foreground">
+                    <Loader2 className="size-3 animate-spin" />
+                    {activityLabel(activity)}
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </div>
