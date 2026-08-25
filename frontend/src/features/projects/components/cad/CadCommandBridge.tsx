@@ -1,0 +1,147 @@
+import { useMemo, useState } from "react";
+import { Check, Play, RotateCcw, X } from "lucide-react";
+
+import { Button } from "@/components/ui/button.tsx";
+import {
+  executeAiCadCommands,
+  extractCadBlocks,
+  parseCadCommands,
+  type CadExecResult,
+} from "./cadAiExecutor.ts";
+import type { UseCadModel } from "./useCadModel.ts";
+
+interface CadCommandBridgeProps {
+  /** Full assistant reply text — every `[CAD]…[/CAD]` block becomes a card. */
+  messageText: string;
+  cad: UseCadModel;
+  onExecuted?: (results: CadExecResult[]) => void;
+}
+
+/**
+ * Preview/execute bridge between assistant replies and the CAD model. Each
+ * `[CAD]` block renders as a card listing its commands; running a card applies
+ * the whole batch as ONE undoable transaction and swaps the Execute action for
+ * an outcome chip plus Undo.
+ */
+export function CadCommandBridge({ messageText, cad, onExecuted }: CadCommandBridgeProps) {
+  const blocks = useMemo(() => extractCadBlocks(messageText), [messageText]);
+
+  // Results are stored together with the exact message text that produced
+  // them: when a new AI reply arrives the stale results stop matching and the
+  // panel silently resets, with no setState-in-render or effect ordering to
+  // get wrong.
+  const [executedFor, setExecutedFor] = useState<{
+    text: string;
+    results: Record<number, CadExecResult[]>;
+  } | null>(null);
+  const executed = executedFor?.text === messageText ? executedFor.results : {};
+
+  if (blocks.length === 0) return null;
+
+  const handleExecute = (index: number) => {
+    const block = blocks[index];
+    if (block === undefined || executed[index] !== undefined) return;
+    const results = executeAiCadCommands(block, cad);
+    // The viewport listens for this to zoom to the freshly drawn extents.
+    if (parseCadCommands(block).some((line) => line.toUpperCase().startsWith("ZOOM"))) {
+      window.dispatchEvent(new CustomEvent("cad:ai-zoom-extents"));
+    }
+    setExecutedFor({ text: messageText, results: { ...executed, [index]: results } });
+    onExecuted?.(results);
+  };
+
+  return (
+    <div className="space-y-2">
+      {blocks.map((block, index) => {
+        const commands = parseCadCommands(block);
+        if (commands.length === 0) return null;
+        const results = executed[index];
+        const done = results !== undefined;
+        const hasErrors = results !== undefined && results.some((r) => !r.ok);
+
+        return (
+          <section
+            key={index}
+            aria-label={`CAD command block ${index + 1}`}
+            className="space-y-2 rounded-md border border-border/60 bg-muted/40 p-3"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-card-foreground">
+                CAD {commands.length === 1 ? "Command" : "Commands"} ({commands.length})
+              </span>
+              {done ? (
+                <span className="flex shrink-0 items-center gap-1">
+                  {hasErrors ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
+                      <X className="size-3" />
+                      Errors
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                      <Check className="size-3" />
+                      Applied
+                    </span>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => cad.undo()}
+                  >
+                    <RotateCcw className="size-3.5" />
+                    Undo
+                  </Button>
+                </span>
+              ) : (
+                <Button
+                  size="sm"
+                  className="h-7 shrink-0 px-2.5 text-xs"
+                  onClick={() => handleExecute(index)}
+                >
+                  <Play className="size-3.5" />
+                  Execute
+                </Button>
+              )}
+            </div>
+
+            <div className="max-h-40 overflow-auto font-mono text-xs leading-relaxed">
+              {commands.map((command, j) => {
+                const result = results?.[j];
+                return (
+                  <div key={j} className="flex items-start gap-2 whitespace-pre">
+                    <span
+                      aria-hidden
+                      className={`w-3 shrink-0 text-center ${
+                        result === undefined
+                          ? "text-muted-foreground"
+                          : result.ok
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-destructive"
+                      }`}
+                    >
+                      {result === undefined ? "·" : result.ok ? "✓" : "✗"}
+                    </span>
+                    <span className="min-w-0">{command}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {results !== undefined && results.length > 0 && (
+              <div className="space-y-0.5">
+                {results.map((r, j) => (
+                  <p
+                    key={j}
+                    className={`text-xs ${r.ok ? "text-muted-foreground" : "text-destructive"}`}
+                  >
+                    {r.detail}
+                  </p>
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
