@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, RefreshCw, SendHorizontal, Sparkles } from "lucide-react";
+import { RefreshCw, SendHorizontal } from "lucide-react";
 
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
@@ -253,13 +253,21 @@ export default function AssistantPage() {
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
-            <Bot className="size-5" />
-          </span>
+          <img
+            src="/logo.svg"
+            alt=""
+            aria-hidden="true"
+            className="app-logo size-9 shrink-0"
+          />
           <div>
-            <h1 className="text-lg font-semibold text-foreground">AI Assistant</h1>
+            <h1 className="flex items-baseline gap-2 text-lg font-semibold text-foreground">
+              Datum
+              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                AI agent
+              </span>
+            </h1>
             <p className="text-xs text-muted-foreground">
-              OpenClaw agent — reads and acts on your workspace data
+              Your surveying reference point — reads and acts on workspace data
             </p>
           </div>
         </div>
@@ -297,15 +305,18 @@ export default function AssistantPage() {
       >
         {messages.length === 0 && connected ? (
           <div className="flex h-full flex-col items-center justify-center gap-4 py-12 text-center">
-            <span className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <Sparkles className="size-6" />
-            </span>
+            <img
+              src="/logo.svg"
+              alt=""
+              aria-hidden="true"
+              className="app-logo size-14 shrink-0"
+            />
             <div className="max-w-sm space-y-1.5">
               <p className="font-medium text-card-foreground">
-                Ask about anything in your workspace
+                Meet Datum — every measurement needs a reference
               </p>
               <p className="text-sm text-muted-foreground">
-                The agent can query projects, invoices, quotes, assets and the
+                Datum can query projects, invoices, quotes, assets and the
                 market — then act on what you approve.
               </p>
             </div>
@@ -361,12 +372,12 @@ export default function AssistantPage() {
           onChange={(e) => setDraft(e.target.value)}
           placeholder={
             connected
-              ? "Tell the agent what to do…"
+              ? "Tell Datum what to do…"
               : "Waiting for the OpenClaw gateway…"
           }
           disabled={!connected}
           className="h-11 flex-1"
-          aria-label="Message the AI assistant"
+          aria-label="Message Datum"
         />
         <Button
           type="submit"

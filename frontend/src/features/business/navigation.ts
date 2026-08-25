@@ -4,7 +4,7 @@ export const businessNavGroups: WorkspaceNavGroup[] = [
   {
     items: [
       { view: "dashboard", label: "Dashboard", icon: "dashboard" },
-      { view: "assistant", label: "AI Assistant", icon: "bot" },
+      { view: "assistant", label: "Datum AI", icon: "bot" },
       { view: "notifications", label: "Notifications", icon: "notifications" },
     ],
   },
