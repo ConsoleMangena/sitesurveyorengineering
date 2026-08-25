@@ -31,6 +31,7 @@ const TimeTrackingPage = lazy(() => import("../../pages/shared/TimeTrackingPage"
 const AssetManagementPage = lazy(() => import("../../pages/shared/AssetManagementPage"));
 const MarketplacePage = lazy(() => import("../../pages/shared/MarketplacePage"));
 const AssistantPage = lazy(() => import("../../pages/shared/AssistantPage"));
+const TeamChatPage = lazy(() => import("../../pages/shared/TeamChatPage"));
 
 interface BusinessViewRegistryOptions {
   user: UiUser;
@@ -53,6 +54,17 @@ export function renderBusinessView(
       return (
         <Suspense fallback={<PageLoader />}>
           <AssistantPage />
+        </Suspense>
+      );
+
+    case "teamChat":
+      return (
+        <Suspense fallback={<PageLoader />}>
+          <TeamChatPage
+            workspaceId={user.workspaceId}
+            workspaceName={user.company}
+            canModerate={user.accountType === "business"}
+          />
         </Suspense>
       );
 

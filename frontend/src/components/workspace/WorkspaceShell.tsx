@@ -31,7 +31,6 @@ import {
   SheetTitle,
 } from "../ui/sheet.tsx";
 import { DialogTemplate } from "../templates/DialogTemplate.tsx";
-import { ChatWidget } from "../templates/ChatWidget.tsx";
 
 interface WorkspaceShellProps {
   user: UiUser;
@@ -82,6 +81,23 @@ function DashboardIcon() {
       <rect x="14" y="3" width="7" height="7" />
       <rect x="14" y="14" width="7" height="7" />
       <rect x="3" y="14" width="7" height="7" />
+    </svg>
+  );
+}
+
+function ChatIcon() {
+  return (
+    <svg
+      width="17"
+      height="17"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
     </svg>
   );
 }
@@ -630,6 +646,8 @@ function getNavIcon(icon: string) {
           className="app-logo size-[17px] shrink-0"
         />
       );
+    case "chat":
+      return <ChatIcon />;
     case "calendar":
       return <CalendarIcon />;
     case "clock":
@@ -1343,7 +1361,7 @@ export default function WorkspaceShell({
             </nav>
           </SheetContent>
         </Sheet>
-
+ 
         {!shouldHideGlobalChrome && (
           <WorkspaceSidebar
             navGroups={navGroups}
@@ -1362,14 +1380,6 @@ export default function WorkspaceShell({
           {children}
         </main>
       </div>
-
-      {!shouldHideGlobalChrome && (
-        <ChatWidget
-          workspaceId={user.workspaceId}
-          workspaceName={user.company}
-          canModerate={user.accountType === "business"}
-        />
-      )}
     </div>
   );
 }

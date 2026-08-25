@@ -32,6 +32,7 @@ function resolveSignupAccountType(input: {
 export const SHARED_VIEWS: WorkspaceView[] = [
   "dashboard",
   "assistant",
+  "teamChat",
   "notifications",
   "files",
   "quotes",

@@ -26,6 +26,7 @@ export const businessNavGroups: WorkspaceNavGroup[] = [
   {
     label: "RESOURCES",
     items: [
+      { view: "teamChat", label: "Team Chat", icon: "chat" },
       { view: "team", label: "Team", icon: "people" },
       { view: "assets", label: "Assets", icon: "asset" },
     ],
