@@ -8,7 +8,7 @@ phones — just open a browser; **nothing is installed on them**.
 │  OpenClaw gateway (loopback :18789)                          │
 │        ▲                                                     │
 │        │  /openclaw WS (Origin stripped → trusted loopback)  │
-│  ai-gateway-server.mjs (:8787, LAN)                          │
+│  ai-gateway-server.ts (:8787, LAN)                          │
 │        ▲                                                     │
 │  frontend/dist (the SiteSurveyor app + PWA)                  │
 └──────────────┬───────────────────────────┬───────────────────┘
