@@ -14,6 +14,19 @@ import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Badge } from "@/components/ui/badge.tsx";
 import PageLoader from "@/components/PageLoader.tsx";
+import { getCurrentUser } from "../../lib/auth/session.ts";
+import type { User } from "@supabase/supabase-js";
+import {
+  createAiConversation,
+  deleteAiConversation,
+  insertAiMessage,
+  insertAiMessages,
+  listAiConversations,
+  listAiMessages,
+  renameAiConversation,
+  touchAiConversation,
+  type AiConversation,
+} from "../../lib/repositories/aiChats.ts";
 import {
   GatewayClient,
   GatewayClientError,
@@ -31,27 +44,10 @@ const GATEWAY_TOKEN = import.meta.env.VITE_OPENCLAW_TOKEN as
   | string
   | undefined;
 
-/** Every SiteSurveyor conversation lives under this key prefix, so the sidebar can
- *  pick them out of the gateway's global session index. */
-const SESSION_PREFIX = "agent:main:sitesurveyor-assistant";
-const LAST_SESSION_STORAGE_KEY = "sitesurveyor:last-ai-session";
-// Gateway session labels must be unique across all sessions, so chat titles
-// are stored locally and gateway labels are only best-effort mirrors.
-const TITLES_STORAGE_KEY = "sitesurveyor:ai-titles";
-
-function loadTitleMap(): Record<string, string> {
-  try {
-    return JSON.parse(localStorage.getItem(TITLES_STORAGE_KEY) ?? "{}") as Record<
-      string,
-      string
-    >;
-  } catch {
-    return {};
-  }
-}
-
-function saveTitleMap(map: Record<string, string>) {
-  localStorage.setItem(TITLES_STORAGE_KEY, JSON.stringify(map));
+/** Gateway session keys are namespaced per signed-in account, so OpenClaw's
+ *  transcripts and memory isolate between users automatically. */
+function sessionPrefix(userId: string): string {
+  return `agent:main:ssai-${userId.replace(/-/g, "").slice(0, 12)}-`;
 }
 
 interface ChatMessage {
@@ -59,12 +55,6 @@ interface ChatMessage {
   role: "user" | "assistant";
   text: string;
   streaming?: boolean;
-}
-
-interface Conversation {
-  key: string;
-  label: string;
-  updatedAt: number | null;
 }
 
 let idCounter = 0;
@@ -99,10 +89,14 @@ const SUGGESTIONS = [
 export default function AssistantPage() {
   const clientRef = useRef<GatewayClient | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeKey, setActiveKey] = useState<string | null>(null);
   const activeKeyRef = useRef<string | null>(null);
+  /** sessionKey -> conversation id, for persisting runs on background chats. */
+  const conversationIdByKeyRef = useRef<Map<string, string>>(new Map());
+  /** Accumulated delta text per runId, used when a final arrives snapshot-less. */
+  const runTextRef = useRef<Map<string, string>>(new Map());
+
+  const [conversations, setConversations] = useState<AiConversation[]>([]);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<
     "connecting" | "connected" | "disconnected"
@@ -111,7 +105,7 @@ export default function AssistantPage() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [renamingKey, setRenamingKey] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
   const connected = status === "connected";
@@ -125,10 +119,57 @@ export default function AssistantPage() {
 
   /** Streams assistant output into a live bubble keyed by runId. */
   const applyRunEvent = useCallback((runEvent: ChatRunEvent) => {
+    // Persist finished runs for ANY of this account's chats — even ones
+    // currently scrolled away in the sidebar.
+    if (
+      runEvent.state === "final" ||
+      runEvent.state === "error" ||
+      runEvent.state === "aborted"
+    ) {
+      const snapshot = messageText(runEvent.message).trim();
+      const accumulated =
+        runTextRef.current.get(runEvent.runId)?.trim() ?? "";
+      const conversationId = conversationIdByKeyRef.current.get(
+        runEvent.sessionKey,
+      );
+      if (conversationId && runEvent.state === "final") {
+        const text = snapshot || accumulated;
+        if (text)
+          insertAiMessage(conversationId, "assistant", text).catch((err) =>
+            console.error("Failed to save assistant reply", err),
+          );
+        void touchAiConversation(conversationId).catch(() => {});
+      }
+      if (runEvent.sessionKey !== activeKeyRef.current) return;
+      runTextRef.current.delete(runEvent.runId);
+      setSending(false);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === runEvent.runId
+            ? {
+                ...m,
+                streaming: false,
+                // Prefer the gateway's cumulative snapshot; keep deltas if absent.
+                text: snapshot || m.text,
+              }
+            : m,
+        ),
+      );
+      if (runEvent.state === "error") {
+        setError(runEvent.errorMessage ?? "The assistant run failed.");
+      }
+      return;
+    }
+
     if (!activeKeyRef.current || runEvent.sessionKey !== activeKeyRef.current)
       return;
     if (runEvent.state === "delta") {
       const delta = runEvent.deltaText ?? "";
+      const existingEntry = runTextRef.current.get(runEvent.runId);
+      runTextRef.current.set(
+        runEvent.runId,
+        runEvent.replace ? delta : (existingEntry ?? "") + delta,
+      );
       setMessages((prev) => {
         const existing = prev.find((m) => m.id === runEvent.runId);
         if (!existing)
@@ -139,89 +180,62 @@ export default function AssistantPage() {
         const text = runEvent.replace ? delta : existing.text + delta;
         return prev.map((m) => (m.id === runEvent.runId ? { ...m, text } : m));
       });
-      return;
-    }
-    if (
-      runEvent.state === "final" ||
-      runEvent.state === "aborted" ||
-      runEvent.state === "error"
-    ) {
-      setSending(false);
-      const snapshot = messageText(runEvent.message);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === runEvent.runId
-            ? {
-                ...m,
-                streaming: false,
-                // Prefer the gateway's cumulative snapshot; keep deltas if absent.
-                text: snapshot.trim() ? snapshot : m.text,
-              }
-            : m,
-        ),
-      );
-      if (runEvent.state === "error") {
-        setError(runEvent.errorMessage ?? "The assistant run failed.");
-      }
     }
   }, []);
 
-  const sortConversations = (rows: Conversation[]) =>
-    [...rows].sort(
-      (a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0),
-    );
-
-  const loadConversations = useCallback(async (): Promise<Conversation[]> => {
-    const client = clientRef.current;
-    if (!client) return [];
+  const loadConversations = useCallback(async (): Promise<AiConversation[]> => {
     try {
-      const result = await client.request<{
-        sessions?: Record<string, unknown>[];
-      }>("sessions.list", { limit: 200 });
-      const rows = Array.isArray(result?.sessions) ? result.sessions : [];
-      const titles = loadTitleMap();
-      const mapped = rows
-        .map((row) => ({
-          key: String(row.key ?? ""),
-          label:
-            titles[String(row.key ?? "")] ??
-            ((typeof row.label === "string" && row.label) ||
-              (typeof row.displayName === "string" && row.displayName) ||
-              (typeof row.derivedTitle === "string" && row.derivedTitle) ||
-              "New chat"),
-          updatedAt:
-            typeof row.updatedAt === "number" ? row.updatedAt : null,
-        }))
-        .filter((row) => row.key.startsWith(SESSION_PREFIX));
-      setConversations(sortConversations(mapped));
-      return mapped;
-    } catch {
+      const rows = await listAiConversations();
+      setConversations(rows);
+      conversationIdByKeyRef.current = new Map(
+        rows.map((row) => [row.session_key, row.id]),
+      );
+      return rows;
+    } catch (err) {
+      console.error("Failed to load AI conversations", err);
       return [];
     }
   }, []);
 
   const loadHistory = useCallback(
-    async (sessionKey: string) => {
+    async (conversation: AiConversation) => {
       try {
+        const dbMessages = await listAiMessages(conversation.id);
+        if (dbMessages.length > 0) {
+          setMessages(
+            dbMessages.map((m) => ({
+              id: nextId("h"),
+              role: m.role,
+              text: m.content,
+            })),
+          );
+          scrollToBottom();
+          return;
+        }
+        // First open since the DB mirror landed: pull the transcript from the
+        // gateway and backfill the account storage.
         const result = await clientRef.current?.request<{
           messages?: unknown[];
-        }>("chat.history", { sessionKey, limit: 50 });
+        }>("chat.history", { sessionKey: conversation.session_key, limit: 50 });
         const entries = Array.isArray(result?.messages) ? result.messages : [];
         const normalized = entries
           .map(normalizeHistoryEntry)
           .filter(
             (e): e is { role: "user" | "assistant"; text: string } => e !== null,
           )
-          .slice(-50)
-          .map((entry) => ({
+          .slice(-50);
+        setMessages(
+          normalized.map((entry) => ({
             id: nextId("h"),
             role: entry.role,
             text: entry.text,
-          }));
-        setMessages(normalized);
+          })),
+        );
         scrollToBottom();
+        if (normalized.length > 0) {
+          insertAiMessages(conversation.id, normalized).catch(() => {});
+        }
       } catch {
-        // Unknown/new sessions simply have no transcript yet.
         setMessages([]);
       }
     },
@@ -229,12 +243,11 @@ export default function AssistantPage() {
   );
 
   const selectConversation = useCallback(
-    async (key: string | null) => {
-      setActiveKey(key);
-      activeKeyRef.current = key;
-      if (key) {
-        localStorage.setItem(LAST_SESSION_STORAGE_KEY, key);
-        void loadHistory(key);
+    (conversation: AiConversation | null) => {
+      setActiveKey(conversation?.session_key ?? null);
+      activeKeyRef.current = conversation?.session_key ?? null;
+      if (conversation) {
+        void loadHistory(conversation);
       } else {
         setMessages([]);
       }
@@ -243,73 +256,71 @@ export default function AssistantPage() {
     [loadHistory],
   );
 
-  const createConversation = useCallback(async () => {
-    const client = clientRef.current;
-    if (!client) return null;
-    const suffix =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID().slice(0, 8)
-        : Math.random().toString(36).slice(2, 10);
-    const key = `${SESSION_PREFIX}-${suffix}`;
-    try {
-      // No label: gateway labels are globally unique, titles live locally.
-      await client.request("sessions.create", { key });
-    } catch {
-      // Entry creation is best-effort; chat.send will materialise it anyway.
-    }
-    const titles = loadTitleMap();
-    titles[key] = "New chat";
-    saveTitleMap(titles);
-    await loadConversations();
-    await selectConversation(key);
-    return key;
-  }, [loadConversations, selectConversation]);
+  const createConversation = useCallback(
+    async (userId: string) => {
+      const client = clientRef.current;
+      const suffix =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID().slice(0, 8)
+          : Math.random().toString(36).slice(2, 10);
+      const key = `${sessionPrefix(userId)}${suffix}`;
+      let conversation: AiConversation | null = null;
+      try {
+        conversation = await createAiConversation(key, "New chat");
+      } catch (err) {
+        console.error("Failed to create conversation row", err);
+        setError("Failed to create the chat in your account.");
+        return null;
+      }
+      // Mirror the session entry onto the gateway (best-effort; chat.send
+      // materialises it anyway).
+      void client?.request("sessions.create", { key }).catch(() => {});
+      await loadConversations();
+      selectConversation(conversation);
+      return conversation;
+    },
+    [loadConversations, selectConversation],
+  );
 
   const deleteConversation = useCallback(
-    async (key: string) => {
+    async (conversation: AiConversation) => {
       if (!window.confirm("Delete this chat? This cannot be undone.")) return;
       try {
+        // Wipe the gateway transcript, then the account copy.
         await clientRef.current?.request("sessions.delete", {
-          key,
+          key: conversation.session_key,
           deleteTranscript: true,
         });
       } catch {
-        setError("Failed to delete the chat on the gateway.");
+        // Transcript cleanup is best-effort; the account row must still go.
       }
-      const titles = loadTitleMap();
-      delete titles[key];
-      saveTitleMap(titles);
+      try {
+        await deleteAiConversation(conversation.id);
+      } catch {
+        setError("Failed to delete the chat from your account.");
+      }
       const remaining = await loadConversations();
-      if (activeKeyRef.current === key) {
-        await selectConversation(remaining[0]?.key ?? null);
+      if (activeKeyRef.current === conversation.session_key) {
+        selectConversation(remaining[0] ?? null);
       }
     },
     [loadConversations, selectConversation],
   );
 
   const renameConversation = useCallback(
-    async (key: string, label: string, silent = false) => {
-      const trimmed = label.trim();
+    async (conversation: AiConversation, title: string, silent = false) => {
+      const trimmed = title.trim();
       if (!trimmed) return;
       setConversations((prev) =>
-        prev.map((c) => (c.key === key ? { ...c, label: trimmed } : c)),
+        prev.map((c) => (c.id === conversation.id ? { ...c, title: trimmed } : c)),
       );
-      const titles = loadTitleMap();
-      titles[key] = trimmed;
-      saveTitleMap(titles);
       try {
-        await clientRef.current?.request("sessions.patch", { key, label: trimmed });
+        await renameAiConversation(conversation.id, trimmed);
       } catch (err) {
-        // Duplicate labels are rejected gateway-wide; the local title already
-        // applied, so only surface explicit renames that failed.
-        if (!silent)
-          setError(
-            err instanceof GatewayClientError
-              ? err.message
-              : "Failed to rename the chat.",
-          );
+        console.error("Failed to rename chat", err);
+        if (!silent) setError("Failed to rename the chat.");
       }
-      setRenamingKey(null);
+      setRenamingId(null);
     },
     [],
   );
@@ -350,17 +361,17 @@ export default function AssistantPage() {
               applyRunEvent(payload as ChatRunEvent);
           });
 
-          const stored = localStorage.getItem(LAST_SESSION_STORAGE_KEY);
+          const user: User | null = await getCurrentUser();
+          if (!user) {
+            setError("Sign in to see your chats.");
+            return;
+          }
           const existing = await loadConversations();
           if (cancelled) return;
-          const initial =
-            existing.find((c) => c.key === stored)?.key ??
-            existing[0]?.key ??
-            null;
-          if (initial) {
-            await selectConversation(initial);
+          if (existing.length > 0) {
+            selectConversation(existing[0]);
           } else {
-            await createConversation();
+            await createConversation(user.id);
           }
         } catch (err) {
           if (cancelled) return;
@@ -391,6 +402,7 @@ export default function AssistantPage() {
     const text = draft.trim();
     const sessionKey = activeKeyRef.current;
     if (!text || sending || !connected || !sessionKey) return;
+    const conversation = conversations.find((c) => c.session_key === sessionKey);
     setDraft("");
     setSending(true);
     setError(null);
@@ -400,25 +412,31 @@ export default function AssistantPage() {
     ]);
     scrollToBottom();
     try {
+      if (conversation) {
+        // Persist the user turn first so history survives anything.
+        insertAiMessage(conversation.id, "user", text).catch((err) =>
+          console.error("Failed to save message", err),
+        );
+        void touchAiConversation(conversation.id).catch(() => {});
+        if (conversation.title === "New chat") {
+          void renameConversation(conversation, text.slice(0, 60), true);
+        }
+        setConversations((prev) =>
+          [...prev]
+            .map((c) =>
+              c.id === conversation.id
+                ? { ...c, updated_at: new Date().toISOString() }
+                : c,
+            )
+            .sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
+        );
+      }
       await clientRef.current?.request("chat.send", {
         sessionKey,
         message: text,
         idempotencyKey: nextId("i"),
         deliver: false,
       });
-      // Auto-title: first user message names an untouched chat.
-      const conversation = conversations.find((c) => c.key === sessionKey);
-      if (conversation && conversation.label === "New chat") {
-        void renameConversation(sessionKey, text.slice(0, 60), true);
-      }
-      // Bump the conversation to the top of the recency list.
-      setConversations((prev) =>
-        sortConversations(
-          prev.map((c) =>
-            c.key === sessionKey ? { ...c, updatedAt: Date.now() } : c,
-          ),
-        ),
-      );
     } catch (err) {
       setSending(false);
       setError(
@@ -436,29 +454,27 @@ export default function AssistantPage() {
     scrollToBottom,
   ]);
 
-  const startRename = useCallback(
-    (conversation: Conversation) => {
-      setRenamingKey(conversation.key);
-      setRenameDraft(
-        conversation.label === "New chat" ? "" : conversation.label,
-      );
-      setSidebarOpen(false);
-    },
-    [],
-  );
+  const startRename = useCallback((conversation: AiConversation) => {
+    setRenamingId(conversation.id);
+    setRenameDraft(conversation.title === "New chat" ? "" : conversation.title);
+    setSidebarOpen(false);
+  }, []);
 
   const submitRename = useCallback(() => {
-    if (renamingKey && renameDraft.trim())
-      void renameConversation(renamingKey, renameDraft);
-    else setRenamingKey(null);
-  }, [renamingKey, renameDraft, renameConversation]);
+    const conversation = conversations.find((c) => c.id === renamingId);
+    if (conversation && renameDraft.trim())
+      void renameConversation(conversation, renameDraft);
+    else setRenamingId(null);
+  }, [conversations, renamingId, renameDraft, renameConversation]);
 
   const conversationList = (
     <div className="flex h-full min-h-0 flex-col">
       <Button
         onClick={() => {
           setSidebarOpen(false);
-          void createConversation();
+          void getCurrentUser().then((user) => {
+            if (user?.id) void createConversation(user.id);
+          });
         }}
         disabled={!connected}
         className="mx-3 mt-3 justify-start gap-2"
@@ -477,11 +493,11 @@ export default function AssistantPage() {
           </p>
         )}
         {conversations.map((conversation) => {
-          const isActive = conversation.key === activeKey;
-          const isRenaming = renamingKey === conversation.key;
+          const isActive = conversation.session_key === activeKey;
+          const isRenaming = renamingId === conversation.id;
           return (
             <div
-              key={conversation.key}
+              key={conversation.id}
               className={cnSidebarItem(isActive)}
             >
               {isRenaming ? (
@@ -497,7 +513,7 @@ export default function AssistantPage() {
                     value={renameDraft}
                     onChange={(e) => setRenameDraft(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Escape") setRenamingKey(null);
+                      if (e.key === "Escape") setRenamingId(null);
                     }}
                     aria-label="Chat name"
                     className="h-7 text-xs"
@@ -513,7 +529,7 @@ export default function AssistantPage() {
                     type="button"
                     aria-label="Cancel"
                     className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted"
-                    onClick={() => setRenamingKey(null)}
+                    onClick={() => setRenamingId(null)}
                   >
                     <X className="size-3.5" />
                   </button>
@@ -522,16 +538,16 @@ export default function AssistantPage() {
                 <>
                   <button
                     type="button"
-                    onClick={() => void selectConversation(conversation.key)}
+                    onClick={() => selectConversation(conversation)}
                     className="min-w-0 flex-1 truncate px-2 py-2 text-left text-sm"
-                    title={conversation.label}
+                    title={conversation.title}
                   >
-                    {conversation.label}
+                    {conversation.title}
                   </button>
                   <span className="flex shrink-0 items-center gap-0.5 pr-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
                     <button
                       type="button"
-                      aria-label={`Rename "${conversation.label}"`}
+                      aria-label={`Rename "${conversation.title}"`}
                       className="rounded-md p-1 text-muted-foreground hover:bg-background hover:text-foreground"
                       onClick={() => startRename(conversation)}
                     >
@@ -539,9 +555,9 @@ export default function AssistantPage() {
                     </button>
                     <button
                       type="button"
-                      aria-label={`Delete "${conversation.label}"`}
+                      aria-label={`Delete "${conversation.title}"`}
                       className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => void deleteConversation(conversation.key)}
+                      onClick={() => void deleteConversation(conversation)}
                     >
                       <Trash2 className="size-3.5" />
                     </button>
@@ -672,7 +688,7 @@ export default function AssistantPage() {
                   Meet SiteSurveyor — every measurement needs a reference
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  SiteSurveyor can query projects, invoices, quotes, assets and the
+                  The agent can query projects, invoices, quotes, assets and the
                   market — then act on what you approve.
                 </p>
               </div>
