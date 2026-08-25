@@ -141,25 +141,6 @@ export default defineConfig({
   server: {
     port: 5174,
     strictPort: true,
-    // OpenClaw AI assistant: WebSocket proxy to the local gateway. The
-    // gateway only grants operator scopes to trusted loopback backend
-    // clients without device pairing, so the proxy strips the browser
-    // Origin header — from the gateway's point of view the connection is
-    // an ordinary loopback backend client. Loopback-only by definition.
-    proxy: {
-      '/openclaw': {
-        target: process.env.VITE_OPENCLAW_PROXY_TARGET ?? 'ws://127.0.0.1:18789',
-        ws: true,
-        rewriteWsOrigin: false,
-        configure: (proxy) => {
-          proxy.on('proxyReqWs', (proxyReq) => {
-            proxyReq.removeHeader('origin');
-            proxyReq.removeHeader('sec-fetch-site');
-            proxyReq.removeHeader('sec-fetch-mode');
-          });
-        },
-      },
-    },
   },
 
   // WebAssembly and top-level await require a modern output target. The default

@@ -4,7 +4,6 @@ import {
   MessageSquarePlus,
   PanelLeft,
   Pencil,
-  RefreshCw,
   SendHorizontal,
   Trash2,
   X,
@@ -12,43 +11,16 @@ import {
 
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { Badge } from "@/components/ui/badge.tsx";
 import PageLoader from "@/components/PageLoader.tsx";
-import { getCurrentUser } from "../../lib/auth/session.ts";
-import type { User } from "@supabase/supabase-js";
 import {
   createAiConversation,
   deleteAiConversation,
-  insertAiMessage,
-  insertAiMessages,
   listAiConversations,
   listAiMessages,
   renameAiConversation,
-  touchAiConversation,
   type AiConversation,
 } from "../../lib/repositories/aiChats.ts";
-import {
-  GatewayClient,
-  GatewayClientError,
-  normalizeHistoryEntry,
-  type ChatRunEvent,
-} from "../../lib/openclaw/gatewayClient.ts";
-
-// Default: same-origin /openclaw path (the Vite dev proxy forwards to
-// ws://127.0.0.1:18789 and strips Origin so the gateway treats the app as a
-// trusted loopback backend client).
-const GATEWAY_URL =
-  (import.meta.env.VITE_OPENCLAW_URL as string | undefined) ||
-  `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/openclaw`;
-const GATEWAY_TOKEN = import.meta.env.VITE_OPENCLAW_TOKEN as
-  | string
-  | undefined;
-
-/** Gateway session keys are namespaced per signed-in account, so OpenClaw's
- *  transcripts and memory isolate between users automatically. */
-function sessionPrefix(userId: string): string {
-  return `agent:main:ssai-${userId.replace(/-/g, "").slice(0, 12)}-`;
-}
+import { streamAiReply } from "../../lib/repositories/aiChatApi.ts";
 
 interface ChatMessage {
   id: string;
@@ -57,58 +29,32 @@ interface ChatMessage {
   streaming?: boolean;
 }
 
-let idCounter = 0;
-function nextId(prefix: string): string {
-  idCounter += 1;
-  return `${prefix}${Date.now()}-${idCounter}`;
-}
-
-/** Extract displayable text from a cumulative message snapshot. */
-function messageText(message?: Record<string, unknown>): string {
-  const content = message?.content ?? message?.text;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content))
-    return content
-      .map((part) =>
-        part &&
-        typeof part === "object" &&
-        (part as { type?: string }).type === "text"
-          ? String((part as { text: unknown }).text ?? "")
-          : "",
-      )
-      .join("");
-  return "";
-}
-
 const SUGGESTIONS = [
   "Summarise overdue invoices across workspaces",
   "Which asset calibrations are due within the next 14 days?",
   "How many active projects do we have, by status?",
 ];
 
+let idCounter = 0;
+function nextId(prefix: string): string {
+  idCounter += 1;
+  return `${prefix}${Date.now()}-${idCounter}`;
+}
+
 export default function AssistantPage() {
-  const clientRef = useRef<GatewayClient | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const activeKeyRef = useRef<string | null>(null);
-  /** sessionKey -> conversation id, for persisting runs on background chats. */
-  const conversationIdByKeyRef = useRef<Map<string, string>>(new Map());
-  /** Accumulated delta text per runId, used when a final arrives snapshot-less. */
-  const runTextRef = useRef<Map<string, string>>(new Map());
 
   const [conversations, setConversations] = useState<AiConversation[]>([]);
-  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const activeIdRef = useRef<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [status, setStatus] = useState<
-    "connecting" | "connected" | "disconnected"
-  >("connecting");
+  const [booted, setBooted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
-
-  const connected = status === "connected";
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -117,79 +63,10 @@ export default function AssistantPage() {
     });
   }, []);
 
-  /** Streams assistant output into a live bubble keyed by runId. */
-  const applyRunEvent = useCallback((runEvent: ChatRunEvent) => {
-    // Persist finished runs for ANY of this account's chats — even ones
-    // currently scrolled away in the sidebar.
-    if (
-      runEvent.state === "final" ||
-      runEvent.state === "error" ||
-      runEvent.state === "aborted"
-    ) {
-      const snapshot = messageText(runEvent.message).trim();
-      const accumulated =
-        runTextRef.current.get(runEvent.runId)?.trim() ?? "";
-      const conversationId = conversationIdByKeyRef.current.get(
-        runEvent.sessionKey,
-      );
-      if (conversationId && runEvent.state === "final") {
-        const text = snapshot || accumulated;
-        if (text)
-          insertAiMessage(conversationId, "assistant", text).catch((err) =>
-            console.error("Failed to save assistant reply", err),
-          );
-        void touchAiConversation(conversationId).catch(() => {});
-      }
-      if (runEvent.sessionKey !== activeKeyRef.current) return;
-      runTextRef.current.delete(runEvent.runId);
-      setSending(false);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === runEvent.runId
-            ? {
-                ...m,
-                streaming: false,
-                // Prefer the gateway's cumulative snapshot; keep deltas if absent.
-                text: snapshot || m.text,
-              }
-            : m,
-        ),
-      );
-      if (runEvent.state === "error") {
-        setError(runEvent.errorMessage ?? "The assistant run failed.");
-      }
-      return;
-    }
-
-    if (!activeKeyRef.current || runEvent.sessionKey !== activeKeyRef.current)
-      return;
-    if (runEvent.state === "delta") {
-      const delta = runEvent.deltaText ?? "";
-      const existingEntry = runTextRef.current.get(runEvent.runId);
-      runTextRef.current.set(
-        runEvent.runId,
-        runEvent.replace ? delta : (existingEntry ?? "") + delta,
-      );
-      setMessages((prev) => {
-        const existing = prev.find((m) => m.id === runEvent.runId);
-        if (!existing)
-          return [
-            ...prev,
-            { id: runEvent.runId, role: "assistant", text: delta, streaming: true },
-          ];
-        const text = runEvent.replace ? delta : existing.text + delta;
-        return prev.map((m) => (m.id === runEvent.runId ? { ...m, text } : m));
-      });
-    }
-  }, []);
-
   const loadConversations = useCallback(async (): Promise<AiConversation[]> => {
     try {
       const rows = await listAiConversations();
       setConversations(rows);
-      conversationIdByKeyRef.current = new Map(
-        rows.map((row) => [row.session_key, row.id]),
-      );
       return rows;
     } catch (err) {
       console.error("Failed to load AI conversations", err);
@@ -197,111 +74,61 @@ export default function AssistantPage() {
     }
   }, []);
 
-  const loadHistory = useCallback(
-    async (conversation: AiConversation) => {
+  const selectConversation = useCallback(
+    async (conversation: AiConversation | null) => {
+      setActiveId(conversation?.id ?? null);
+      activeIdRef.current = conversation?.id ?? null;
+      if (!conversation) {
+        setMessages([]);
+        return;
+      }
       try {
-        const dbMessages = await listAiMessages(conversation.id);
-        if (dbMessages.length > 0) {
-          setMessages(
-            dbMessages.map((m) => ({
-              id: nextId("h"),
-              role: m.role,
-              text: m.content,
-            })),
-          );
-          scrollToBottom();
-          return;
-        }
-        // First open since the DB mirror landed: pull the transcript from the
-        // gateway and backfill the account storage.
-        const result = await clientRef.current?.request<{
-          messages?: unknown[];
-        }>("chat.history", { sessionKey: conversation.session_key, limit: 50 });
-        const entries = Array.isArray(result?.messages) ? result.messages : [];
-        const normalized = entries
-          .map(normalizeHistoryEntry)
-          .filter(
-            (e): e is { role: "user" | "assistant"; text: string } => e !== null,
-          )
-          .slice(-50);
+        const rows = await listAiMessages(conversation.id);
         setMessages(
-          normalized.map((entry) => ({
+          rows.map((m) => ({
             id: nextId("h"),
-            role: entry.role,
-            text: entry.text,
+            role: m.role,
+            text: m.content,
           })),
         );
         scrollToBottom();
-        if (normalized.length > 0) {
-          insertAiMessages(conversation.id, normalized).catch(() => {});
-        }
       } catch {
-        setMessages([]);
-      }
-    },
-    [scrollToBottom],
-  );
-
-  const selectConversation = useCallback(
-    (conversation: AiConversation | null) => {
-      setActiveKey(conversation?.session_key ?? null);
-      activeKeyRef.current = conversation?.session_key ?? null;
-      if (conversation) {
-        void loadHistory(conversation);
-      } else {
         setMessages([]);
       }
       setSidebarOpen(false);
     },
-    [loadHistory],
+    [scrollToBottom],
   );
 
-  const createConversation = useCallback(
-    async (userId: string) => {
-      const client = clientRef.current;
-      const suffix =
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID().slice(0, 8)
-          : Math.random().toString(36).slice(2, 10);
-      const key = `${sessionPrefix(userId)}${suffix}`;
-      let conversation: AiConversation | null = null;
-      try {
-        conversation = await createAiConversation(key, "New chat");
-      } catch (err) {
-        console.error("Failed to create conversation row", err);
-        setError("Failed to create the chat in your account.");
-        return null;
-      }
-      // Mirror the session entry onto the gateway (best-effort; chat.send
-      // materialises it anyway).
-      void client?.request("sessions.create", { key }).catch(() => {});
+  const createConversation = useCallback(async () => {
+    try {
+      const conversation = await createAiConversation(
+        `ssai-${
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID().slice(0, 8)
+            : Math.random().toString(36).slice(2, 10)
+        }`,
+        "New chat",
+      );
       await loadConversations();
-      selectConversation(conversation);
-      return conversation;
-    },
-    [loadConversations, selectConversation],
-  );
+      await selectConversation(conversation);
+    } catch (err) {
+      console.error("Failed to create conversation", err);
+      setError("Failed to create the chat in your account.");
+    }
+  }, [loadConversations, selectConversation]);
 
   const deleteConversation = useCallback(
     async (conversation: AiConversation) => {
       if (!window.confirm("Delete this chat? This cannot be undone.")) return;
-      try {
-        // Wipe the gateway transcript, then the account copy.
-        await clientRef.current?.request("sessions.delete", {
-          key: conversation.session_key,
-          deleteTranscript: true,
-        });
-      } catch {
-        // Transcript cleanup is best-effort; the account row must still go.
-      }
       try {
         await deleteAiConversation(conversation.id);
       } catch {
         setError("Failed to delete the chat from your account.");
       }
       const remaining = await loadConversations();
-      if (activeKeyRef.current === conversation.session_key) {
-        selectConversation(remaining[0] ?? null);
+      if (activeIdRef.current === conversation.id) {
+        await selectConversation(remaining[0] ?? null);
       }
     },
     [loadConversations, selectConversation],
@@ -329,126 +156,91 @@ export default function AssistantPage() {
     // Deferred so the effect body never calls setState synchronously
     // (react-hooks/set-state-in-effect).
     let cancelled = false;
-    let unsubEvents: (() => void) | undefined;
     const clear = window.setTimeout(() => {
       if (cancelled) return;
-      if (!GATEWAY_TOKEN) {
-        setStatus("disconnected");
-        setError(
-          "Missing VITE_OPENCLAW_TOKEN in frontend/.env — add your gateway token and reload.",
-        );
-        return;
-      }
-
       const boot = async () => {
-        setStatus("connecting");
-        setError(null);
-        try {
-          const client =
-            clientRef.current ??
-            new GatewayClient(GATEWAY_URL, GATEWAY_TOKEN, (s) => {
-              if (!cancelled) setStatus(s);
-            });
-          clientRef.current = client;
-          await client.connect();
-          if (cancelled) return;
-
-          // Visible assistant text streams on the "chat" event family
-          // (deltaText + cumulative message snapshot); "agent" carries run
-          // lifecycle. Subscribe to both.
-          unsubEvents = client.onEvent((event, payload) => {
-            if (event === "chat" || event === "agent")
-              applyRunEvent(payload as ChatRunEvent);
-          });
-
-          const user: User | null = await getCurrentUser();
-          if (!user) {
-            setError("Sign in to see your chats.");
-            return;
-          }
-          const existing = await loadConversations();
-          if (cancelled) return;
-          if (existing.length > 0) {
-            selectConversation(existing[0]);
-          } else {
-            await createConversation(user.id);
-          }
-        } catch (err) {
-          if (cancelled) return;
-          setStatus("disconnected");
-          setError(
-            err instanceof GatewayClientError
-              ? `${err.message} (${err.code})`
-              : "Unable to reach the OpenClaw gateway on this machine.",
-          );
-        }
+        const existing = await loadConversations();
+        if (cancelled) return;
+        setBooted(true);
+        if (existing.length > 0) await selectConversation(existing[0]);
+        else await createConversation();
       };
-
       void boot();
     }, 0);
-
     return () => {
       cancelled = true;
       window.clearTimeout(clear);
-      unsubEvents?.();
     };
     // Boot runs once; callbacks are stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => () => clientRef.current?.close(), []);
-
   const send = useCallback(async () => {
     const text = draft.trim();
-    const sessionKey = activeKeyRef.current;
-    if (!text || sending || !connected || !sessionKey) return;
-    const conversation = conversations.find((c) => c.session_key === sessionKey);
+    const conversationId = activeIdRef.current;
+    if (!text || streaming || !conversationId) return;
+
+    const conversation = conversations.find((c) => c.id === conversationId);
     setDraft("");
-    setSending(true);
+    setStreaming(true);
     setError(null);
     setMessages((prev) => [
       ...prev,
       { id: nextId("u"), role: "user", text },
     ]);
     scrollToBottom();
-    try {
-      if (conversation) {
-        // Persist the user turn first so history survives anything.
-        insertAiMessage(conversation.id, "user", text).catch((err) =>
-          console.error("Failed to save message", err),
+
+    const bumpToTop = () =>
+      setConversations((prev) =>
+        [...prev]
+          .map((c) =>
+            c.id === conversationId
+              ? { ...c, updated_at: new Date().toISOString() }
+              : c,
+          )
+          .sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
+      );
+
+    await streamAiReply(conversationId, text, {
+      onDelta: (delta) => {
+        setMessages((prev) => {
+          const existing = prev.find((m) => m.id === "live");
+          if (!existing)
+            return [
+              ...prev,
+              { id: "live", role: "assistant", text: delta, streaming: true },
+            ];
+          return prev.map((m) =>
+            m.id === "live" ? { ...m, text: m.text + delta } : m,
+          );
+        });
+        scrollToBottom();
+      },
+      onFinal: (finalText) => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === "live"
+              ? { ...m, id: nextId("a"), text: finalText, streaming: false }
+              : m,
+          ),
         );
-        void touchAiConversation(conversation.id).catch(() => {});
-        if (conversation.title === "New chat") {
+        setStreaming(false);
+        bumpToTop();
+        // Server auto-titles an untouched chat after its first message.
+        if (conversation?.title === "New chat") {
           void renameConversation(conversation, text.slice(0, 60), true);
         }
-        setConversations((prev) =>
-          [...prev]
-            .map((c) =>
-              c.id === conversation.id
-                ? { ...c, updated_at: new Date().toISOString() }
-                : c,
-            )
-            .sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
-        );
-      }
-      await clientRef.current?.request("chat.send", {
-        sessionKey,
-        message: text,
-        idempotencyKey: nextId("i"),
-        deliver: false,
-      });
-    } catch (err) {
-      setSending(false);
-      setError(
-        err instanceof GatewayClientError
-          ? err.message
-          : "Failed to send the message.",
-      );
-    }
+        scrollToBottom();
+      },
+      onError: (message) => {
+        setMessages((prev) => prev.filter((m) => m.id !== "live"));
+        setError(message);
+        setStreaming(false);
+      },
+    });
   }, [
     draft,
-    sending,
-    connected,
+    streaming,
     conversations,
     renameConversation,
     scrollToBottom,
@@ -472,11 +264,8 @@ export default function AssistantPage() {
       <Button
         onClick={() => {
           setSidebarOpen(false);
-          void getCurrentUser().then((user) => {
-            if (user?.id) void createConversation(user.id);
-          });
+          void createConversation();
         }}
-        disabled={!connected}
         className="mx-3 mt-3 justify-start gap-2"
         variant="outline"
       >
@@ -493,7 +282,7 @@ export default function AssistantPage() {
           </p>
         )}
         {conversations.map((conversation) => {
-          const isActive = conversation.session_key === activeKey;
+          const isActive = conversation.id === activeId;
           const isRenaming = renamingId === conversation.id;
           return (
             <div
@@ -538,7 +327,7 @@ export default function AssistantPage() {
                 <>
                   <button
                     type="button"
-                    onClick={() => selectConversation(conversation)}
+                    onClick={() => void selectConversation(conversation)}
                     className="min-w-0 flex-1 truncate px-2 py-2 text-left text-sm"
                     title={conversation.title}
                   >
@@ -643,26 +432,6 @@ export default function AssistantPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant={connected ? "default" : "secondary"}>
-              {status === "connecting"
-                ? "Connecting…"
-                : connected
-                  ? "Online"
-                  : "Offline"}
-            </Badge>
-            {!connected && !sending && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => window.location.reload()}
-              >
-                <RefreshCw className="size-3.5" />
-                Retry
-              </Button>
-            )}
-          </div>
         </div>
 
         {error && (
@@ -675,7 +444,9 @@ export default function AssistantPage() {
           ref={scrollRef}
           className="min-h-[280px] flex-1 overflow-y-auto rounded-lg border border-border/60 bg-card p-4"
         >
-          {messages.length === 0 && connected ? (
+          {!booted ? (
+            <PageLoader compact />
+          ) : messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center gap-4 py-12 text-center">
               <img
                 src="/logo.svg"
@@ -705,8 +476,6 @@ export default function AssistantPage() {
                 ))}
               </div>
             </div>
-          ) : messages.length === 0 ? (
-            <PageLoader compact />
           ) : (
             <div className="space-y-3">
               {messages.map((message) => (
@@ -743,11 +512,9 @@ export default function AssistantPage() {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder={
-              connected
-                ? "Tell SiteSurveyor what to do…"
-                : "Waiting for the OpenClaw gateway…"
+              streaming ? "SiteSurveyor is thinking…" : "Tell SiteSurveyor what to do…"
             }
-            disabled={!connected}
+            disabled={streaming}
             className="h-11 flex-1"
             aria-label="Message SiteSurveyor"
           />
@@ -755,7 +522,7 @@ export default function AssistantPage() {
             type="submit"
             size="icon"
             className="size-11 shrink-0"
-            disabled={!connected || !draft.trim() || sending}
+            disabled={!draft.trim() || streaming}
             aria-label="Send message"
           >
             <SendHorizontal className="size-4" />

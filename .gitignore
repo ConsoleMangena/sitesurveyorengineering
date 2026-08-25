@@ -54,3 +54,4 @@ skills-lock.json
 
 # Cloned admin dashboard template (MIT-licensed reference/starter)
 templates/admin-dashboard/
+server/.env
