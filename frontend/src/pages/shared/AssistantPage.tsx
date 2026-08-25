@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import PageLoader from "@/components/PageLoader.tsx";
+import { AiMessageText } from "./AiMessageText.tsx";
 import {
   createAiConversation,
   deleteAiConversation,
@@ -50,6 +51,10 @@ const TOOL_LABELS: Record<string, string> = {
   insert_site_record: "Creating the record…",
   update_site_record: "Applying the change…",
   delete_site_record: "Deleting…",
+  get_cad_drawing: "Loading CAD drawing...",
+  list_cad_layers: "Reading drawing layers...",
+  count_cad_entities: "Counting drawing entities...",
+  inspect_cad_entity: "Inspecting entity...",
 };
 
 function activityLabel(event: string | null): string {
@@ -508,13 +513,17 @@ export default function AssistantPage() {
                   className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3.5 py-2.5 text-sm leading-relaxed ${
+                    className={`max-w-[85%] rounded-lg px-3.5 py-2.5 text-sm ${
                       message.role === "user"
-                        ? "bg-primary text-primary-foreground"
+                        ? "whitespace-pre-wrap bg-primary leading-relaxed text-primary-foreground"
                         : "border border-border/60 bg-muted/60 text-card-foreground"
                     }`}
                   >
-                    {message.text}
+                    {message.role === "assistant" ? (
+                      <AiMessageText text={message.text} />
+                    ) : (
+                      message.text
+                    )}
                     {message.streaming && (
                       <span className="ml-1 inline-block h-3.5 w-1.5 animate-pulse rounded-sm bg-current align-middle" />
                     )}
