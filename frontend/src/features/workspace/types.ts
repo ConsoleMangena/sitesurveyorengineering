@@ -5,6 +5,7 @@ export type SignupAccountType = "personal" | "business" | "platform_admin";
 
 export const WORKSPACE_VIEWS = [
   "dashboard",
+  "assistant",
   "notifications",
   "files",
   "quotes",

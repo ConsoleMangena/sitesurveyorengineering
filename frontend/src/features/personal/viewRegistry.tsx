@@ -29,6 +29,7 @@ const ProjectHubPage = lazy(() => import("../../pages/shared/ProjectHubPage"));
 const TimeTrackingPage = lazy(() => import("../../pages/shared/TimeTrackingPage"));
 const AssetManagementPage = lazy(() => import("../../pages/shared/AssetManagementPage"));
 const MarketplacePage = lazy(() => import("../../pages/shared/MarketplacePage"));
+const AssistantPage = lazy(() => import("../../pages/shared/AssistantPage"));
 
 interface PersonalViewRendererOptions {
   user: UiUser;
@@ -46,6 +47,13 @@ export function renderPersonalView(
   switch (activeView) {
     case "dashboard":
       return <PersonalDashboardPage userName={user.name} workspaceId={user.workspaceId} onNavigate={onNavigate} />;
+
+    case "assistant":
+      return (
+        <Suspense fallback={<PageLoader />}>
+          <AssistantPage />
+        </Suspense>
+      );
 
     case "schedule":
       return <SchedulePage workspaceId={user.workspaceId} />;

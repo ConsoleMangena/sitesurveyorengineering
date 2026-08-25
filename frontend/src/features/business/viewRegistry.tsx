@@ -30,6 +30,7 @@ const ProjectHubPage = lazy(() => import("../../pages/shared/ProjectHubPage"));
 const TimeTrackingPage = lazy(() => import("../../pages/shared/TimeTrackingPage"));
 const AssetManagementPage = lazy(() => import("../../pages/shared/AssetManagementPage"));
 const MarketplacePage = lazy(() => import("../../pages/shared/MarketplacePage"));
+const AssistantPage = lazy(() => import("../../pages/shared/AssistantPage"));
 
 interface BusinessViewRegistryOptions {
   user: UiUser;
@@ -47,6 +48,13 @@ export function renderBusinessView(
   switch (activeView) {
     case "dashboard":
       return <BusinessDashboardPage userName={user.name} workspaceId={user.workspaceId} onNavigate={onNavigate} />;
+
+    case "assistant":
+      return (
+        <Suspense fallback={<PageLoader />}>
+          <AssistantPage />
+        </Suspense>
+      );
 
     case "files":
       return (
