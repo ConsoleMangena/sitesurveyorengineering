@@ -637,7 +637,7 @@ function getNavIcon(icon: string) {
     case "dashboard":
       return <DashboardIcon />;
     case "bot":
-      // Datum's brand mark — the official logo instead of a generic glyph.
+      // SiteSurveyor agent brand mark — the official logo instead of a generic glyph.
       return (
         <img
           src="/logo.svg"

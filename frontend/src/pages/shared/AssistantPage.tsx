@@ -31,13 +31,13 @@ const GATEWAY_TOKEN = import.meta.env.VITE_OPENCLAW_TOKEN as
   | string
   | undefined;
 
-/** Every Datum conversation lives under this key prefix, so the sidebar can
+/** Every SiteSurveyor conversation lives under this key prefix, so the sidebar can
  *  pick them out of the gateway's global session index. */
 const SESSION_PREFIX = "agent:main:sitesurveyor-assistant";
-const LAST_SESSION_STORAGE_KEY = "datum:last-session";
+const LAST_SESSION_STORAGE_KEY = "sitesurveyor:last-ai-session";
 // Gateway session labels must be unique across all sessions, so chat titles
 // are stored locally and gateway labels are only best-effort mirrors.
-const TITLES_STORAGE_KEY = "datum:titles";
+const TITLES_STORAGE_KEY = "sitesurveyor:ai-titles";
 
 function loadTitleMap(): Record<string, string> {
   try {
@@ -617,7 +617,7 @@ export default function AssistantPage() {
             />
             <div>
               <h1 className="flex items-baseline gap-2 text-lg font-semibold text-foreground">
-                Datum
+                SiteSurveyor
                 <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                   AI agent
                 </span>
@@ -669,10 +669,10 @@ export default function AssistantPage() {
               />
               <div className="max-w-sm space-y-1.5">
                 <p className="font-medium text-card-foreground">
-                  Meet Datum — every measurement needs a reference
+                  Meet SiteSurveyor — every measurement needs a reference
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Datum can query projects, invoices, quotes, assets and the
+                  SiteSurveyor can query projects, invoices, quotes, assets and the
                   market — then act on what you approve.
                 </p>
               </div>
@@ -728,12 +728,12 @@ export default function AssistantPage() {
             onChange={(e) => setDraft(e.target.value)}
             placeholder={
               connected
-                ? "Tell Datum what to do…"
+                ? "Tell SiteSurveyor what to do…"
                 : "Waiting for the OpenClaw gateway…"
             }
             disabled={!connected}
             className="h-11 flex-1"
-            aria-label="Message Datum"
+            aria-label="Message SiteSurveyor"
           />
           <Button
             type="submit"

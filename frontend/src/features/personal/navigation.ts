@@ -4,7 +4,7 @@ export const personalNavGroups: WorkspaceNavGroup[] = [
   {
     items: [
       { view: "dashboard", label: "Dashboard", icon: "dashboard" },
-      { view: "assistant", label: "Datum AI", icon: "bot" },
+      { view: "assistant", label: "SiteSurveyor AI", icon: "bot" },
       { view: "notifications", label: "Notifications", icon: "notifications" },
     ],
   },
