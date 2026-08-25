@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Globe2 } from "lucide-react";
 
 import { Button } from "../ui/button.tsx";
 import {
@@ -54,9 +53,12 @@ export default function MarketGlobeCard() {
     <section aria-label="Open engineering surveying market" className="overflow-hidden rounded-lg border border-border/60 bg-card shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-            <Globe2 className="size-4" />
-          </span>
+          <img
+            src="/logo.svg"
+            alt=""
+            aria-hidden="true"
+            className="app-logo h-8 w-8 shrink-0"
+          />
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-card-foreground">
               Open engineering surveying market
