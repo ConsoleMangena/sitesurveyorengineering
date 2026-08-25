@@ -23,6 +23,7 @@ import type { CadMenuAction } from "./cad/CadMenuBar.tsx";
 import { CadViewport } from "./cad/CadViewport.tsx";
 import { Cad3dViewport } from "./cad/Cad3dViewport.tsx";
 import { CadRightPanel } from "./cad/CadRightPanel.tsx";
+import { CadChatPanel } from "./cad/CadChatPanel.tsx";
 import { CadSettingsPopover } from "./cad/CadSettingsPanel.tsx";
 import { CadStatusBar } from "./cad/CadStatusBar.tsx";
 import { CadCommandLine, type CommandLogEntry } from "./cad/CadCommandLine.tsx";
@@ -42,7 +43,7 @@ import {
   openPlotWindow,
   type PlotOptions,
 } from "./cad/io/plot.ts";
-import { SlidersHorizontal, Box, Square, ChevronDown } from "lucide-react";
+import { SlidersHorizontal, Box, Square, ChevronDown, Bot } from "lucide-react";
 
 import { pointsToCsv } from "./cad/io/csv.ts";
 import { modelToDxf, downloadText } from "./cad/io/dxf.ts";
@@ -212,6 +213,9 @@ function CadWorkspaceContent({
   /** Whether the plot/layout dialog is open. */
   const [plotOpen, setPlotOpen] = useState(false);
 
+  /** Whether the SiteSurveyor AI chat panel is docked beside the canvas. */
+  const [aiChatOpen, setAiChatOpen] = useState(false);
+
   /** Point-placement form that appears when the Point / Control Point tool is clicked. */
   const [pointForm, setPointForm] = useState<{
     open: boolean;
@@ -337,6 +341,13 @@ function CadWorkspaceContent({
   const fitExtents = useCallback(() => {
     setFitSignal((s) => s + 1);
   }, []);
+
+  // The AI bridge can trigger zoom-extents from chat commands (e.g. "[CAD] zoom extents").
+  useEffect(() => {
+    const onAiZoomExtents = () => fitExtents();
+    window.addEventListener("cad:ai-zoom-extents", onAiZoomExtents);
+    return () => window.removeEventListener("cad:ai-zoom-extents", onAiZoomExtents);
+  }, [fitExtents]);
 
   const hasGeometry = useCallback(
     () =>
@@ -2757,6 +2768,17 @@ function aspectColor(aspectDeg: number | null): string {
             </button>
           </div>
 
+          <button
+            type="button"
+            className={`cad-settings-btn ${aiChatOpen ? "active" : ""}`}
+            onClick={() => setAiChatOpen((v) => !v)}
+            title="SiteSurveyor AI"
+            aria-label="SiteSurveyor AI"
+            aria-pressed={aiChatOpen}
+          >
+            <Bot size={16} />
+          </button>
+
           <div className="cad-settings-anchor">
             <button
               type="button"
@@ -2865,6 +2887,12 @@ function aspectColor(aspectDeg: number | null): string {
           angleEntry={settings.angleEntry}
           log={log}
         />
+
+        {aiChatOpen && (
+          <aside className="hidden h-full w-80 shrink-0 md:block">
+            <CadChatPanel projectId={activeProject.dbId} cad={cad} onClose={() => setAiChatOpen(false)} />
+          </aside>
+        )}
       </div>
 
       <CadCommandLine
