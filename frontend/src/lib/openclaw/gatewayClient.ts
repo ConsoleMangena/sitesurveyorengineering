@@ -228,7 +228,10 @@ export class GatewayClient {
                 mode: "backend",
               },
               role: "operator",
-              scopes: ["operator.read", "operator.write"],
+              // Admin is required for session maintenance RPCs
+              // (sessions.delete / sessions.reset); the loopback shared-token
+              // path grants it.
+              scopes: ["operator.read", "operator.write", "operator.admin"],
               caps: [],
               commands: [],
               permissions: {},
