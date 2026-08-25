@@ -11,6 +11,8 @@ export interface AiStreamHandlers {
   onError: (message: string) => void;
   /** Agent activity for the thinking indicator ("thinking" | tool name). */
   onActivity?: (label: string | null) => void;
+  /** Project open in the CAD workspace, forwarded to the agent. */
+  projectId?: string;
 }
 
 /**
@@ -43,7 +45,12 @@ export async function streamAiReply(
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
-  const body = JSON.stringify({ conversation_id: conversationId, message });
+  const { projectId } = handlers;
+  const body = JSON.stringify({
+    conversation_id: conversationId,
+    message,
+    ...(projectId ? { project_id: projectId } : {}),
+  });
 
   let res: Response | null = null;
   let lastError = "The AI service is unavailable.";

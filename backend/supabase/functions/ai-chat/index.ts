@@ -87,9 +87,17 @@ Deno.serve(async (req) => {
   const user = await authenticate(req);
   if (!user) return json(401, { error: "Sign in to use the AI chat." });
 
-  let body: { conversation_id?: string; message?: string };
+  let body: {
+    conversation_id?: string;
+    message?: string;
+    project_id?: string;
+  };
   try {
-    body = (await req.json()) as { conversation_id?: string; message?: string };
+    body = (await req.json()) as {
+      conversation_id?: string;
+      message?: string;
+      project_id?: string;
+    };
   } catch {
     return json(400, { error: "Invalid JSON body." });
   }
@@ -98,6 +106,13 @@ Deno.serve(async (req) => {
   if (!conversationId || !message) {
     return json(400, { error: "conversation_id and message are required." });
   }
+  // Optional CAD-workspace context: ignore malformed values silently.
+  const rawProjectId = typeof body.project_id === "string"
+    ? body.project_id.trim()
+    : "";
+  const projectId = /^[0-9a-f-]{36}$/i.test(rawProjectId)
+    ? rawProjectId
+    : undefined;
 
   // Ownership check + conversation load.
   const convRes = await rest<ConversationRow[]>(
@@ -174,6 +189,7 @@ Deno.serve(async (req) => {
           supabaseUrl: SUPABASE_URL,
           serviceKey: SERVICE_ROLE_KEY,
           workspaceId: workspaceId ?? undefined,
+          projectId,
         })) {
           if (event.type === "final") finalText = event.text;
           send(event);

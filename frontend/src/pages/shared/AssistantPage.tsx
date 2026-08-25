@@ -62,7 +62,20 @@ function activityLabel(event: string | null): string {
   return TOOL_LABELS[event] ?? `Working: ${event}…`;
 }
 
-export default function AssistantPage() {
+interface AssistantPageProps {
+  /** Project currently open in the CAD workspace, forwarded to the agent. */
+  contextProjectId?: string;
+  /** Hide the page header (panel embedding). */
+  embedded?: boolean;
+  /** Fires when the agent finishes a full reply. */
+  onAssistantFinal?: (text: string) => void;
+}
+
+export default function AssistantPage({
+  contextProjectId,
+  embedded,
+  onAssistantFinal,
+}: AssistantPageProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const [conversations, setConversations] = useState<AiConversation[]>([]);
@@ -225,6 +238,7 @@ export default function AssistantPage() {
       );
 
     await streamAiReply(conversationId, text, {
+      projectId: contextProjectId,
       onDelta: (delta) => {
         setActivity(null);
         setMessages((prev) => {
@@ -251,6 +265,7 @@ export default function AssistantPage() {
         );
         setStreaming(false);
         bumpToTop();
+        onAssistantFinal?.(finalText);
         // Server auto-titles an untouched chat after its first message.
         if (conversation?.title === "New chat") {
           void renameConversation(conversation, text.slice(0, 60), true);
@@ -270,6 +285,8 @@ export default function AssistantPage() {
     conversations,
     renameConversation,
     scrollToBottom,
+    contextProjectId,
+    onAssistantFinal,
   ]);
 
   const startRename = useCallback((conversation: AiConversation) => {
@@ -432,36 +449,39 @@ export default function AssistantPage() {
 
       {/* Chat column */}
       <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-9 shrink-0 lg:hidden"
-              aria-label="Open chat history"
-              onClick={() => setSidebarOpen(true)}
-            >
-              <PanelLeft className="size-4" />
-            </Button>
-            <img
-              src="/logo.svg"
-              alt=""
-              aria-hidden="true"
-              className="app-logo size-9 shrink-0"
-            />
-            <div>
-              <h1 className="flex items-baseline gap-2 text-lg font-semibold text-foreground">
-                SiteSurveyor
-                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  AI agent
-                </span>
-              </h1>
-              <p className="text-xs text-muted-foreground">
-                Your surveying reference point — reads and acts on workspace data
-              </p>
+        {!embedded && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <Button
+                variant="outline"
+                size="icon"
+                className="size-9 shrink-0 lg:hidden"
+                aria-label="Open chat history"
+                onClick={() => setSidebarOpen(true)}
+              >
+                <PanelLeft className="size-4" />
+              </Button>
+              <img
+                src="/logo.svg"
+                alt=""
+                aria-hidden="true"
+                className="app-logo size-9 shrink-0"
+              />
+              <div>
+                <h1 className="flex items-baseline gap-2 text-lg font-semibold text-foreground">
+                  SiteSurveyor
+                  <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    AI agent
+                  </span>
+                </h1>
+                <p className="text-xs text-muted-foreground">
+                  Your surveying reference point — reads and acts on workspace
+                  data
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {error && (
           <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">

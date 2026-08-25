@@ -130,7 +130,11 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
   const userId = await authenticate(req);
   if (!userId) return json(res, 401, { error: "Sign in to use the AI chat." });
 
-  let payload: { conversation_id?: string; message?: string };
+  let payload: {
+    conversation_id?: string;
+    message?: string;
+    project_id?: string;
+  };
   try {
     const raw = await new Promise<string>((resolve) => {
       let data = "";
@@ -146,6 +150,12 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
   if (!conversationId || !message) {
     return json(res, 400, { error: "conversation_id and message are required." });
   }
+  // Optional CAD-workspace context: ignore malformed values silently.
+  const rawProjectId =
+    typeof payload.project_id === "string" ? payload.project_id.trim() : "";
+  const projectId = /^[0-9a-f-]{36}$/i.test(rawProjectId)
+    ? rawProjectId
+    : undefined;
 
   const convRes = await rest<ConversationRow[]>(
     "GET",
@@ -212,6 +222,7 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
       supabaseUrl: SUPABASE_URL,
       serviceKey: SUPABASE_SERVICE_ROLE_KEY,
       workspaceId: workspaceId ?? undefined,
+      projectId,
     })) {
       if (event.type === "final") finalText = event.text;
       send(event);
