@@ -18,7 +18,7 @@
  */
 import type { CadLayer, CadModelState, SurveyLinework, SurveyPoint, SurveyText } from "../cadModel.ts";
 import { resolveColor } from "../cadModel.ts";
-import { inverse } from "../survey/cogo.ts";
+import { inverse, polygonArea } from "../survey/cogo.ts";
 import { fmtBearing, fmtDistance, type BearingFormat } from "../survey/format.ts";
 import { axisLabels, type AxisConvention } from "../cadSettings.ts";
 import { buildCodeTable, resolveFeature } from "../survey/featureCodes.ts";
@@ -50,6 +50,18 @@ export interface TitleBlock {
   sheet: string;
   revision: string;
   date: string; // ISO or display string
+  /** Plan designation as filed at the Surveyor-General, e.g. "GP 1234/26". */
+  planNo?: string;
+  /** Description of the land, e.g. "Lot 1 of Subdivision A of Riverside". */
+  property?: string;
+  /** Owner or applicant of record. */
+  owner?: string;
+  /** Locality — district and province, e.g. "Mazowe District, Mash. Central". */
+  locality?: string;
+  /** Surveyor's registration number, appended under SURVEYOR. */
+  surveyorRegNo?: string;
+  /** Checker's name for the certification strip. */
+  checkedBy?: string;
 }
 
 export interface PlotOptions {
@@ -70,6 +82,10 @@ export interface PlotOptions {
   showScaleBar: boolean;
   showPointLabels: boolean;
   showSegmentLabels: boolean;
+  /** Beacon schedule (coordinate table) for the parcel boundary. */
+  showBeaconTable: boolean;
+  /** "Certified correct — Surveyor-General" approval strip. */
+  showApprovalBlock: boolean;
   marginMm: number;
   titleBlock: TitleBlock;
   /**
@@ -110,7 +126,11 @@ export const DEFAULT_PLOT_OPTIONS = (tb: TitleBlock): PlotOptions => ({
   showNorthArrow: true,
   showScaleBar: true,
   showPointLabels: true,
-  showSegmentLabels: false,
+  // Bearings + distances along each boundary line are mandatory on
+  // Zimbabwean general plans / diagrams, so default them on.
+  showSegmentLabels: true,
+  showBeaconTable: true,
+  showApprovalBlock: true,
   marginMm: 10,
   titleBlock: tb,
 });
@@ -195,6 +215,55 @@ function modelBounds(model: CadModelState): BBox | null {
 /** Title-block band height (mm) by paper size. */
 function titleBlockHeight(paper: PaperSize): number {
   return paper === "A4" ? 34 : paper === "A3" ? 40 : 46;
+}
+
+/**
+ * The parcel boundary used for the extent figure and beacon schedule: the
+ * closed linework with the largest polygon area. Null when the drawing has
+ * no closed boundary.
+ */
+function parcelBoundary(model: CadModelState): SurveyLinework | null {
+  let best: SurveyLinework | null = null;
+  let bestAbs = 0;
+  for (const lw of model.linework) {
+    if (!lw.closed || lw.vertices.length < 3) continue;
+    if (!layerVisibleById(model, lw.layerId)) continue;
+    const abs = Math.abs(polygonArea(lw.vertices));
+    if (abs > bestAbs) {
+      bestAbs = abs;
+      best = lw;
+    }
+  }
+  return best;
+}
+
+function layerVisibleById(model: CadModelState, layerId: string): boolean {
+  return model.layers.find((l) => l.id === layerId)?.visible !== false;
+}
+
+interface BeaconRow {
+  label: string;
+  e: number;
+  n: number;
+}
+
+/**
+ * Beacon rows for the schedule: boundary vertices labelled with the nearest
+ * survey point's number when one coincides (≤5 cm), else a sequence number.
+ */
+function beaconRows(model: CadModelState, boundary: SurveyLinework): BeaconRow[] {
+  return boundary.vertices.map((v, i) => {
+    let match: SurveyPoint | undefined;
+    let bestDist = 0.05; // metres — same-position tolerance
+    for (const p of model.points) {
+      const d = Math.hypot(p.n - v.n, p.e - v.e);
+      if (d <= bestDist) {
+        bestDist = d;
+        match = p;
+      }
+    }
+    return { label: match ? match.pointNo : `B${i + 1}`, e: v.e, n: v.n };
+  });
 }
 
 const esc = (s: string): string =>
@@ -291,6 +360,8 @@ export interface PlotResult {
   orientation: PaperOrientation;
   /** Millimetres per survey unit used for the plot (paper mm / ground unit). */
   mmPerUnit: number;
+  /** Extent (hectares) of the largest closed boundary, when one exists. */
+  extentHa: number | null;
 }
 
 /** Build the complete print-ready SVG sheet. */
@@ -343,11 +414,33 @@ export function buildPlotSvg(model: CadModelState, opts: PlotOptions): PlotResul
   parts.push(`</g>`);
 
   // ── Sheet furniture ───────────────────────────────────────────────────────
+  const parcel = parcelBoundary(model);
+  const extentHa = parcel ? Math.abs(polygonArea(parcel.vertices)) / 10_000 : null;
+
   if (opts.showNorthArrow) parts.push(renderNorthArrow(layout));
   if (opts.showScaleBar) parts.push(renderScaleBar(layout, proj.denominator, proj.mmPerUnit));
   if (opts.showLegend) parts.push(renderLegend(model, layout));
   if (opts.showLegend) parts.push(renderSymbolLegend(model, layout));
-  parts.push(renderTitleBlock(layout, opts, proj.denominator));
+
+  // Right-hand furniture stack above the title block: approval strip first,
+  // then the beacon schedule on top of it (bottom-up).
+  const stackW = Math.min(64, layout.tb.w);
+  const stackX = layout.tb.x + layout.tb.w - stackW;
+  let stackBottom = layout.tb.y;
+  if (opts.showBeaconTable && parcel) {
+    const rows = beaconRows(model, parcel);
+    const shown = Math.min(rows.length, 14);
+    const schedH = 8 + (shown + (rows.length > shown ? 1 : 0)) * 4.6;
+    const y = stackBottom - 4 - schedH;
+    parts.push(renderBeaconTable(model, parcel, { x: stackX, y, w: stackW }, opts.axisConvention ?? "yx"));
+    stackBottom = y;
+  }
+  if (opts.showApprovalBlock) {
+    const y = stackBottom - 4 - 16;
+    parts.push(renderApprovalBlock({ x: stackX, y, w: stackW }, opts.titleBlock.checkedBy));
+    stackBottom = y;
+  }
+  parts.push(renderTitleBlock(layout, opts, proj.denominator, extentHa));
 
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${layout.paperW}mm" height="${layout.paperH}mm" ` +
@@ -363,6 +456,7 @@ export function buildPlotSvg(model: CadModelState, opts: PlotOptions): PlotResul
     paper: opts.paper,
     orientation: opts.orientation,
     mmPerUnit: proj.mmPerUnit,
+    extentHa,
   };
 }
 
@@ -779,7 +873,82 @@ function fitText(value: string, cellWidthMm: number, fontSizeMm: number): string
   return `${value.slice(0, maxChars - 1)}…`;
 }
 
-function renderTitleBlock(layout: PlotLayout, opts: PlotOptions, denom: number): string {
+/**
+ * Beacon schedule: BEACON | Y (EASTING) | X (NORTHING) rows for the parcel
+ * boundary, right-aligned above the title block. Coordinates print at 3 dp
+ * as filed on Zimbabwean general plans.
+ */
+function renderBeaconTable(
+  model: CadModelState,
+  boundary: SurveyLinework,
+  rect: { x: number; y: number; w: number },
+  axisConvention: AxisConvention,
+): string {
+  const ax = axisLabels(axisConvention);
+  const rows = beaconRows(model, boundary);
+  const MAX_ROWS = 14;
+  const shown = rows.slice(0, MAX_ROWS);
+  const overflow = rows.length - shown.length;
+
+  const w = rect.w;
+  const rowH = 4.6;
+  const h = 8 + (shown.length + (overflow > 0 ? 1 : 0)) * rowH;
+  const x = rect.x;
+  const y = rect.y;
+
+  const colBeaconX = x + 2.5;
+  const colYX = x + w * 0.38;
+  const colXX = x + w * 0.7;
+
+  const out: string[] = [
+    `<g font-size="2.3" fill="#000">`,
+    `<rect x="${f(x)}" y="${f(y)}" width="${w}" height="${f(h)}" fill="#fff" stroke="#000" stroke-width="0.35" />`,
+    `<text x="${f(colBeaconX)}" y="${f(y + 5.2)}" font-weight="bold">BEACON</text>`,
+    `<text x="${f(colYX)}" y="${f(y + 5.2)}">${esc(ax.easting)} (EASTING)</text>`,
+    `<text x="${f(colXX)}" y="${f(y + 5.2)}">${esc(ax.northing)} (NORTHING)</text>`,
+    `<line x1="${f(x)}" y1="${f(y + 6.8)}" x2="${f(x + w)}" y2="${f(y + 6.8)}" stroke="#000" stroke-width="0.25" />`,
+  ];
+  shown.forEach((r, i) => {
+    const ry = y + 8 + i * rowH + rowH / 2 + 0.8;
+    out.push(`<text x="${f(colBeaconX)}" y="${f(ry)}">${esc(fitText(r.label, 14, 2.3))}</text>`);
+    out.push(`<text x="${f(colYX)}" y="${f(ry)}">${r.e.toFixed(3)}</text>`);
+    out.push(`<text x="${f(colXX)}" y="${f(ry)}">${r.n.toFixed(3)}</text>`);
+  });
+  if (overflow > 0) {
+    const ry = y + 8 + shown.length * rowH + rowH / 2 + 0.8;
+    out.push(`<text x="${f(colBeaconX)}" y="${f(ry)}" fill="#666">+ ${overflow} more beacon${overflow === 1 ? "" : "s"}</text>`);
+  }
+  out.push(`</g>`);
+  return out.join("");
+}
+
+/**
+ * Surveyor-General approval strip: certification wording, signature rule and
+ * date rule.
+ */
+function renderApprovalBlock(
+  rect: { x: number; y: number; w: number },
+  checkedBy: string | undefined,
+): string {
+  const w = rect.w;
+  const h = 16;
+  const x = rect.x;
+  const y = rect.y;
+
+  return (
+    `<g font-size="2.3" fill="#000">` +
+    `<rect x="${f(x)}" y="${f(y)}" width="${w}" height="${h}" fill="#fff" stroke="#000" stroke-width="0.35" />` +
+    `<text x="${f(x + 3)}" y="${f(y + 5.4)}" font-weight="bold">CERTIFIED CORRECT</text>` +
+    `<text x="${f(x + 3)}" y="${f(y + 9.2)}" fill="#333">Surveyor-General · Harare · ZIMBABWE</text>` +
+    `<line x1="${f(x + 3)}" y1="${f(y + h - 3.2)}" x2="${f(x + w * 0.55)}" y2="${f(y + h - 3.2)}" stroke="#000" stroke-width="0.22" />` +
+    `<line x1="${f(x + w * 0.62)}" y1="${f(y + h - 3.2)}" x2="${f(x + w - 3)}" y2="${f(y + h - 3.2)}" stroke="#000" stroke-width="0.22" />` +
+    `<text x="${f(x + 3)}" y="${f(y + h - 0.9)}" font-size="1.9" fill="#666">${esc(checkedBy ? `Checked: ${fitText(checkedBy, 24, 1.9)}` : "Signature")}</text>` +
+    `<text x="${f(x + w * 0.62)}" y="${f(y + h - 0.9)}" font-size="1.9" fill="#666">Date</text>` +
+    `</g>`
+  );
+}
+
+function renderTitleBlock(layout: PlotLayout, opts: PlotOptions, denom: number, extentHa: number | null): string {
   const { tb } = layout;
   const t = opts.titleBlock;
   const x = tb.x;
@@ -791,23 +960,31 @@ function renderTitleBlock(layout: PlotLayout, opts: PlotOptions, denom: number):
   const out: string[] = [`<g font-size="2.4" fill="#000">`];
   out.push(`<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}" fill="#fff" stroke="#000" stroke-width="0.5" />`);
 
-  // Header band: drawing title.
-  const headerH = h * 0.32;
+  // Header band: drawing title + plan designation.
+  const headerH = h * 0.26;
   out.push(`<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(headerH)}" fill="#f0f0f0" stroke="#000" stroke-width="0.3" />`);
   out.push(
     `<text x="${f(x + w / 2)}" y="${f(y + headerH / 2 + 1.5)}" text-anchor="middle" font-size="4.2" font-weight="bold">` +
       `${esc(fitText(t.drawingTitle || "SURVEY PLAN", w, 4.2))}</text>`,
   );
+  if (t.planNo) {
+    out.push(
+      `<text x="${f(x + w - 1.5)}" y="${f(y + headerH / 2 + 1.5)}" text-anchor="end" font-size="3" font-weight="bold">${esc(fitText(t.planNo, w * 0.4, 3))}</text>`,
+    );
+  }
 
   // Body: two columns of key/value cells.
   const bodyY = y + headerH;
-  const bodyH = h - headerH;
+  // Footer strip inside the block carries datum (left) and sheet/rev (right),
+  // freeing both grid rows for the plan-specific fields.
+  const footerH = h * 0.12;
+  const bodyH = h - headerH - footerH;
   const rows = 4;
   const rowH = bodyH / rows;
   const colX = x + w * 0.5;
 
   // Vertical divider + row lines.
-  out.push(`<line x1="${f(colX)}" y1="${f(bodyY)}" x2="${f(colX)}" y2="${f(y + h)}" stroke="#000" stroke-width="0.3" />`);
+  out.push(`<line x1="${f(colX)}" y1="${f(bodyY)}" x2="${f(colX)}" y2="${f(y + h - footerH)}" stroke="#000" stroke-width="0.3" />`);
   for (let r = 1; r < rows; r++) {
     const ly = bodyY + r * rowH;
     out.push(`<line x1="${f(x)}" y1="${f(ly)}" x2="${f(x + w)}" y2="${f(ly)}" stroke="#000" stroke-width="0.2" />`);
@@ -817,22 +994,32 @@ function renderTitleBlock(layout: PlotLayout, opts: PlotOptions, denom: number):
   const cell = (cx: number, ry: number, label: string, value: string) => {
     out.push(`<text x="${f(cx + 1.5)}" y="${f(ry + 2)}" font-size="1.8" fill="#666">${esc(label)}</text>`);
     out.push(
-      `<text x="${f(cx + 1.5)}" y="${f(ry + rowH - 1.2)}" font-size="2.6" font-weight="bold">` +
+      `<text x="${f(cx + 1.5)}" y="${f(ry + rowH - 1)}" font-size="2.6" font-weight="bold">` +
         `${esc(fitText(value || "—", cellW, 2.6))}</text>`,
     );
   };
 
-  // Left column.
-  cell(x, bodyY + 0 * rowH, "PROJECT", t.projectName);
-  cell(x, bodyY + 1 * rowH, "CLIENT", t.client);
-  cell(x, bodyY + 2 * rowH, "DATUM / CRS", t.datum);
-  cell(x, bodyY + 3 * rowH, "SURVEYOR", t.surveyor);
+  const surveyorValue = t.surveyorRegNo
+    ? `${t.surveyor || "—"} · ${t.surveyorRegNo}`
+    : t.surveyor;
 
-  // Right column.
-  cell(colX, bodyY + 0 * rowH, "DRAWING No.", t.drawingNo);
+  // Left column — the land.
+  cell(x, bodyY + 0 * rowH, "PROPERTY", t.property || t.projectName);
+  cell(x, bodyY + 1 * rowH, "OWNER / APPLICANT", t.owner || t.client);
+  cell(x, bodyY + 2 * rowH, "LOCALITY", t.locality ?? "");
+  cell(x, bodyY + 3 * rowH, "EXTENT", extentHa != null ? `${extentHa.toFixed(4)} ha` : "");
+
+  // Right column — the plan administration.
+  cell(colX, bodyY + 0 * rowH, "PLAN No.", t.planNo || t.drawingNo);
   cell(colX, bodyY + 1 * rowH, "SCALE", `1:${denom}`);
-  cell(colX, bodyY + 2 * rowH, "DATE", t.date);
-  cell(colX, bodyY + 3 * rowH, "SHEET / REV", `${t.sheet}   ${t.revision}`);
+  cell(colX, bodyY + 2 * rowH, "DATE OF SURVEY", t.date);
+  cell(colX, bodyY + 3 * rowH, "SURVEYOR", surveyorValue);
+
+  // Footer strip: grid/datum note left, sheet/revision right.
+  const footY = y + h - footerH;
+  out.push(`<line x1="${f(x)}" y1="${f(footY)}" x2="${f(x + w)}" y2="${f(footY)}" stroke="#000" stroke-width="0.25" />`);
+  out.push(`<text x="${f(x + 1.5)}" y="${f(footY + footerH - 1)}" font-size="1.9" fill="#333">${esc(fitText(t.datum ? `Grid: ${t.datum}` : "", w * 0.62, 1.9))}</text>`);
+  out.push(`<text x="${f(x + w - 1.5)}" y="${f(footY + footerH - 1)}" text-anchor="end" font-size="1.9" fill="#333">Sheet ${esc(t.sheet)} · Rev ${esc(t.revision)}</text>`);
 
   out.push(`</g>`);
   return out.join("");

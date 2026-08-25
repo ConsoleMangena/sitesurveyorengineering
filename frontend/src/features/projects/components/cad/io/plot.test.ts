@@ -138,3 +138,60 @@ describe("buildPlotSvg", () => {
     expect(panned.svg).not.toBe(centred.svg);
   });
 });
+
+describe("Zimbabwean general plan furniture", () => {
+  it("renders a beacon schedule with Y/X headers and matched beacon numbers", () => {
+    const res = buildPlotSvg(sampleModel(), opts());
+    expect(res.svg).toContain("BEACON");
+    expect(res.svg).toContain("(EASTING)");
+    expect(res.svg).toContain("(NORTHING)");
+    // Boundary vertices coincide with control points → their numbers are used.
+    expect(res.svg).toContain("1001");
+  });
+
+  it("omits the beacon schedule when disabled", () => {
+    const res = buildPlotSvg(sampleModel(), opts({ showBeaconTable: false }));
+    expect(res.svg).not.toContain("BEACON");
+  });
+
+  it("shows the SG approval block by default and honours the toggle", () => {
+    expect(buildPlotSvg(sampleModel(), opts()).svg).toContain("CERTIFIED CORRECT");
+    expect(buildPlotSvg(sampleModel(), opts({ showApprovalBlock: false })).svg).not.toContain("CERTIFIED CORRECT");
+  });
+
+  it("reports the parcel extent in hectares in the result and title block", () => {
+    const res = buildPlotSvg(sampleModel(), opts());
+    // 100 m × 100 m square = 1 ha
+    expect(res.extentHa).toBeCloseTo(1, 5);
+    expect(res.svg).toContain("EXTENT");
+    expect(res.svg).toContain("1.0000 ha");
+  });
+
+  it("carries Zim title-block fields through to the sheet", () => {
+    const o = opts();
+    o.titleBlock.planNo = "GP 1234/26";
+    o.titleBlock.locality = "Mazowe District";
+    o.titleBlock.surveyorRegNo = "LS 1042";
+    const res = buildPlotSvg(sampleModel(), o);
+    expect(res.svg).toContain("GP 1234/26");
+    expect(res.svg).toContain("LOCALITY");
+    expect(res.svg).toContain("Mazowe District");
+    expect(res.svg).toContain("LS 1042");
+    expect(res.svg).toContain("OWNER / APPLICANT");
+  });
+
+  it("falls back to project/client when plan-specific fields are empty", () => {
+    const res = buildPlotSvg(sampleModel(), opts());
+    expect(res.svg).toContain("Riverside Estate"); // PROPERTY fallback
+    expect(res.svg).toContain("Acme Ltd"); // OWNER fallback
+    expect(res.svg).not.toContain("DATUM / CRS"); // old cell replaced
+  });
+
+  it("stacks approval above schedule without overlapping the frame top", () => {
+    const res = buildPlotSvg(sampleModel(), opts({ paper: "A4" }));
+    // Both blocks render and stay within the sheet viewBox height (210 for A4 landscape).
+    expect(res.svg).toContain("CERTIFIED CORRECT");
+    expect(res.svg).toContain("BEACON");
+    expect(res.paperH).toBe(210);
+  });
+});

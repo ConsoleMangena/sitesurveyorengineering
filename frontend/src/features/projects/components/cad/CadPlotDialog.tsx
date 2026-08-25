@@ -179,14 +179,15 @@ export function CadPlotDialog({
     return () => observer.disconnect();
   }, []);
 
-  const PREVIEW_PAD = 24; // px breathing room around the sheet
+  const PREVIEW_PAD = 40; // px breathing room around the sheet
   const fitScale = useMemo(() => {
     if (paneSize.w <= 0 || paneSize.h <= 0) return 0;
+    // Apply a 0.95 safety factor to prevent edge clipping due to rounding or subpixel issues
     return Math.max(
       0,
       Math.min(
-        (paneSize.w - PREVIEW_PAD) / result.paperW,
-        (paneSize.h - PREVIEW_PAD) / result.paperH,
+        ((paneSize.w - PREVIEW_PAD) * 0.95) / result.paperW,
+        ((paneSize.h - PREVIEW_PAD) * 0.95) / result.paperH,
       ),
     );
   }, [paneSize, result.paperW, result.paperH]);
@@ -283,6 +284,7 @@ export function CadPlotDialog({
         <>
           <span className="text-xs text-muted-foreground mr-auto">
             {result.paperW} × {result.paperH} mm · scale 1:{result.denominator}
+            {result.extentHa != null && <> · extent {result.extentHa.toFixed(4)} ha</>}
           </span>
           <Button type="button" variant="outline" size="sm" className="gap-1 text-xs" onClick={handleExportSvg}>
             <Download size={13} /> Export SVG
@@ -386,19 +388,25 @@ export function CadPlotDialog({
               <Toggle label="Legend" checked={opts.showLegend} onChange={(v) => set("showLegend", v)} />
               <Toggle label="Coordinate grid" checked={opts.showGrid} onChange={(v) => set("showGrid", v)} />
               <Toggle label="Point labels" checked={opts.showPointLabels} onChange={(v) => set("showPointLabels", v)} />
-              <Toggle label="Segment labels" checked={opts.showSegmentLabels} onChange={(v) => set("showSegmentLabels", v)} />
+              <Toggle label="Bearings & distances" checked={opts.showSegmentLabels} onChange={(v) => set("showSegmentLabels", v)} />
+              <Toggle label="Beacon schedule" checked={opts.showBeaconTable} onChange={(v) => set("showBeaconTable", v)} />
+              <Toggle label="SG approval block" checked={opts.showApprovalBlock} onChange={(v) => set("showApprovalBlock", v)} />
             </ControlSection>
 
             <ControlSection title="Title block">
               <TextField label="Drawing title" value={tb.drawingTitle} onChange={(v) => setTb("drawingTitle", v)} />
-              <TextField label="Project" value={tb.projectName} onChange={(v) => setTb("projectName", v)} />
-              <TextField label="Client" value={tb.client} onChange={(v) => setTb("client", v)} />
-              <TextField label="Datum / CRS" value={tb.datum} onChange={(v) => setTb("datum", v)} />
+              <TextField label="Plan No. (e.g. GP 1234/26)" value={tb.planNo ?? ""} onChange={(v) => setTb("planNo", v)} placeholder="—" />
+              <TextField label="Property / land" value={tb.property ?? ""} onChange={(v) => setTb("property", v)} placeholder={tb.projectName} />
+              <TextField label="Owner / applicant" value={tb.owner ?? ""} onChange={(v) => setTb("owner", v)} placeholder={tb.client} />
+              <TextField label="Locality (district, province)" value={tb.locality ?? ""} onChange={(v) => setTb("locality", v)} placeholder="Mazowe District, Mash. Central" />
               <TextField label="Surveyor" value={tb.surveyor} onChange={(v) => setTb("surveyor", v)} />
+              <TextField label="Surveyor reg. no." value={tb.surveyorRegNo ?? ""} onChange={(v) => setTb("surveyorRegNo", v)} placeholder="e.g. LS 1042" />
+              <TextField label="Checked by" value={tb.checkedBy ?? ""} onChange={(v) => setTb("checkedBy", v)} />
+              <TextField label="Datum / grid note" value={tb.datum} onChange={(v) => setTb("datum", v)} placeholder="Zimbabwe National Grid · Arc 1950 · UTM 35S" />
               <TextField label="Drawing No." value={tb.drawingNo} onChange={(v) => setTb("drawingNo", v)} />
               <TextField label="Sheet" value={tb.sheet} onChange={(v) => setTb("sheet", v)} />
               <TextField label="Revision" value={tb.revision} onChange={(v) => setTb("revision", v)} />
-              <TextField label="Date" value={tb.date} onChange={(v) => setTb("date", v)} />
+              <TextField label="Date of survey" value={tb.date} onChange={(v) => setTb("date", v)} />
             </ControlSection>
           </div>
         </ScrollArea>
@@ -498,11 +506,26 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
   );
 }
 
-function TextField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+function TextField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
   return (
     <div className="cad-edit-row">
       <Label className="text-xs font-normal text-muted-foreground">{label}</Label>
-      <Input className="h-8 text-xs" value={value} onChange={(e) => onChange(e.target.value)} />
+      <Input
+        className="h-8 text-xs"
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </div>
   );
 }
