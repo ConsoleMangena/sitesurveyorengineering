@@ -182,6 +182,20 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
     .filter((row) => row.role === "user" || row.role === "assistant")
     .map((row) => ({ role: row.role, content: row.content }));
 
+  // Resolve the user's primary workspace so business writes are scoped.
+  const profileRes = await rest<{ default_workspace_id: string | null }>(
+    "GET",
+    `profiles?id=eq.${userId}&select=default_workspace_id`,
+  );
+  let workspaceId = profileRes.json?.[0]?.default_workspace_id ?? null;
+  if (!workspaceId) {
+    const memberRes = await rest<{ workspace_id: string }[]>(
+      "GET",
+      `workspace_members?user_id=eq.${userId}&status=eq.active&select=workspace_id&order=created_at.asc&limit=1`,
+    );
+    workspaceId = memberRes.json?.[0]?.workspace_id ?? null;
+  }
+
   res.writeHead(200, {
     "Content-Type": "application/x-ndjson; charset=utf-8",
     "Cache-Control": "no-cache, no-transform",
@@ -197,6 +211,7 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
       openrouterKey: OPENROUTER_API_KEY,
       supabaseUrl: SUPABASE_URL,
       serviceKey: SUPABASE_SERVICE_ROLE_KEY,
+      workspaceId: workspaceId ?? undefined,
     })) {
       if (event.type === "final") finalText = event.text;
       send(event);

@@ -144,6 +144,20 @@ Deno.serve(async (req) => {
     .filter((row) => row.role === "user" || row.role === "assistant")
     .map((row) => ({ role: row.role, content: row.content }));
 
+  // Resolve the user's primary workspace so business writes are scoped.
+  const profileRes = await rest<{ default_workspace_id: string | null }[]>(
+    "GET",
+    `profiles?id=eq.${user.id}&select=default_workspace_id`,
+  );
+  let workspaceId = profileRes.json?.[0]?.default_workspace_id ?? null;
+  if (!workspaceId) {
+    const memberRes = await rest<{ workspace_id: string }[]>(
+      "GET",
+      `workspace_members?user_id=eq.${user.id}&status=eq.active&select=workspace_id&order=created_at.asc&limit=1`,
+    );
+    workspaceId = memberRes.json?.[0]?.workspace_id ?? null;
+  }
+
   // Stream agent events as NDJSON lines.
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -159,6 +173,7 @@ Deno.serve(async (req) => {
           openrouterKey: OPENROUTER_API_KEY,
           supabaseUrl: SUPABASE_URL,
           serviceKey: SERVICE_ROLE_KEY,
+          workspaceId: workspaceId ?? undefined,
         })) {
           if (event.type === "final") finalText = event.text;
           send(event);
