@@ -847,8 +847,10 @@ function f(v: number): string {
  * Open the plot SVG in a new window sized to the sheet.
  *
  * On screen the sheet is scaled to fit the window (so A1/A0 sheets are fully
- * visible instead of being cropped) with a small print/close toolbar; on paper
- * it prints at true physical size via the matching `@page` rule.
+ * visible instead of being cropped) with a print-preview toolbar: zoom in/out
+ * around the fit scale, a live zoom percentage, fit-to-window, and keyboard
+ * support (+ / − / 0 / Escape). On paper it prints at true physical size via
+ * the matching `@page` rule.
  */
 export function openPlotWindow(result: PlotResult, title: string): void {
   const win = window.open("", "_blank");
@@ -861,23 +863,42 @@ export function openPlotWindow(result: PlotResult, title: string): void {
     // the plan floating small on the page with white margins.
     `@page { size: ${result.paperW}mm ${result.paperH}mm; margin: 0; }` +
     `* { box-sizing: border-box; }` +
-    `html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #404040; }` +
-    `body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }` +
-    `.stage { position: fixed; inset: 0; top: 44px; display: flex; align-items: center; justify-content: center; overflow: hidden; }` +
+    `html, body { margin: 0; padding: 0; width: 100%; height: 100%; }` +
+    `body { background: radial-gradient(circle at 50% 38%, #4b4f55, #33363a); ` +
+    `-webkit-print-color-adjust: exact; print-color-adjust: exact; ` +
+    `font: 12.5px/1.3 ui-sans-serif, system-ui, "Segoe UI", Arial, sans-serif; color: #e8eaed; }` +
+    `.stage { position: fixed; inset: 0; top: 48px; display: flex; align-items: center; justify-content: center; overflow: hidden; }` +
     // On screen the sheet is sized in px by the fit script (largest size that
     // fits the window, preserving the paper aspect ratio). Sizing the layout
     // box directly — rather than transform-scaling a full-physical-size box —
     // keeps flex centering correct, so the sheet is never clipped.
-    `.sheet { background: #fff; box-shadow: 0 4px 24px rgba(0,0,0,0.55); overflow: hidden; flex: none; }` +
+    `.sheet { background: #fff; flex: none; overflow: hidden; border-radius: 2px;` +
+    `box-shadow: 0 10px 40px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.07); }` +
     `.sheet svg { display: block; width: 100%; height: 100%; }` +
-    `.toolbar { position: fixed; top: 0; left: 0; right: 0; height: 44px; z-index: 10; ` +
-    `display: flex; align-items: center; gap: 8px; padding: 0 12px; background: #262626; ` +
-    `color: #e5e5e5; font: 13px/1 Arial, Helvetica, sans-serif; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }` +
-    `.toolbar .meta { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.85; }` +
-    `.toolbar button { border: 0; border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer; }` +
-    `.toolbar .print { background: #2563eb; color: #fff; font-weight: bold; }` +
-    `.toolbar .close { background: #404040; color: #e5e5e5; }` +
-    `.toolbar button:hover { filter: brightness(1.15); }` +
+    `.toolbar { position: fixed; top: 0; left: 0; right: 0; height: 48px; z-index: 10; ` +
+    `display: flex; align-items: center; gap: 14px; padding: 0 14px; background: #23262a; ` +
+    `border-bottom: 1px solid rgba(255,255,255,0.08); box-shadow: 0 2px 8px rgba(0,0,0,0.35); }` +
+    `.toolbar .meta { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }` +
+    `.toolbar .meta b { display: block; font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }` +
+    `.toolbar .meta span { display: block; font-size: 11px; color: #9aa0a6; }` +
+    `.zoomgroup { display: flex; align-items: stretch; border: 1px solid rgba(255,255,255,0.14); border-radius: 7px; overflow: hidden; }` +
+    `.zoomgroup button { width: 30px; height: 30px; border: 0; background: transparent; color: #e8eaed; ` +
+    `font: 15px/1 inherit; cursor: pointer; }` +
+    `.zoomgroup button:hover:not(:disabled) { background: rgba(255,255,255,0.09); }` +
+    `.zoomgroup button:disabled { opacity: 0.35; cursor: default; }` +
+    `.zoomgroup .pct { min-width: 52px; display: flex; align-items: center; justify-content: center; ` +
+    `font-variant-numeric: tabular-nums; font-size: 12px; color: #cfd3d7; border-left: 1px solid rgba(255,255,255,0.14); ` +
+    `border-right: 1px solid rgba(255,255,255,0.14); }` +
+    `.toolbar .fitbtn { border: 1px solid rgba(255,255,255,0.14); background: transparent; color: #e8eaed; ` +
+    `height: 32px; padding: 0 12px; border-radius: 7px; font: inherit; font-size: 12.5px; cursor: pointer; }` +
+    `.toolbar .fitbtn:hover { background: rgba(255,255,255,0.09); }` +
+    `.toolbar button.print { border: 0; border-radius: 7px; height: 32px; padding: 0 16px; ` +
+    `background: #1473e6; color: #fff; font-weight: 600; font-size: 12.5px; cursor: pointer; }` +
+    `.toolbar button.close { border: 1px solid rgba(255,255,255,0.14); background: transparent; ` +
+    `color: #e8eaed; height: 32px; padding: 0 14px; border-radius: 7px; font: inherit; font-size: 12.5px; cursor: pointer; }` +
+    `.toolbar button.print:hover { filter: brightness(1.12); }` +
+    `.toolbar button.close:hover { background: rgba(255,255,255,0.09); }` +
+    `.toolbar button:focus-visible, .zoomgroup button:focus-visible { outline: 2px solid #1473e6; outline-offset: 1px; }` +
     `@media print { ` +
     `html, body { background: #fff; width: auto; height: auto; overflow: visible; margin: 0; padding: 0; } ` +
     `.toolbar { display: none; } ` +
@@ -888,7 +909,14 @@ export function openPlotWindow(result: PlotResult, title: string): void {
     `}` +
     `</style></head><body>` +
     `<div class="toolbar">` +
-    `<span class="meta">${esc(title)} — ${result.paper} ${result.orientation}, scale 1:${result.denominator}</span>` +
+    `<div class="meta"><b>${esc(title)}</b>` +
+    `<span>${result.paper} ${result.orientation} · scale 1:${result.denominator}</span></div>` +
+    `<div class="zoomgroup" role="group" aria-label="Zoom">` +
+    `<button type="button" id="zOut" aria-label="Zoom out" title="Zoom out (−)">−</button>` +
+    `<span class="pct" id="zPct">100%</span>` +
+    `<button type="button" id="zIn" aria-label="Zoom in" title="Zoom in (+)">+</button>` +
+    `</div>` +
+    `<button type="button" class="fitbtn" id="zFit" title="Fit to window (0)">Fit</button>` +
     `<button type="button" class="print" onclick="window.print()">Print / Save PDF</button>` +
     `<button type="button" class="close" onclick="window.close()">Close</button>` +
     `</div>` +
@@ -896,24 +924,47 @@ export function openPlotWindow(result: PlotResult, title: string): void {
     `<script>` +
     `(function(){` +
     `var sheet=document.getElementById("sheet");` +
+    `var pct=document.getElementById("zPct");` +
+    `var zin=document.getElementById("zIn");` +
+    `var zout=document.getElementById("zOut");` +
     `var ratio=${result.paperW}/${result.paperH};` +
-    `function fit(){` +
-    `var stage=sheet.parentElement;` +
-    `var pad=24;` +
+    `var PX_PER_MM=${96 / 25.4};` +
+    `var userZoom=1;` + // multiplier on top of the base fit scale
+    `function clamp(v){return Math.min(8,Math.max(0.25,v));}` +
+    `function fitScale(){` +
+    `var stage=sheet.parentElement; var pad=28;` +
     `var sw=Math.max(stage.clientWidth-pad,50), sh=Math.max(stage.clientHeight-pad,50);` +
-    `var w=Math.min(sw, sh*ratio);` +
-    `var h=w/ratio;` +
-    `sheet.style.width=w+"px";` +
-    `sheet.style.height=h+"px";` +
+    `return Math.min(sw, sh*ratio)/(${result.paperW}*PX_PER_MM);` + // px per mm relative to physical
     `}` +
-    `window.addEventListener("resize",fit);` +
-    `window.addEventListener("beforeprint", function(){` +
-    `  sheet.style.width="${result.paperW}mm";` +
-    `  sheet.style.height="${result.paperH}mm";` +
+    `function apply(){` +
+    `var stage=sheet.parentElement; var pad=28;` +
+    `var sw=Math.max(stage.clientWidth-pad,50), sh=Math.max(stage.clientHeight-pad,50);` +
+    `var wPx=Math.min(sw, sh*ratio)*userZoom;` +
+    `if(wPx<80){wPx=80;userZoom=wPx/(Math.min(sw,sh*ratio));}` +
+    `if(wPx>sw*8){wPx=sw*8;userZoom=8;}` +
+    `var h=wPx/ratio;` +
+    `sheet.style.width=wPx+"px"; sheet.style.height=h+"px";` +
+    `pct.textContent=Math.round((wPx/(${result.paperW}*PX_PER_MM))*100)+"%";` +
+    `zin.disabled=userZoom>=7.999; zout.disabled=userZoom<=0.2501||wPx<=80.01;` +
+    `}` +
+    `function step(mult){userZoom=clamp(userZoom*mult);apply();}` +
+    `zin.addEventListener("click",function(){step(1.25);});` +
+    `zout.addEventListener("click",function(){step(0.8);});` +
+    `document.getElementById("zFit").addEventListener("click",function(){userZoom=1;apply();});` +
+    `window.addEventListener("resize",apply);` +
+    `document.addEventListener("keydown",function(e){` +
+    `if(e.key==="Escape"){window.close();}` +
+    `else if(e.key==="+"||e.key==="="){step(1.25);}` +
+    `else if(e.key==="-"||e.key==="_"){step(0.8);}` +
+    `else if(e.key==="0"){userZoom=1;apply();}` +
     `});` +
-    `window.addEventListener("afterprint", fit);` +
-    `fit();` +
-    `window.onload=function(){fit();};` +
+    `window.addEventListener("beforeprint",function(){` +
+    `sheet.style.width="${result.paperW}mm";` +
+    `sheet.style.height="${result.paperH}mm";` +
+    `});` +
+    `window.addEventListener("afterprint",apply);` +
+    `apply();` +
+    `window.onload=function(){apply();};` +
     `})();` +
     `</script>` +
     `</body></html>`;
