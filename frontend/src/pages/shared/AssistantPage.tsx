@@ -37,6 +37,14 @@ const SUGGESTIONS = [
   "How many active projects do we have, by status?",
 ];
 
+/** Drawing-aware starters shown when a project is open in the CAD workspace. */
+const CAD_SUGGESTIONS = [
+  "What layers are on this drawing?",
+  "How many points does it have, by layer?",
+  "Draw a square boundary 40 m per side from N 500000 E 3000000",
+  "Add setout points every 10 m along a line from N 500000 E 3000000",
+];
+
 let idCounter = 0;
 function nextId(prefix: string): string {
   idCounter += 1;
@@ -408,17 +416,19 @@ export default function AssistantPage({
 
   return (
     <div className="relative flex h-full min-h-0 gap-4">
-      {/* Desktop sidebar */}
-      <aside className="hidden w-64 shrink-0 flex-col rounded-lg border border-border/60 bg-card lg:flex">
-        <p className="px-4 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Chats
-        </p>
-        {conversationList}
-      </aside>
+      {/* Desktop sidebar — suppressed entirely when embedded in a panel */}
+      {!embedded && (
+        <aside className="hidden w-64 shrink-0 flex-col rounded-lg border border-border/60 bg-card lg:flex">
+          <p className="px-4 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Chats
+          </p>
+          {conversationList}
+        </aside>
+      )}
 
       {/* Mobile sidebar drawer */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
+        {sidebarOpen && (
+        <div className="fixed inset-0 z-[1300] lg:hidden">
           <div
             className="absolute inset-0 bg-background/80 backdrop-blur-sm"
             onClick={() => setSidebarOpen(false)}
@@ -448,7 +458,7 @@ export default function AssistantPage({
       )}
 
       {/* Chat column */}
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
+      <section className={`flex min-h-0 min-w-0 flex-1 flex-col ${embedded ? "gap-2.5" : "gap-4"}`}>
         {!embedded && (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
@@ -483,6 +493,38 @@ export default function AssistantPage({
           </div>
         )}
 
+        {/* Embedded panels have no page header: expose chat history and
+            new-chat as a compact toolbar row instead. */}
+        {embedded && (
+          <div className="flex shrink-0 items-center justify-between gap-2">
+            <p className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {contextProjectId ? "Drawing assistant" : "Assistant"}
+            </p>
+            <span className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                aria-label="Chat history"
+                title="Chat history"
+                onClick={() => setSidebarOpen(true)}
+              >
+                <PanelLeft className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                aria-label="New chat"
+                title="New chat"
+                onClick={() => void createConversation()}
+              >
+                <MessageSquarePlus className="size-3.5" />
+              </Button>
+            </span>
+          </div>
+        )}
+
         {error && (
           <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
             {error}
@@ -491,34 +533,43 @@ export default function AssistantPage({
 
         <div
           ref={scrollRef}
-          className="min-h-[280px] flex-1 overflow-y-auto rounded-lg border border-border/60 bg-card p-4"
+          className={`min-h-0 flex-1 overflow-y-auto rounded-lg border border-border/60 bg-card ${
+            embedded ? "p-3" : "min-h-[280px] p-4"
+          }`}
         >
           {!booted ? (
             <PageLoader compact />
           ) : messages.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center gap-4 py-12 text-center">
+            <div className={`flex h-full flex-col items-center justify-center gap-3 py-10 text-center ${embedded ? "px-1" : ""}`}>
               <img
                 src="/logo.svg"
                 alt=""
                 aria-hidden="true"
-                className="app-logo size-14 shrink-0"
+                className={`app-logo shrink-0 ${embedded ? "size-10" : "size-14"}`}
               />
-              <div className="max-w-sm space-y-1.5">
-                <p className="font-medium text-card-foreground">
-                  Meet SiteSurveyor — every measurement needs a reference
+              <div className={`${embedded ? "max-w-none" : "max-w-sm"} space-y-1.5`}>
+                <p className={`font-medium text-card-foreground ${embedded ? "text-sm" : ""}`}>
+                  {embedded && contextProjectId
+                    ? "Ask about this drawing"
+                    : "Meet SiteSurveyor — every measurement needs a reference"}
                 </p>
-                <p className="text-sm text-muted-foreground">
-                  The agent can query projects, invoices, quotes, assets and the
-                  market — then act on what you approve.
+                <p className={`text-muted-foreground ${embedded ? "text-xs" : "text-sm"}`}>
+                  {embedded
+                    ? contextProjectId
+                      ? "The agent reads this project's drawing and workspace data, then draws on your approval."
+                      : "Reads workspace data and acts on what you approve."
+                    : "The agent can query projects, invoices, quotes, assets and the market — then act on what you approve."}
                 </p>
               </div>
-              <div className="flex flex-wrap justify-center gap-2 pt-1">
-                {SUGGESTIONS.map((suggestion) => (
+              <div className={`flex flex-wrap justify-center gap-2 pt-1 ${embedded ? "flex-col items-stretch" : ""}`}>
+                {(contextProjectId ? CAD_SUGGESTIONS : SUGGESTIONS).map((suggestion) => (
                   <button
                     key={suggestion}
                     type="button"
                     onClick={() => setDraft(suggestion)}
-                    className="rounded-md border border-border/60 bg-background px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    className={`rounded-md border border-border/60 bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ${
+                      embedded ? "px-2.5 py-1.5 text-left text-[11px]" : "px-3 py-1.5 text-xs"
+                    }`}
                   >
                     {suggestion}
                   </button>
@@ -533,7 +584,9 @@ export default function AssistantPage({
                   className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   <div
-                    className={`max-w-[85%] rounded-lg px-3.5 py-2.5 text-sm ${
+                    className={`rounded-lg ${
+                      embedded ? "max-w-[92%] px-3 py-2 text-[13px]" : "max-w-[85%] px-3.5 py-2.5 text-sm"
+                    } ${
                       message.role === "user"
                         ? "whitespace-pre-wrap bg-primary leading-relaxed text-primary-foreground"
                         : "border border-border/60 bg-muted/60 text-card-foreground"
@@ -582,7 +635,7 @@ export default function AssistantPage({
         </div>
 
         <form
-          className="flex items-center gap-2"
+          className="flex shrink-0 items-center gap-2"
           onSubmit={(e) => {
             e.preventDefault();
             void send();
@@ -592,16 +645,20 @@ export default function AssistantPage({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder={
-              streaming ? "SiteSurveyor is thinking…" : "Tell SiteSurveyor what to do…"
+              streaming
+                ? "SiteSurveyor is thinking…"
+                : embedded && contextProjectId
+                  ? "Ask about this drawing…"
+                  : "Tell SiteSurveyor what to do…"
             }
             disabled={streaming}
-            className="h-11 flex-1"
+            className={`flex-1 ${embedded ? "h-9" : "h-11"}`}
             aria-label="Message SiteSurveyor"
           />
           <Button
             type="submit"
             size="icon"
-            className="size-11 shrink-0"
+            className={`shrink-0 ${embedded ? "size-9" : "size-11"}`}
             disabled={!draft.trim() || streaming}
             aria-label="Send message"
           >
