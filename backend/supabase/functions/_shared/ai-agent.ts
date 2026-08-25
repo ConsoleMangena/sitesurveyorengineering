@@ -29,6 +29,12 @@ export interface RunAgentOptions {
   supabaseUrl: string;
   serviceKey: string;
   maxToolRounds?: number;
+  /** The signed-in user's primary workspace — stamped onto business writes. */
+  workspaceId?: string;
+  /** Project the user has open in the CAD workspace, if any. */
+  projectId?: string;
+  /** Optional abort signal so callers can cancel an in-flight agent run. */
+  signal?: AbortSignal;
 }
 
 const MODEL = "stealth/ox-alpha";
@@ -62,6 +68,7 @@ const READ_TABLES = new Set([
   "market_firms",
   "market_events",
   "market_job_posts",
+  "project_cad_drawings",
 ]);
 
 /** Tables the agent may mutate. */
@@ -76,6 +83,18 @@ const WRITE_TABLES = new Set([
 ]);
 
 const FILTER_OPS = new Set(["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike"]);
+
+const CAD_ENTITY_ARRAYS: Record<string, string> = {
+  point: "points",
+  linework: "linework",
+  text: "texts",
+  circle: "circles",
+  arc: "arcs",
+  ellipse: "ellipses",
+  hatch: "hatches",
+  dimension: "dimensions",
+  surface: "surfaces",
+};
 
 interface ToolSchema {
   type: "function";
@@ -226,6 +245,90 @@ const TOOLS: ToolSchema[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_cad_drawing",
+      description:
+        "Fetch the full CAD drawing model for a project. Returns the JSONB model containing layers, points, linework, texts, circles, arcs, ellipses, hatches, dimensions, and surfaces arrays. Use this to understand what is currently drawn.",
+      parameters: {
+        type: "object",
+        properties: {
+          project_id: { type: "string", description: "UUID of the project." },
+        },
+        required: ["project_id"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_cad_layers",
+      description:
+        "List all layers in a project's CAD drawing with their colours, visibility, lock status, and entity counts per layer.",
+      parameters: {
+        type: "object",
+        properties: {
+          project_id: { type: "string", description: "UUID of the project." },
+        },
+        required: ["project_id"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "count_cad_entities",
+      description:
+        "Count entities in a project's CAD drawing, optionally filtered by layer and/or entity type. Returns a total plus per-type counts.",
+      parameters: {
+        type: "object",
+        properties: {
+          project_id: { type: "string", description: "UUID of the project." },
+          layer_id: {
+            type: "string",
+            description: "Optional layer UUID — count only entities on this layer.",
+          },
+          entity_type: {
+            type: "string",
+            enum: [
+              "point",
+              "linework",
+              "text",
+              "circle",
+              "arc",
+              "ellipse",
+              "hatch",
+              "dimension",
+              "surface",
+            ],
+            description: "Optional entity type to count.",
+          },
+        },
+        required: ["project_id"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "inspect_cad_entity",
+      description:
+        "Fetch one entity from a project's CAD drawing by its UUID. Returns the entity type and its full properties.",
+      parameters: {
+        type: "object",
+        properties: {
+          project_id: { type: "string", description: "UUID of the project." },
+          entity_id: { type: "string", description: "UUID of the entity to inspect." },
+        },
+        required: ["project_id", "entity_id"],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 function systemPrompt(supabaseUrl: string): string {
@@ -240,8 +343,9 @@ function systemPrompt(supabaseUrl: string): string {
     "  contacts, assets, calibrations, maintenance, jobs/dispatch, schedule",
     "  events (job_events), assignments, time & expense entries, notifications,",
     "  and the public market (listings, professionals, firms, training).",
-    "- Creating/updating records: quotes, projects, contacts, jobs, invoices,",
-    "  assets (e.g. status changes), and scheduling via job_events entries.",
+    "- Creating/updating records: quotes (+ quote_items lines), projects,",
+    "  contacts, jobs, invoices, assets (e.g. status changes), and scheduling",
+    "  via job_events entries.",
     "Data lives in Supabase",
     `(REST base: ${supabaseUrl}).`,
     "",
@@ -255,7 +359,103 @@ function systemPrompt(supabaseUrl: string): string {
     "   user it is permanent and prefer archiving via update when possible.",
     "6. If a tool fails, report the error verbatim; do not retry blindly.",
     "7. Keep answers compact: headline number first, then notable exceptions.",
+    "",
+    "CAD INTEGRATION — READING:",
+    "Use get_cad_drawing to fetch the full model for a project.",
+    "Use list_cad_layers to see layers with entity counts.",
+    "Use count_cad_entities for totals (filterable by layer/type).",
+    "Use inspect_cad_entity for a single entity's full properties.",
+    "Model arrays: points (pointNo, n, e, z, code, layerId), linework",
+    "(kind=line|polyline|boundary, vertices[]), texts (text, n, e, height,",
+    "rotation), circles (center{n,e}, radius), arcs (center, radius,",
+    "startAngle°, endAngle°), ellipses (semiMajor/Minor, rotation), hatches",
+    "(vertices, holes), dimensions (kind, defPoints), surfaces (points,",
+    "triangles).",
+    "",
+    "CAD INTEGRATION — WRITING:",
+    "When the user asks you to DRAW, CREATE, or ADD geometry, output commands",
+    "inside a [CAD] ... [/CAD] block, one command per line:",
+    "  POINT <n> <e> [z] [code=CODE] [layer=LAYER]",
+    "  LINE <n1>,<e1> <n2>,<e2> ... [closed] [layer=LAYER]",
+    "  (2 vertices = simple line)",
+    '  TEXT <n> <e> "content" [h=height] [rot=degrees] [layer=LAYER]',
+    "  CIRCLE <cn>,<ce> <radius> [layer=LAYER]",
+    "  ARC <cn>,<ce> <radius> <start_deg> <end_deg> [layer=LAYER]",
+    "  LAYER CREATE <name> [color=#hex]",
+    "  ZOOM EXTENTS",
+    "Coordinates are Northing,Eastings. Prefer existing layers; create new ones",
+    "only when needed. Example: [CAD]",
+    "POINT 501234 2845678 code=CP1 layer=CONTROL",
+    "LINE 501234,2845678 501240,2845680",
+    "[/CAD]",
   ].join("\n");
+}
+
+// ── Live schema awareness ─────────────────────────────────────────────────
+// Fetched once per runtime from PostgREST's OpenAPI root so the model sees
+// REAL column names for whitelisted tables instead of guessing. Cached
+// module-level; a failed fetch simply omits the section.
+
+interface TableSchemaInfo {
+  columns: string[]; // column names
+  required: string[];
+  hasWorkspaceId: boolean;
+}
+
+const schemaCache = new Map<string, Promise<Map<string, TableSchemaInfo>>>();
+
+function loadTableSchemas(
+  supabaseUrl: string,
+  serviceKey: string,
+): Promise<Map<string, TableSchemaInfo>> {
+  const cached = schemaCache.get(supabaseUrl);
+  if (cached) return cached;
+  const promise = (async () => {
+    const map = new Map<string, TableSchemaInfo>();
+    try {
+      const res = await fetch(`${supabaseUrl.replace(/\/$/, "")}/rest/v1/`, {
+        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+      });
+      if (!res.ok) return map;
+      const api = (await res.json()) as {
+        definitions?: Record<
+          string,
+          {
+            properties?: Record<string, Record<string, unknown>>;
+            required?: string[];
+          }
+        >;
+      };
+      for (const table of new Set([...READ_TABLES, ...WRITE_TABLES])) {
+        const def = api.definitions?.[table];
+        if (!def?.properties) continue;
+        const columns = Object.keys(def.properties);
+        map.set(table, {
+          columns,
+          required: def.required ?? [],
+          hasWorkspaceId: columns.includes("workspace_id"),
+        });
+      }
+    } catch {
+      // Schema awareness is best-effort.
+    }
+    return map;
+  })();
+  schemaCache.set(supabaseUrl, promise);
+  return promise;
+}
+
+function schemaSection(schemas: Map<string, TableSchemaInfo>): string {
+  const lines: string[] = ["", "REAL TABLE COLUMNS (use exactly these names):"];
+  for (const [table, info] of schemas) {
+    const marker = WRITE_TABLES.has(table) ? " [writable]" : "";
+    const req = info.required.filter((c) => c !== "id" && c !== "created_at" && c !== "updated_at");
+    lines.push(
+      `- ${table}${marker}: ${info.columns.join(", ")}` +
+        (req.length ? ` | required: ${req.join(", ")}` : ""),
+    );
+  }
+  return lines.join("\n");
 }
 
 interface OutboundMessage {
@@ -332,7 +532,12 @@ function truncateRows(rows: unknown): string {
 async function executeTool(
   name: string,
   rawArgs: string,
-  ctx: { supabaseUrl: string; serviceKey: string },
+  ctx: {
+    supabaseUrl: string;
+    serviceKey: string;
+    workspaceId?: string;
+    schemas: Map<string, TableSchemaInfo>;
+  },
 ): Promise<string> {
   let args: Record<string, unknown>;
   try {
@@ -382,22 +587,143 @@ async function executeTool(
     return truncateRows(out.json);
   }
 
+  if (
+    name === "get_cad_drawing" ||
+    name === "list_cad_layers" ||
+    name === "count_cad_entities" ||
+    name === "inspect_cad_entity"
+  ) {
+    const uuidRe = /^[0-9a-f-]{36}$/i;
+    const projectId = str(args.project_id);
+    if (!uuidRe.test(projectId))
+      return JSON.stringify({ error: "A valid project_id UUID is required." });
+    for (const key of ["layer_id", "entity_id"]) {
+      const value = args[key];
+      if (value != null && !uuidRe.test(str(value)))
+        return JSON.stringify({ error: `A valid ${key} UUID is required.` });
+    }
+    const out = await supabaseFetch({
+      ...ctx,
+      method: "GET",
+      path: `project_cad_drawings?project_id=eq.${projectId}&select=model`,
+    });
+    if (!out.ok) return JSON.stringify({ error: `HTTP ${out.status}`, details: out.json });
+    const rows = Array.isArray(out.json) ? out.json : [];
+    if (rows.length === 0)
+      return JSON.stringify({ error: "No drawing found for this project." });
+    const row = rows[0] as { model?: unknown };
+
+    if (name === "get_cad_drawing") return JSON.stringify({ model: row.model });
+
+    const model =
+      row.model && typeof row.model === "object" ? (row.model as Record<string, unknown>) : {};
+    const arr = (key: string): Record<string, unknown>[] =>
+      Array.isArray(model[key]) ? (model[key] as Record<string, unknown>[]) : [];
+
+    if (name === "list_cad_layers") {
+      const counts = new Map<string, number>();
+      for (const plural of Object.values(CAD_ENTITY_ARRAYS)) {
+        for (const entity of arr(plural)) {
+          const layerId = entity.layerId;
+          if (typeof layerId === "string")
+            counts.set(layerId, (counts.get(layerId) ?? 0) + 1);
+        }
+      }
+      return JSON.stringify({
+        layers: arr("layers").map((layer) => ({
+          id: layer.id,
+          name: layer.name,
+          color: layer.color,
+          visible: layer.visible,
+          locked: layer.locked,
+          entity_count:
+            counts.get(typeof layer.id === "string" ? layer.id : "") ?? 0,
+        })),
+      });
+    }
+
+    if (name === "count_cad_entities") {
+      const layerFilter = str(args.layer_id) || undefined;
+      const typeFilter = str(args.entity_type) || undefined;
+      if (typeFilter && !(typeFilter in CAD_ENTITY_ARRAYS))
+        return JSON.stringify({
+          error: `Unknown entity_type '${typeFilter}'. Valid types: ${Object.keys(CAD_ENTITY_ARRAYS).join(", ")}.`,
+        });
+      const byType: Record<string, number> = {};
+      let total = 0;
+      for (const [singular, plural] of Object.entries(CAD_ENTITY_ARRAYS)) {
+        if (typeFilter && singular !== typeFilter) continue;
+        const entities = arr(plural);
+        const n = layerFilter
+          ? entities.filter((e) => e.layerId === layerFilter).length
+          : entities.length;
+        byType[singular] = n;
+        total += n;
+      }
+      return JSON.stringify({
+        total,
+        by_type: byType,
+        layer_filter: layerFilter ?? null,
+        type_filter: typeFilter ?? null,
+      });
+    }
+
+    const entityId = str(args.entity_id);
+    for (const [singular, plural] of Object.entries(CAD_ENTITY_ARRAYS)) {
+      const found = arr(plural).find((e) => e.id === entityId);
+      if (found) return JSON.stringify({ entity_type: singular, entity: found });
+    }
+    return JSON.stringify({ error: "Entity not found" });
+  }
+
   const table = str(args.table);
   const confirmed = args.confirmed === true;
 
   if (!WRITE_TABLES.has(table)) return JSON.stringify({ error: `Table '${table}' is not writable.` });
 
+  // Sanitise payloads against the live schema: drop unknown columns (the
+  // model is told which were dropped) and stamp the caller's workspace.
+  const schema = ctx.schemas.get(table);
+  const sanitise = (
+    payload: Record<string, unknown> | undefined,
+  ): { clean: Record<string, unknown>; dropped: string[] } => {
+    const input = { ...(payload ?? {}) };
+    const dropped: string[] = [];
+    let clean = input;
+    if (schema) {
+      clean = {};
+      for (const [key, value] of Object.entries(input)) {
+        if (key === "id" || key === "created_at" || key === "updated_at") continue;
+        if (schema.columns.includes(key)) clean[key] = value;
+        else dropped.push(key);
+      }
+    }
+    if (ctx.workspaceId && (!schema || schema.hasWorkspaceId)) {
+      if (clean.workspace_id == null) clean.workspace_id = ctx.workspaceId;
+    }
+    return { clean, dropped };
+  };
+
   if (name === "insert_site_record") {
+    const { clean, dropped } = sanitise(args.record as Record<string, unknown>);
     if (!confirmed)
       return JSON.stringify({
         status: "pending_confirmation",
         instruction:
           "Do NOT call again yet. Show this record to the user and ask for an explicit yes. Only set confirmed=true after they approve.",
         table,
-        record: args.record ?? {},
+        record: clean,
+        ...(dropped.length ? { ignored_unknown_columns: dropped } : {}),
       });
-    const out = await supabaseFetch({ ...ctx, method: "POST", path: table, body: args.record ?? {} });
-    if (!out.ok) return JSON.stringify({ error: `HTTP ${out.status}`, details: out.json });
+    const out = await supabaseFetch({ ...ctx, method: "POST", path: table, body: clean });
+    if (!out.ok)
+      return JSON.stringify({
+        error: `HTTP ${out.status}`,
+        details: out.json,
+        hint: schema
+          ? `Valid columns for ${table}: ${schema.columns.join(", ")}`
+          : undefined,
+      });
     return JSON.stringify({ inserted: out.json });
   }
 
@@ -405,21 +731,30 @@ async function executeTool(
   if (!/^[0-9a-f-]{36}$/i.test(id)) return JSON.stringify({ error: "A valid UUID id is required." });
 
   if (name === "update_site_record") {
+    const { clean, dropped } = sanitise(args.patch as Record<string, unknown>);
     if (!confirmed)
       return JSON.stringify({
         status: "pending_confirmation",
         instruction: "Show these exact changes and get an explicit yes before confirmed=true.",
         table,
         id,
-        patch: args.patch ?? {},
+        patch: clean,
+        ...(dropped.length ? { ignored_unknown_columns: dropped } : {}),
       });
     const out = await supabaseFetch({
       ...ctx,
       method: "PATCH",
       path: `${table}?id=eq.${id}`,
-      body: args.patch ?? {},
+      body: clean,
     });
-    if (!out.ok) return JSON.stringify({ error: `HTTP ${out.status}`, details: out.json });
+    if (!out.ok)
+      return JSON.stringify({
+        error: `HTTP ${out.status}`,
+        details: out.json,
+        hint: schema
+          ? `Valid columns for ${table}: ${schema.columns.join(", ")}`
+          : undefined,
+      });
     return JSON.stringify({ updated: out.json });
   }
 
@@ -476,9 +811,27 @@ interface UpstreamChoice {
  * final always carries the complete reply text.
  */
 export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEvent> {
-  const ctx = { supabaseUrl: opts.supabaseUrl.replace(/\/$/, ""), serviceKey: opts.serviceKey };
+  const supabaseUrl = opts.supabaseUrl.replace(/\/$/, "");
+  const schemas = await loadTableSchemas(supabaseUrl, opts.serviceKey);
+  const ctx = {
+    supabaseUrl,
+    serviceKey: opts.serviceKey,
+    workspaceId: opts.workspaceId,
+    schemas,
+  };
+  const system =
+    systemPrompt(supabaseUrl) +
+    "\n" +
+    schemaSection(schemas) +
+    (opts.workspaceId
+      ? `\nWhen creating or updating business records, ALWAYS set workspace_id to "${opts.workspaceId}" unless the user explicitly names another workspace.`
+      : "") +
+    (opts.projectId
+      ? `\nThe user currently has project ${opts.projectId} open in the CAD workspace.`
+      : "");
+
   const outbound: OutboundMessage[] = [
-    { role: "system", content: systemPrompt(ctx.supabaseUrl) },
+    { role: "system", content: system },
     ...opts.history.slice(-MAX_HISTORY_TURNS),
     { role: "user", content: opts.userMessage },
   ];
@@ -520,7 +873,10 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
     }
 
     let content = "";
-    const toolCalls = new Map<number, { id: string; name: string; arguments: string }>();
+    const toolCalls = new Map<
+      number,
+      { id: string; name: string; arguments: string; index: number }
+    >();
     let finishReason: string | null = null;
 
     try {
@@ -539,7 +895,9 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
           yield { type: "delta", text: choice.delta.content };
         }
         for (const tc of choice.delta?.tool_calls ?? []) {
-          const slot = toolCalls.get(tc.index) ?? { id: "", name: "", arguments: "" };
+          const slot =
+            toolCalls.get(tc.index) ??
+            { id: "", name: "", arguments: "", index: tc.index };
           if (tc.id) slot.id = tc.id;
           if (tc.function?.name) slot.name = tc.function.name;
           if (tc.function?.arguments) slot.arguments += tc.function.arguments;
