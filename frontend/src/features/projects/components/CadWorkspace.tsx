@@ -11,6 +11,7 @@ import { useCadSettings } from "./cad/useCadSettings.ts";
 import { useCadLayouts } from "./cad/useCadLayouts.ts";
 import { MODEL_TAB } from "./cad/cadLayouts.ts";
 import { runCommand } from "./cad/useCadCommands.ts";
+import { buildCommandRegistry, DEFAULT_COMMAND_ENTRIES, type RegistryHost } from "./cad/commands/commandRegistry.ts";
 import {
   intersectionBearingBearing,
   intersectionDistanceDistance,
@@ -1654,7 +1655,11 @@ function CadWorkspaceContent({
     log(`Placed ${pts.length} coordinate label(s).`);
   }, [cad, model.points, settings.coordDecimals, activeColor, log]);
 
-  const commandCtx = useMemo(
+  const handleToggle = useCallback((key: "snap" | "ortho" | "grid" | "osnap") => {
+    settingsApi.toggle(key === "grid" ? "showGrid" : key);
+  }, [settingsApi]);
+
+  const commandCtx = useMemo<RegistryHost>(
     () => ({
       cad,
       bearingFormat,
@@ -1669,117 +1674,55 @@ function CadWorkspaceContent({
         plot: requestPlot,
         names: () => layoutApi.layouts.map((l) => l.name),
       },
+      deleteSelection,
+      explodeSelection,
+      openProjectPoints: () => setProjectPointsOpen(true),
+      openImportDxf: () => setImportDxfOpen(true),
+      importGeoJson,
+      exportDxf,
+      exportCsv,
+      exportReport,
+      exportGeoJson,
+      exportCutFillReport,
+      openLayout,
+      runIntersection,
+      runInverse,
+      runArea,
+      labelBoundarySegments,
+      labelArea,
+      labelCoordinates,
+      processLinework,
+      computeConvexHull,
+      simplifySelection,
+      reprojectDrawing,
+      buildSurface,
+      buildSurfaceWithBreaklines,
+      buildBoundarySurface,
+      buildContours,
+      computeVolumeToElevation,
+      computeVolumeBetween,
+      analyseSurfaceTerrain,
+      extractProfile,
+      toggleView: handleToggle,
+      toggle3d: () => settingsApi.toggle("view3d"),
     }),
-    [cad, bearingFormat, settings.axisConvention, changeTool, log, fitExtents, layoutApi, openLayout, handleAddLayout, requestPlot],
+    [
+      cad, bearingFormat, settings.axisConvention, changeTool, log, fitExtents, layoutApi, openLayout, handleAddLayout,
+      requestPlot, deleteSelection, explodeSelection, importGeoJson, exportDxf, exportCsv, exportReport, exportGeoJson,
+      exportCutFillReport, runIntersection, runInverse, runArea, labelBoundarySegments, labelArea, labelCoordinates,
+      processLinework, computeConvexHull, simplifySelection, reprojectDrawing, buildSurface, buildSurfaceWithBreaklines,
+      buildBoundarySurface, buildContours, computeVolumeToElevation, computeVolumeBetween, analyseSurfaceTerrain,
+      extractProfile, handleToggle, settingsApi,
+    ],
   );
+
+  const registry = useMemo(() => buildCommandRegistry(DEFAULT_COMMAND_ENTRIES), []);
 
   const handleRibbonAction = useCallback(
     (actionId: string) => {
-      const [group, sub] = actionId.split(":");
-      switch (group) {
-        case "tool":
-          changeTool(sub as CadToolId);
-          break;
-        case "zoom":
-          if (sub === "extents") { fitExtents(); log("Zoom extents."); }
-          break;
-        case "edit":
-          if (sub === "delete") deleteSelection();
-          else if (sub === "undo") { if (cad.undo()) log("Undo."); else log("Nothing to undo.", "info"); }
-          else if (sub === "redo") { if (cad.redo()) log("Redo."); else log("Nothing to redo.", "info"); }
-          else if (sub === "explode") explodeSelection();
-          break;
-        case "project":
-          if (sub === "points") setProjectPointsOpen(true);
-          break;
-        case "import":
-          if (sub === "dxf") setImportDxfOpen(true);
-          break;
-        case "f2f":
-          if (sub === "linework") processLinework();
-          else log(`Unhandled action: ${actionId}`, "error");
-          break;
-        case "plot":
-          if (sub === "layout") openLayout();
-          break;
-        case "export":
-          if (sub === "dxf") exportDxf();
-          else if (sub === "csv") exportCsv();
-          else if (sub === "report") exportReport();
-          else if (sub === "geojson") void exportGeoJson();
-          break;
-        case "geom":
-          if (sub === "hull") void computeConvexHull();
-          else if (sub === "simplify") void simplifySelection();
-          else if (sub === "reproject") void reprojectDrawing();
-          else log(`Unhandled action: ${actionId}`, "error");
-          break;
-        case "cogo":
-          if (sub === "intersection") runIntersection();
-          else if (sub === "inverse") runInverse();
-          else if (sub === "area") runArea();
-          else if (sub === "bearing-distance" || sub === "traverse") {
-            log(`Switch to the COGO panel (right) to run "${sub}".`, "info");
-          } else log(`Unhandled action: ${actionId}`, "error");
-          break;
-        case "surface":
-          if (sub === "tin") void buildSurface();
-          else if (sub === "tin-breaklines") void buildSurfaceWithBreaklines();
-          else if (sub === "boundary") void buildBoundarySurface();
-          else if (sub === "contours") void buildContours();
-          else if (sub === "volume-elevation") void computeVolumeToElevation();
-          else if (sub === "volume-between") void computeVolumeBetween();
-          else if (sub === "terrain") void analyseSurfaceTerrain();
-          else if (sub === "profile") void extractProfile();
-          else if (sub === "cutfill-report") void exportCutFillReport();
-          else if (sub === "clear-contours") {
-            const contours = model.linework.filter(
-              (lw) => lw.layerId === "CONTOURS" || lw.layerId === "CONTOURS_INDEX",
-            );
-            if (contours.length === 0) { log("No contours to clear.", "info"); break; }
-            cad.beginTransaction();
-            try {
-              for (const lw of contours) cad.deleteLinework(lw.id);
-            } finally {
-              cad.endTransaction();
-            }
-            log(`Cleared ${contours.length} contour line(s).`);
-          } else if (sub === "clear-surfaces") {
-            const surfaces = [...model.surfaces];
-            if (surfaces.length === 0) { log("No surfaces to clear.", "info"); break; }
-            cad.beginTransaction();
-            try {
-              for (const s of surfaces) cad.deleteSurface(s.id);
-            } finally {
-              cad.endTransaction();
-            }
-            log(`Cleared ${surfaces.length} surface(s).`);
-          }
-          else log(`Unhandled action: ${actionId}`, "error");
-          break;
-        case "annotate":
-          if (sub === "label-boundary") labelBoundarySegments();
-          else if (sub === "label-area") labelArea();
-          else if (sub === "label-coord") labelCoordinates();
-          else log(`Unhandled action: ${actionId}`, "error");
-          break;
-        case "cmd":
-          if (sub === "hatch") runCommand("HATCH", commandCtx);
-          else log(`Unhandled action: ${actionId}`, "error");
-          break;
-        default:
-          log(`Unhandled action: ${actionId}`, "error");
-      }
+      registry.runRibbon(actionId, commandCtx);
     },
-    [
-      changeTool, fitExtents, deleteSelection, explodeSelection, exportDxf, exportCsv, exportReport,
-      exportGeoJson, computeConvexHull, simplifySelection, reprojectDrawing,
-      runIntersection, runInverse, runArea, buildSurface, buildSurfaceWithBreaklines, buildBoundarySurface, processLinework,
-      buildContours, computeVolumeToElevation,
-      computeVolumeBetween, exportCutFillReport, analyseSurfaceTerrain, extractProfile,
-      labelBoundarySegments, labelArea, labelCoordinates, log, cad, openLayout,
-      model.linework, model.surfaces, commandCtx,
-    ],
+    [registry, commandCtx],
   );
 
   const handleCommandSubmit = useCallback(
@@ -1810,69 +1753,11 @@ function CadWorkspaceContent({
     [commandCtx, settings.angleEntry, settings.axisConvention, tool, pendingVertices, setPendingVertices, bearingFormat, log],
   );
 
-  const handleToggle = useCallback((key: "snap" | "ortho" | "grid" | "osnap") => {
-    settingsApi.toggle(key === "grid" ? "showGrid" : key);
-  }, [settingsApi]);
-
   const handleMenuAction = useCallback(
     (action: CadMenuAction) => {
-      switch (action) {
-        case "file:project-points":
-          setProjectPointsOpen(true);
-          break;
-        case "file:import-dxf":
-          setImportDxfOpen(true);
-          break;
-        case "file:export-dxf":
-          exportDxf();
-          break;
-        case "file:import-geojson":
-          importGeoJson();
-          break;
-        case "file:export-csv":
-          exportCsv();
-          break;
-        case "file:export-geojson":
-          void exportGeoJson();
-          break;
-        case "edit:undo":
-          if (cad.undo()) log("Undo.");
-          else log("Nothing to undo.", "info");
-          break;
-        case "edit:redo":
-          if (cad.redo()) log("Redo.");
-          else log("Nothing to redo.", "info");
-          break;
-        case "edit:delete":
-          deleteSelection();
-          break;
-        case "view:zoom-extents":
-          fitExtents();
-          log("Zoom extents.");
-          break;
-        case "view:grid":
-          handleToggle("grid");
-          break;
-        case "view:snap":
-          handleToggle("snap");
-          break;
-        case "view:osnap":
-          handleToggle("osnap");
-          break;
-        case "view:ortho":
-          handleToggle("ortho");
-          break;
-        case "view:3d":
-          settingsApi.toggle("view3d");
-          break;
-        case "plot:layout":
-          openLayout();
-          break;
-        default:
-          break;
-      }
+      registry.runMenu(action, commandCtx);
     },
-    [cad, deleteSelection, exportCsv, exportDxf, exportGeoJson, fitExtents, handleToggle, importGeoJson, log, openLayout, settingsApi],
+    [registry, commandCtx],
   );
 
   const handleKeyDown = useCallback(
