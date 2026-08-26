@@ -23,6 +23,17 @@ import {
 } from "./cadModel.ts";
 import { getCadDrawing, saveCadDrawing } from "../../../../lib/repositories/cadDrawings.ts";
 import type { Json } from "../../../../lib/supabase/types.ts";
+import {
+  type CadHistoryState,
+  applyRedo,
+  applyUndo,
+  beginTx,
+  createCadHistoryState,
+  discardTx,
+  endTx,
+  recordCommit,
+  resetHistory as resetCadHistory,
+} from "./model/cadUndo.ts";
 
 function isCadOnline(): boolean {
   return typeof navigator !== "undefined" && navigator.onLine;
@@ -276,10 +287,10 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
   // ── Undo / redo history ───────────────────────────────────────────────────
   // `past`/`future` hold model snapshots. A content mutation pushes the current
   // model onto `past` and clears `future`; undo/redo move snapshots between the
-  // two stacks. Capped to avoid unbounded memory on long drafting sessions.
-  const HISTORY_LIMIT = 100;
-  const pastRef = useRef<CadModelState[]>([]);
-  const futureRef = useRef<CadModelState[]>([]);
+  // two stacks. The pure machine (model/cadUndo.ts) owns the stacks, the
+  // transaction collapse and the 100-entry cap; this hook only mirrors the
+  // flags into React state.
+  const histRef = useRef<CadHistoryState>(createCadHistoryState());
   // Always-current mirror of `model` so undo/redo/commit can read and rewrite
   // history synchronously without depending on a stale closure.
   const modelRef = useRef<CadModelState>(model);
@@ -292,13 +303,12 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
   const [canRedo, setCanRedo] = useState(false);
 
   const syncHistoryFlags = useCallback(() => {
-    setCanUndo(pastRef.current.length > 0);
-    setCanRedo(futureRef.current.length > 0);
+    setCanUndo(histRef.current.past.length > 0);
+    setCanRedo(histRef.current.future.length > 0);
   }, []);
 
   const resetHistory = useCallback(() => {
-    pastRef.current = [];
-    futureRef.current = [];
+    resetCadHistory(histRef.current);
     setCanUndo(false);
     setCanRedo(false);
   }, []);
@@ -308,21 +318,10 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
    * current model and returns the next one. The pre-mutation model is pushed
    * onto the undo stack and the redo stack is cleared (standard editor model).
    */
-  const transactionRef = useRef<{ entriesPushed: number; base: CadModelState } | null>(null);
-
   const commit = useCallback((updater: (m: CadModelState) => CadModelState) => {
     const prev = modelRef.current;
     const next = updater(prev);
-    if (next === prev) return; // no-op guard
-    const tx = transactionRef.current;
-    // Inside a transaction every commit collapses into ONE history entry;
-    // outside, each commit is its own step.
-    if (!tx || tx.entriesPushed === 0) {
-      pastRef.current.push(prev);
-      if (pastRef.current.length > HISTORY_LIMIT) pastRef.current.shift();
-      if (tx) tx.entriesPushed = 1;
-    }
-    futureRef.current = [];
+    if (!recordCommit(histRef.current, prev, next)) return; // no-op guard
     modelRef.current = next;
     setModel(next);
     syncHistoryFlags();
@@ -330,24 +329,20 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
 
   /** Group the following commits into a single undo step (no nesting). */
   const beginTransaction = useCallback(() => {
-    if (transactionRef.current) return;
-    transactionRef.current = { entriesPushed: 0, base: modelRef.current };
+    beginTx(histRef.current, modelRef.current);
   }, []);
 
   /** Close the current transaction; everything since `beginTransaction` undoes as one step. */
   const endTransaction = useCallback(() => {
-    transactionRef.current = null;
+    endTx(histRef.current);
   }, []);
 
   /** Close the current transaction AND restore the model from before it (cancel). */
   const discardTransaction = useCallback(() => {
-    const tx = transactionRef.current;
-    transactionRef.current = null;
-    if (!tx) return;
-    if (tx.entriesPushed > 0) pastRef.current.pop();
-    futureRef.current = [];
-    modelRef.current = tx.base;
-    setModel(tx.base);
+    const base = discardTx(histRef.current);
+    if (!base) return;
+    modelRef.current = base;
+    setModel(base);
     syncHistoryFlags();
   }, [syncHistoryFlags]);
 
@@ -368,8 +363,7 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
   // before paint and before any keyboard event can fire, so Ctrl+Z can never
   // pop the previous project's model into the new one.
   useLayoutEffect(() => {
-    pastRef.current = [];
-    futureRef.current = [];
+    resetCadHistory(histRef.current);
   }, [projectId]);
 
   // Generation guard: a backend load for project A that resolves after the
@@ -1397,22 +1391,20 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
 
   // ── Undo / redo ─────────────────────────────────────────────────────────
   const undo = useCallback<UseCadModel["undo"]>(() => {
-    const prev = pastRef.current.pop();
-    if (prev === undefined) return false;
-    futureRef.current.push(modelRef.current);
-    modelRef.current = prev;
-    setModel(prev);
+    const prevModel = applyUndo(histRef.current, modelRef.current);
+    if (prevModel === null) return false;
+    modelRef.current = prevModel;
+    setModel(prevModel);
     setSelection(EMPTY_SELECTION);
     syncHistoryFlags();
     return true;
   }, [syncHistoryFlags]);
 
   const redo = useCallback<UseCadModel["redo"]>(() => {
-    const next = futureRef.current.pop();
-    if (next === undefined) return false;
-    pastRef.current.push(modelRef.current);
-    modelRef.current = next;
-    setModel(next);
+    const nextModel = applyRedo(histRef.current, modelRef.current);
+    if (nextModel === null) return false;
+    modelRef.current = nextModel;
+    setModel(nextModel);
     setSelection(EMPTY_SELECTION);
     syncHistoryFlags();
     return true;
