@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAsyncAction } from "../../../../hooks/useAsyncAction.ts";
 import {
-  cadStorageKey,
-  emptyModel,
   EMPTY_SELECTION,
   LAYER_PRESETS,
   type CadEntityType,
@@ -34,47 +32,14 @@ import {
   recordCommit,
   resetHistory as resetCadHistory,
 } from "./model/cadUndo.ts";
-
-function isCadOnline(): boolean {
-  return typeof navigator !== "undefined" && navigator.onLine;
-}
-
-function normalizeModel(parsed: Partial<CadModelState> | null | undefined): CadModelState {
-  const base = emptyModel();
-  if (!parsed || typeof parsed !== "object") return base;
-  return {
-    layers: Array.isArray(parsed.layers) && parsed.layers.length ? parsed.layers : base.layers,
-    points: Array.isArray(parsed.points) ? parsed.points : [],
-    linework: Array.isArray(parsed.linework) ? parsed.linework : [],
-    texts: Array.isArray(parsed.texts) ? parsed.texts : [],
-    surfaces: Array.isArray(parsed.surfaces) ? parsed.surfaces : [],
-    arcs: Array.isArray(parsed.arcs) ? parsed.arcs : [],
-    circles: Array.isArray(parsed.circles) ? parsed.circles : [],
-    ellipses: Array.isArray(parsed.ellipses) ? parsed.ellipses : [],
-    dimensions: Array.isArray(parsed.dimensions) ? parsed.dimensions : [],
-    hatches: Array.isArray(parsed.hatches) ? parsed.hatches : [],
-    activeLayerId: parsed.activeLayerId ?? base.activeLayerId,
-  };
-}
-
-/** Synchronous load from the offline cache (localStorage). */
-function loadCachedModel(projectId: string): CadModelState {
-  try {
-    const raw = localStorage.getItem(cadStorageKey(projectId));
-    if (!raw) return emptyModel();
-    return normalizeModel(JSON.parse(raw) as Partial<CadModelState>);
-  } catch {
-    return emptyModel();
-  }
-}
-
-function cacheModel(projectId: string, model: CadModelState): void {
-  try {
-    localStorage.setItem(cadStorageKey(projectId), JSON.stringify(model));
-  } catch {
-    /* storage full or unavailable — non-fatal for a drafting session */
-  }
-}
+import {
+  CadPersistenceScheduler,
+  LoadGeneration,
+  cacheModel,
+  isCadOnline,
+  loadCachedModel,
+  normalizeModel,
+} from "./model/cadPersistence.ts";
 
 export type CadSyncStatus = "idle" | "loading" | "saving" | "saved" | "error";
 
@@ -273,9 +238,6 @@ export interface UseCadModel {
   syncError: string | null;
 }
 
-const SAVE_DEBOUNCE_MS = 1200;
-const CACHE_DEBOUNCE_MS = 600;
-
 export function useCadModel(projectId: string, workspaceId?: string): UseCadModel {
   // Seed from the offline cache so the canvas paints instantly; the backend
   // copy (authoritative, team-shared) is loaded right after and replaces it.
@@ -368,13 +330,12 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
 
   // Generation guard: a backend load for project A that resolves after the
   // user has already switched to project B must never overwrite B's model.
-  const loadGenerationRef = useRef(0);
+  const loadGenerationRef = useRef<LoadGeneration>(new LoadGeneration());
 
   // Guards so we never persist before the backend copy has loaded (which would
-  // clobber team work with a fresh empty model), and to debounce writes.
+  // clobber team work with a fresh empty model). The debounce timers themselves
+  // live in the persistence scheduler (model/cadPersistence.ts).
   const hydratedRef = useRef(false);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cacheTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Push the current model to the backend. Non-fatal when offline.
   const saveToBackend = useCallback(
@@ -400,11 +361,32 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
     [projectId, workspaceId],
   );
 
+  // Debounced cache/backend writes: one scheduler per hook instance; its
+  // closures read the live refs/state. `workspaceId` folds into `online()`
+  // because a save without a workspace target is meaningless.
+  const currentModel = useCallback(() => modelRef.current, []);
+  const isHydrated = useCallback(() => hydratedRef.current, []);
+  const hasWorkspaceAndOnline = useCallback(() => Boolean(workspaceId) && isCadOnline(), [workspaceId]);
+  const persistence = useMemo(
+    () =>
+      // The deps below are invoked exclusively from timer/event contexts inside
+      // CadPersistenceScheduler — never during render — so the ref reads are safe.
+      // eslint-disable-next-line react-hooks/refs
+      new CadPersistenceScheduler({
+        projectId,
+        getCachedModel: currentModel,
+        hydrated: isHydrated,
+        online: hasWorkspaceAndOnline,
+        save: saveToBackend,
+      }),
+    [projectId, currentModel, isHydrated, hasWorkspaceAndOnline, saveToBackend],
+  );
+
   // Load the authoritative model from the backend whenever the project changes.
   // If the browser reports it is offline, stay hydrated from the local cache
   // so drafting never stalls waiting for a network request.
   const loadFromBackend = useCallback(async () => {
-    const generation = ++loadGenerationRef.current;
+    const generation = loadGenerationRef.current.next();
     hydratedRef.current = false;
     // Start each project with a clean undo history.
     resetHistory();
@@ -421,7 +403,7 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
       const record = await getCadDrawing(projectId);
       // Superseded by a newer project load while this request was in flight —
       // drop the stale response instead of writing A's model into B.
-      if (generation !== loadGenerationRef.current) return;
+      if (!loadGenerationRef.current.isCurrent(generation)) return;
       if (record?.model) {
         const remote = normalizeModel(record.model as Partial<CadModelState>);
         setModel(remote);
@@ -433,7 +415,7 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
       hydratedRef.current = true;
       setSyncStatus("idle");
     } catch (err) {
-      if (generation !== loadGenerationRef.current) return;
+      if (!loadGenerationRef.current.isCurrent(generation)) return;
       hydratedRef.current = true;
       if (!isCadOnline()) {
         // Network is down — the local cache is already loaded and usable.
@@ -453,14 +435,7 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
   // when the workspace unmounts or the tab closes.
   useEffect(() => {
     const flush = () => {
-      if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current);
-      cacheModel(projectId, modelRef.current);
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-        if (hydratedRef.current && workspaceId && isCadOnline()) {
-          void saveToBackend(modelRef.current);
-        }
-      }
+      void persistence.flush();
     };
     window.addEventListener("pagehide", flush);
     window.addEventListener("beforeunload", flush);
@@ -469,36 +444,16 @@ export function useCadModel(projectId: string, workspaceId?: string): UseCadMode
       window.removeEventListener("pagehide", flush);
       window.removeEventListener("beforeunload", flush);
     };
-  }, [projectId, workspaceId, saveToBackend]);
+  }, [persistence]);
 
-  // Persist on change: debounce both the local cache write and the backend upsert
-  // so rapid edits (imports, drag ops, contour generation) do not block the main
-  // thread with repeated JSON.stringify or network calls.
+  // Persist on change: the scheduler restarts the cache timer on every model
+  // change (always, even before hydration/offline) and schedules the backend
+  // upsert only once hydrated + online. Rapid edits (imports, drag ops,
+  // contour generation) therefore do not block the main thread with repeated
+  // JSON.stringify or network calls.
   useEffect(() => {
-    if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current);
-    cacheTimerRef.current = setTimeout(() => {
-      cacheModel(projectId, model);
-    }, CACHE_DEBOUNCE_MS);
-
-    if (!hydratedRef.current || !workspaceId) return;
-
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-
-    if (!isCadOnline()) {
-      // Offline: do not schedule a network write; the offline listener keeps
-      // the sync indicator calm, and online edits resume in the listener below.
-      return;
-    }
-
-    saveTimerRef.current = setTimeout(() => {
-      void saveToBackend(model);
-    }, SAVE_DEBOUNCE_MS);
-
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current);
-    };
-  }, [projectId, workspaceId, model, saveToBackend]);
+    persistence.onModelChange();
+  }, [persistence, model]);
 
   // When connectivity changes, keep the sync status honest and push/pause
   // accordingly. Using event listeners avoids synchronous setState in effects.
