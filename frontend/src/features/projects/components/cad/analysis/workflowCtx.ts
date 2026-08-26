@@ -28,6 +28,15 @@ export interface WorkflowApi {
   endTransaction(): void;
 }
 
+/** Draft for archiving a generated artifact into the project outputs store. */
+export interface ProjectOutputDraft {
+  label: string;
+  description?: string;
+  mimeType: string;
+  fileName: string;
+  content: string;
+}
+
 export interface WorkflowServices {
   dialog: WorkflowDialogs;
   log(text: string, kind?: "info" | "error"): void;
@@ -36,6 +45,12 @@ export interface WorkflowServices {
   openReport(title: string, bodyHtml: string): void;
   downloadCsv(filename: string, rows: (string | number)[][]): void;
   projectName: string;
+  /** Project display id (sheet code) shown in report headers. */
+  projectId: string;
+  /** Stable database id used for output file names and storage keys. */
+  projectDbId: string;
+  /** Archive a generated artifact into the project outputs store. */
+  addOutput(draft: ProjectOutputDraft): void;
 }
 
 /** 3D points usable for a surface: those with an elevation. */

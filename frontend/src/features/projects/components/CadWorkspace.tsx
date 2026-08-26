@@ -65,9 +65,9 @@ import { runBuildContours } from "./cad/analysis/contourWorkflows.ts";
 import { runVolumeToElevation, runVolumeBetween } from "./cad/analysis/volumeWorkflows.ts";
 import { pickSurface, type WorkflowServices } from "./cad/analysis/workflowCtx.ts";
 import { sampleZ } from "./cad/survey/surface.ts";
-import { analyseTerrain, terrainStats, slopeColor, lastTerrainBackend } from "./cad/survey/terrainBridge.ts";
 import { forward, inverse, polygonArea, polylineLength, circularArcParams } from "./cad/survey/cogo.ts";
-import { buildTerrainReport } from "./cad/io/report.ts";
+import { runTerrainAnalysis } from "./cad/analysis/terrainWorkflows.ts";
+import { runExtractProfile } from "./cad/analysis/profileWorkflow.ts";
 import { fmtArea, fmtBearing, fmtCoord, fmtDistance, parseDistanceBearing } from "./cad/survey/format.ts";
 import { axisBadgeLabels } from "./cad/cadSettings.ts";
 
@@ -312,8 +312,13 @@ function CadWorkspaceContent({
       downloadCsv: (filename, rows) =>
         downloadText(filename, rows.map((r) => r.join(",")).join("\n"), "text/csv"),
       projectName: activeProject.name,
+      projectId: activeProject.id,
+      projectDbId: activeProject.dbId,
+      addOutput: (draft) => {
+        addProjectOutput(activeProject.dbId, draft);
+      },
     }),
-    [dialog, log, fitExtents, settingsApi, activeProject.name],
+    [dialog, log, fitExtents, settingsApi, activeProject.name, activeProject.id, activeProject.dbId],
   );
 
   // The AI bridge can trigger zoom-extents from chat commands (e.g. "[CAD] zoom extents").
@@ -1695,209 +1700,18 @@ function CadWorkspaceContent({
     [model, cad, cadServices],
   );
 
-// ── Aspect shading palette (8-wind sector, conventional N…NW ramp) ──────────
-
-function aspectColor(aspectDeg: number | null): string {
-  // Flat triangles (null aspect) render neutral grey.
-  if (aspectDeg == null || !Number.isFinite(aspectDeg)) return "#64748b";
-  const ASPECT_COLORS = [
-    "#dc2626", // N
-    "#f97316", // NE
-    "#eab308", // E
-    "#84cc16", // SE
-    "#16a34a", // S
-    "#0d9488", // SW
-    "#3b82f6", // W
-    "#8b5cf6", // NW
-  ];
-  const sector = Math.floor((((aspectDeg % 360) + 360) % 360 + 22.5) / 45) % 8;
-  return ASPECT_COLORS[sector];
-}
-
-  // ── Terrain analysis (slope / aspect / 3D area) ────────────────────────────
-
-  const analyseSurfaceTerrain = useCallback(async () => {
-    const surface = model.surfaces.find((s) => !s.cutFill && !s.slopeShade)
-      ?? model.surfaces[model.surfaces.length - 1];
-    if (!surface) {
-      log("Terrain: build a TIN surface first (Surface ▸ Build TIN).", "error");
-      return;
-    }
-    const tin = { points: surface.points, triangles: surface.triangles };
-    const mode = await dialog.select(
-      "Terrain shading mode:",
-      ["Slope shading (steepness ramp)", "Aspect shading (8-wind sector)"],
-    );
-    if (mode == null) return;
-    const asAspect = mode.startsWith("Aspect");
-
-    log("Analysing terrain…");
-    const [tris, stats] = await Promise.all([analyseTerrain(tin), terrainStats(tin)]);
-    if (!stats || tris.length === 0) {
-      log("Terrain: analysis produced no triangles.", "error");
-      return;
-    }
-    const maxSlope = stats.maxSlopeDeg > 0 ? stats.maxSlopeDeg : 1;
-    const shadeTris = tris.map((t) => {
-      const tri = surface.triangles[t.index];
-      return {
-        a: tri.a,
-        b: tri.b,
-        c: tri.c,
-        slopeDeg: t.slopeDeg,
-        color: asAspect ? aspectColor(t.aspectDeg) : slopeColor(t.slopeDeg, maxSlope),
-      };
-    });
-    cad.addSurface({
-      name: `${asAspect ? "Aspect" : "Slope"} shade — ${surface.name}`,
-      points: surface.points,
-      triangles: surface.triangles,
-      layerId: surface.layerId,
-      slopeShade: { triangles: shadeTris, maxSlope },
-    });
-    settingsApi.update({ view3d: true });
-    fitExtents();
-    log(
-      `Terrain "${surface.name}" — mean slope ${stats.meanSlopeDeg.toFixed(2)}° ` +
-        `(${stats.minSlopeDeg.toFixed(1)}–${stats.maxSlopeDeg.toFixed(1)}°), ` +
-        `3D area ${fmtArea(stats.surfaceArea)} vs plan ${fmtArea(stats.planArea)} (${lastTerrainBackend()}). ` +
-        `Slope shade shown in 3D.`,
-    );
-    const body = buildTerrainReport(activeProject.name, activeProject.id, surface.name, stats);
-    openReportWindow(`Terrain Analysis — ${activeProject.name}`, body);
-  }, [model.surfaces, cad, dialog, settingsApi, fitExtents, log, activeProject.name, activeProject.id]);
+  /** Slope/aspect shading overlay + terrain stats report for the latest TIN. */
+  const analyseSurfaceTerrain = useCallback(
+    () => runTerrainAnalysis(model, cad, cadServices),
+    [model, cad, cadServices],
+  );
 
   // ── Long-section (chainage / level profile) extraction ────────────────────
 
-  const extractProfile = useCallback(async () => {
-    if (model.surfaces.length === 0) { log("Profile: build a TIN surface first (Surface ▸ Build TIN).", "error"); return; }
-    const sel = cad.selection;
-    const lw = sel.type === "linework" && sel.id
-      ? model.linework.find((l) => l.id === sel.id)
-      : undefined;
-    if (!lw || lw.vertices.length < 2) {
-      log("Profile: select a polyline or boundary to section along.", "error");
-      return;
-    }
-    const surface = model.surfaces.length === 1
-      ? model.surfaces[0]
-      : await pickSurface(model.surfaces, dialog, "Choose surface to sample for the long section");
-    if (!surface) return;
-    const tin = { points: surface.points, triangles: surface.triangles };
-
-    const totalLen = polylineLength(lw.vertices);
-    const defInterval = Math.max(1, Math.round(totalLen / 60));
-    const intRaw = await dialog.prompt(
-      `Sampling interval (m). Chain length ${totalLen.toFixed(2)} m:`,
-      String(defInterval),
-    );
-    if (intRaw == null) return;
-    const interval = parseFloat(intRaw);
-    if (!Number.isFinite(interval) || interval <= 0) {
-      log("Profile: invalid interval.", "error");
-      return;
-    }
-
-    // Walk the chain: sample at every even interval AND at every vertex
-    // chainage (bends must appear in the profile).
-    const stations: { ch: number; z: number | null }[] = [];
-    let chain = 0;
-    for (let i = 0; i < lw.vertices.length; i++) {
-      if (i > 0) chain += inverse(lw.vertices[i - 1], lw.vertices[i]).distance;
-      stations.push({ ch: chain, z: sampleZ(tin, lw.vertices[i].n, lw.vertices[i].e) });
-      if (i + 1 < lw.vertices.length) {
-        const segLen = inverse(lw.vertices[i], lw.vertices[i + 1]).distance;
-        if (segLen <= 0) continue;
-        for (let s = Math.ceil((chain + 1e-6) / interval) * interval; s < chain + segLen - 1e-9; s += interval) {
-          const t = (s - chain) / segLen;
-          const vx = lw.vertices[i];
-          const vy = lw.vertices[i + 1];
-          stations.push({ ch: s, z: sampleZ(tin, vx.n + (vy.n - vx.n) * t, vx.e + (vy.e - vx.e) * t) });
-        }
-      }
-    }
-    stations.sort((a, b) => a.ch - b.ch);
-    const sampled = stations.filter((s) => s.z != null);
-    if (sampled.length < 2) {
-      log("Profile: the section line falls (mostly) outside the surface — fewer than 2 samples.", "error");
-      return;
-    }
-
-    let zMin = Infinity, zMax = -Infinity, chMax = 0;
-    for (const s of sampled) {
-      if (s.z! < zMin) zMin = s.z!;
-      if (s.z! > zMax) zMax = s.z!;
-      if (s.ch > chMax) chMax = s.ch;
-    }
-    const zPad = Math.max(0.5, (zMax - zMin) * 0.1);
-    zMin -= zPad; zMax += zPad;
-
-    // Build a long-section chart as inline SVG for the report window.
-    const W = 960, H = 360, ml = 70, mr = 24, mt = 26, mb = 46;
-    const px = (ch: number) => ml + (chMax > 0 ? (ch / chMax) : 0) * (W - ml - mr);
-    const py = (z: number) => mt + (1 - (z - zMin) / (zMax - zMin)) * (H - mt - mb);
-    const zTicks: number[] = [];
-    const zStep = (zMax - zMin) / 5;
-    for (let i = 0; i <= 5; i++) zTicks.push(zMin + i * zStep);
-    const grid = zTicks.map((z) =>
-      `<line x1="${ml}" y1="${py(z)}" x2="${W - mr}" y2="${py(z)}" stroke="#d7dde5" stroke-width="0.8"/>` +
-      `<text x="${ml - 8}" y="${py(z) + 3.5}" text-anchor="end" font-size="10" fill="#475569">${z.toFixed(2)}</text>`
-    ).join("");
-    const chTickStep = Math.max(interval * 2, chMax / 8);
-    const chTicks: string[] = [];
-    for (let ch = 0; ch <= chMax + 1e-6; ch += chTickStep) {
-      chTicks.push(
-        `<line x1="${px(ch)}" y1="${H - mb}" x2="${px(ch)}" y2="${H - mb + 5}" stroke="#94a3b8" stroke-width="1"/>` +
-        `<text x="${px(ch)}" y="${H - mb + 18}" text-anchor="middle" font-size="10" fill="#475569">${ch.toFixed(0)}</text>`,
-      );
-    }
-    // Break the chain into runs of valid samples (gaps stay gaps).
-    const runs: string[] = [];
-    let run: string[] = [];
-    const flush = () => { if (run.length >= 2) runs.push(run.join(" ")); run = []; };
-    for (const s of stations) {
-      if (s.z == null || s.ch > chMax + 1) { flush(); continue; }
-      run.push(`${px(s.ch).toFixed(1)},${py(s.z).toFixed(1)}`);
-    }
-    flush();
-    const paths = runs
-      .map((r) => `<polyline points="${r}" fill="none" stroke="#0369a1" stroke-width="1.8" stroke-linejoin="round"/>`)
-      .join("");
-    const svg =
-      `<svg viewBox="0 0 ${W} ${H}" width="100%" style="background:#fff;border:1px solid #d7dde5;border-radius:8px">` +
-      grid + chTicks.join("") +
-      `<line x1="${ml}" y1="${H - mb}" x2="${W - mr}" y2="${H - mb}" stroke="#334155" stroke-width="1"/>` +
-      `<line x1="${ml}" y1="${mt}" x2="${ml}" y2="${H - mb}" stroke="#334155" stroke-width="1"/>` +
-      paths +
-      `<text x="${ml - 46}" y="${mt - 8}" font-size="11" font-weight="bold" fill="#0f172a">RL (m)</text>` +
-      `<text x="${W - mr}" y="${H - mb + 32}" text-anchor="end" font-size="11" font-weight="bold" fill="#0f172a">Chainage (m)</text>` +
-      `</svg>`;
-
-    const name = `Long Section — "${surface.name}"`;
-    const body =
-      `<h1>${name}</h1>` +
-      `<p class="muted">Surface: ${surface.name} · interval ${interval} m · ${sampled.length} of ${stations.length} samples inside footprint · ` +
-      `RL range ${zMin.toFixed(3)}–${zMax.toFixed(3)} m · chainage ${chMax.toFixed(3)} m</p>` +
-      svg +
-      `<table><thead><tr><th>Chainage (m)</th><th>RL (m)</th></tr></thead><tbody>` +
-      stations
-        .map((s) => `<tr><td>${s.ch.toFixed(3)}</td><td>${s.z == null ? "—" : s.z.toFixed(3)}</td></tr>`)
-        .join("") +
-      `</tbody></table>`;
-    openReportWindow(name, body);
-
-    // CSV via the project outputs store (and a direct download).
-    const csv = ["Chainage,RL", ...stations.map((s) => `${s.ch.toFixed(3)},${s.z == null ? "" : s.z.toFixed(3)}`)].join("\n");
-    downloadText("long-section.csv", csv, "text/csv");
-    addProjectOutput(activeProject.dbId, {
-      label: "Long Section (Chainage/Level)",
-      description: `${stations.length} stations, interval ${interval} m`,
-      fileName: `long-section-${activeProject.dbId}.csv`,
-      mimeType: "text/csv",
-      content: csv,
-    });
-    log(`Long section: ${sampled.length}/${stations.length} samples, RL ${zMin.toFixed(2)}–${zMax.toFixed(2)} m — chart opened + CSV saved.`);
-  }, [model.surfaces, model.linework, cad, dialog, log, activeProject.dbId]);
+  const extractProfile = useCallback(
+    () => runExtractProfile(model, cad.selection, cad, cadServices),
+    [model, cad, cadServices],
+  );
 
   // ── Annotation (boundary labels, area label) ────────────────────────────────
 

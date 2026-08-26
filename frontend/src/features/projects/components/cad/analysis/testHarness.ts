@@ -49,6 +49,9 @@ export function fakeServices(dialogs: Partial<WorkflowDialogs> = {}) {
     openReport: vi.fn(),
     downloadCsv: vi.fn(),
     projectName: "Test Project",
+    projectId: "test-project-id",
+    projectDbId: "db-test-project",
+    addOutput: vi.fn(),
   };
   return { services, log };
 }
