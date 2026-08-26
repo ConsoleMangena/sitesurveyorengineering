@@ -16,6 +16,8 @@ import { sampleZ } from "./survey/surface.ts";
 import { axisBadgeLabels, type AxisConvention } from "./cadSettings.ts";
 import { buildCodeTable, resolveFeature } from "./survey/featureCodes.ts";
 import { symbolMarkup } from "./survey/symbols.ts";
+import { applyGridSnap, findOsnapHit, orthoConstraint, type OsnapHit } from "./viewport/snapping.ts";
+import { boxSelect, pickEntityAt } from "./viewport/hitTesting.ts";
 import { ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 
 /** Shared feature-code table for resolving point symbols in the viewport. */
@@ -64,20 +66,12 @@ interface CadViewportProps {
 }
 
 type World = { n: number; e: number };
-type OsnapKind = "endpoint" | "midpoint" | "node";
-interface OsnapHit {
-  world: World;
-  screen: { x: number; y: number };
-  kind: OsnapKind;
-}
 interface CursorInfo {
   x: number;
   y: number;
   lines: string[];
 }
 
-const HIT_TOL = 8;
-const OSNAP_TOL = 12;
 const DRAG_THRESHOLD = 4;
 const TOOL_LABELS: Record<CadToolId, string> = {
   select: "Select",
@@ -289,24 +283,18 @@ const CadViewportComponent = memo(function CadViewport({
 
   const applySnap = useCallback(
     (world: World): World => {
-      if (!snap) return world;
       const spacing = snapAuto || !(snapSpacing > 0) ? niceGridSpacing(vp) : snapSpacing;
-      return {
-        n: Math.round(world.n / spacing) * spacing,
-        e: Math.round(world.e / spacing) * spacing,
-      };
+      return applyGridSnap(world, spacing, snap);
     },
     [snap, snapAuto, snapSpacing, vp],
   );
 
   const applyOrtho = useCallback(
-    (world: World): World => {
-      if (!ortho || pendingVertices.length === 0) return world;
-      const last = pendingVertices[pendingVertices.length - 1];
-      const dn = Math.abs(world.n - last.n);
-      const de = Math.abs(world.e - last.e);
-      return dn >= de ? { n: world.n, e: last.e } : { n: last.n, e: world.e };
-    },
+    (world: World): World =>
+      orthoConstraint(
+        world,
+        ortho && pendingVertices.length > 0 ? pendingVertices[pendingVertices.length - 1] : null,
+      ),
     [ortho, pendingVertices],
   );
 
@@ -333,68 +321,9 @@ const CadViewportComponent = memo(function CadViewport({
   const findOsnap = useCallback(
     (x: number, y: number): OsnapHit | null => {
       if (!osnap) return null;
-      let best: OsnapHit | null = null;
-      let bestDist = OSNAP_TOL;
-
-      const consider = (w: World, kind: OsnapKind) => {
-        const s = worldToScreen(w.n, w.e, vp, size);
-        const d = Math.hypot(s.x - x, s.y - y);
-        if (d <= bestDist) {
-          bestDist = d;
-          best = { world: w, screen: s, kind };
-        }
-      };
-
-      for (const p of model.points) {
-        if (!visibleLayer(p.layerId)) continue;
-        consider({ n: p.n, e: p.e }, "node");
-      }
-      for (const lw of model.linework) {
-        if (!visibleLayer(lw.layerId)) continue;
-        for (let i = 0; i < lw.vertices.length; i++) {
-          consider(lw.vertices[i], "endpoint");
-          if (i > 0) {
-            const a = lw.vertices[i - 1];
-            const b = lw.vertices[i];
-            consider({ n: (a.n + b.n) / 2, e: (a.e + b.e) / 2 }, "midpoint");
-          }
-        }
-        if (lw.closed && lw.vertices.length > 2) {
-          const a = lw.vertices[lw.vertices.length - 1];
-          const b = lw.vertices[0];
-          consider({ n: (a.n + b.n) / 2, e: (a.e + b.e) / 2 }, "midpoint");
-        }
-      }
-      for (const a of model.arcs) {
-        if (!visibleLayer(a.layerId)) continue;
-        const r = a.radius;
-        const toWorld = (deg: number) => {
-          const rad = deg * (Math.PI / 180);
-          return { n: a.center.n + Math.sin(rad) * r, e: a.center.e + Math.cos(rad) * r };
-        };
-        consider(toWorld(a.startAngle), "endpoint");
-        consider(toWorld(a.endAngle), "endpoint");
-        consider(toWorld((a.startAngle + a.endAngle) / 2), "midpoint");
-      }
-      for (const c of model.circles) {
-        if (!visibleLayer(c.layerId)) continue;
-        consider(c.center, "node");
-      }
-      for (const el of model.ellipses) {
-        if (!visibleLayer(el.layerId)) continue;
-        consider(el.center, "node");
-      }
-      for (const d of model.dimensions) {
-        if (!visibleLayer(d.layerId)) continue;
-        for (const v of d.defPoints) consider(v, "endpoint");
-      }
-      for (const h of model.hatches) {
-        if (!visibleLayer(h.layerId)) continue;
-        for (const v of h.vertices) consider(v, "endpoint");
-      }
-      return best;
+      return findOsnapHit(model, (w) => worldToScreen(w.n, w.e, vp, size), x, y);
     },
-    [osnap, model.points, model.linework, model.arcs, model.circles, model.ellipses, model.dimensions, model.hatches, visibleLayer, vp, size],
+    [osnap, model, vp, size],
   );
 
   const resolveWorld = useCallback(
@@ -406,70 +335,6 @@ const CadViewportComponent = memo(function CadViewport({
     },
     [findOsnap, applyOrtho, applySnap, vp, size],
   );
-
-  const distToSegment = (
-    px: number, py: number,
-    ax: number, ay: number,
-    bx: number, by: number,
-  ): number => {
-    const dx = bx - ax;
-    const dy = by - ay;
-    const len2 = dx * dx + dy * dy;
-    if (len2 === 0) return Math.hypot(px - ax, py - ay);
-    let t = ((px - ax) * dx + (py - ay) * dy) / len2;
-    t = Math.max(0, Math.min(1, t));
-    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
-  };
-
-  /** True when screen point (px,py) lies inside the triangle (a,b,c). */
-  const pointInTriangle = (
-    px: number, py: number,
-    ax: number, ay: number,
-    bx: number, by: number,
-    cx: number, cy: number,
-  ): boolean => {
-    const d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by);
-    const d2 = (px - cx) * (by - cy) - (bx - cx) * (py - cy);
-    const d3 = (px - ax) * (cy - ay) - (cx - ax) * (py - ay);
-    const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
-    const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
-    return !(hasNeg && hasPos);
-  };
-
-  /** True when screen point (px,py) lies inside a simple polygon. */
-  const pointInPolygon = (px: number, py: number, pts: { x: number; y: number }[]): boolean => {
-    let inside = false;
-    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-      const pi = pts[i];
-      const pj = pts[j];
-      const intersect = pi.y > py !== pj.y > py &&
-        px < ((pj.x - pi.x) * (py - pi.y)) / (pj.y - pi.y) + pi.x;
-      if (intersect) inside = !inside;
-    }
-    return inside;
-  };
-
-  /** Sample an arc/circle into screen-space polyline points for hit testing. */
-  const sampleArcScreen = useCallback((
-    center: { n: number; e: number },
-    radius: number,
-    startAngle: number,
-    endAngle: number,
-    steps: number,
-  ): { x: number; y: number }[] => {
-    const pts: { x: number; y: number }[] = [];
-    if (!(Number.isFinite(radius) && radius > 0)) return pts;
-    const s = startAngle;
-    let e = endAngle;
-    while (e < s) e += 360;
-    const count = Math.max(steps, 2);
-    for (let i = 0; i <= count; i++) {
-      const deg = s + (e - s) * (i / count);
-      const rad = deg * (Math.PI / 180);
-      pts.push(worldToScreen(center.n + Math.sin(rad) * radius, center.e + Math.cos(rad) * radius, vp, size));
-    }
-    return pts;
-  }, [vp, size]);
 
   /** Sample an ellipse into screen-space polyline points for rendering / picking. */
   const sampleEllipseScreen = useCallback((
@@ -496,144 +361,19 @@ const CadViewportComponent = memo(function CadViewport({
     return pts;
   }, [vp, size]);
 
-  const hitSurface = useCallback(
-    (x: number, y: number): string | null => {
-      // Iterate back-to-front so the most recently added surface wins ties.
-      for (let s = model.surfaces.length - 1; s >= 0; s--) {
-        const srf = model.surfaces[s];
-        if (!srf.visible) continue;
-        if (!selectableLayer(srf.layerId)) continue;
-        if (!Array.isArray(srf.points) || !Array.isArray(srf.triangles)) continue;
-        const screen = srf.points.map((v) => worldToScreen(v.n, v.e, vp, size));
-        for (const t of srf.triangles) {
-          const a = screen[t.a];
-          const b = screen[t.b];
-          const c = screen[t.c];
-          if (!a || !b || !c) continue;
-          if (pointInTriangle(x, y, a.x, a.y, b.x, b.y, c.x, c.y)) return srf.id;
-          // Edge proximity so the thin wireframe is also easy to pick.
-          if (
-            distToSegment(x, y, a.x, a.y, b.x, b.y) <= HIT_TOL ||
-            distToSegment(x, y, b.x, b.y, c.x, c.y) <= HIT_TOL ||
-            distToSegment(x, y, c.x, c.y, a.x, a.y) <= HIT_TOL
-          ) {
-            return srf.id;
-          }
-        }
-      }
-      return null;
-    },
-    [model.surfaces, selectableLayer, vp, size],
-  );
-
   const hitTest = useCallback(
     (x: number, y: number): CadSelection => {
-      let bestPt: { id: string; d: number } | null = null;
-      for (const p of model.points) {
-        if (!selectableLayer(p.layerId)) continue;
-        const s = worldToScreen(p.n, p.e, vp, size);
-        const d = Math.hypot(s.x - x, s.y - y);
-        if (d <= HIT_TOL && (!bestPt || d < bestPt.d)) bestPt = { id: p.id, d };
-      }
-      if (bestPt) return { type: "point", id: bestPt.id };
-
-      let bestLw: { id: string; d: number } | null = null;
-      for (const lw of model.linework) {
-        if (!selectableLayer(lw.layerId)) continue;
-        const pts = lw.vertices.map((v) => worldToScreen(v.n, v.e, vp, size));
-        if (pts.length < 2) continue;
-        const segCount = lw.closed ? pts.length : pts.length - 1;
-        for (let i = 0; i < segCount; i++) {
-          const a = pts[i];
-          const b = pts[(i + 1) % pts.length];
-          const d = distToSegment(x, y, a.x, a.y, b.x, b.y);
-          if (d <= HIT_TOL && (!bestLw || d < bestLw.d)) bestLw = { id: lw.id, d };
-        }
-      }
-      if (bestLw) return { type: "linework", id: bestLw.id };
-
-      for (const t of model.texts) {
-        if (!selectableLayer(t.layerId)) continue;
-        const s = worldToScreen(t.n, t.e, vp, size);
-        const w = Math.max(20, t.text.length * 7);
-        if (x >= s.x - 2 && x <= s.x + w && y >= s.y - 12 && y <= s.y + 4) {
-          return { type: "text", id: t.id };
-        }
-      }
-
-      // Surfaces are picked last so points / linework / text drawn on top of a
-      // TIN remain selectable; clicking bare mesh selects the surface itself.
-      const srfId = hitSurface(x, y);
-      if (srfId) return { type: "surface", id: srfId };
-
-      let bestArc: { id: string; d: number } | null = null;
-      for (const a of model.arcs) {
-        if (!selectableLayer(a.layerId)) continue;
-        const pts = sampleArcScreen(a.center, a.radius, a.startAngle, a.endAngle, 32);
-        for (let i = 1; i < pts.length; i++) {
-          const d = distToSegment(x, y, pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y);
-          if (d <= HIT_TOL && (!bestArc || d < bestArc.d)) bestArc = { id: a.id, d };
-        }
-      }
-      if (bestArc) return { type: "arc", id: bestArc.id };
-
-      let bestCir: { id: string; d: number } | null = null;
-      for (const c of model.circles) {
-        if (!selectableLayer(c.layerId)) continue;
-        const center = worldToScreen(c.center.n, c.center.e, vp, size);
-        const rim = worldToScreen(c.center.n, c.center.e + c.radius, vp, size);
-        const r = Math.hypot(rim.x - center.x, rim.y - center.y);
-        const d = Math.abs(Math.hypot(x - center.x, y - center.y) - r);
-        if (d <= HIT_TOL && (!bestCir || d < bestCir.d)) bestCir = { id: c.id, d };
-      }
-      if (bestCir) return { type: "circle", id: bestCir.id };
-
-      let bestEll: { id: string; d: number } | null = null;
-      for (const el of model.ellipses) {
-        if (!selectableLayer(el.layerId)) continue;
-        const pts = sampleEllipseScreen(el, 32);
-        for (let i = 1; i < pts.length; i++) {
-          const d = distToSegment(x, y, pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y);
-          if (d <= HIT_TOL && (!bestEll || d < bestEll.d)) bestEll = { id: el.id, d };
-        }
-      }
-      if (bestEll) return { type: "ellipse", id: bestEll.id };
-
-      for (const d of model.dimensions) {
-        if (!selectableLayer(d.layerId)) continue;
-        const pts = d.defPoints.map((v) => worldToScreen(v.n, v.e, vp, size));
-        let near = false;
-        for (let i = 1; i < pts.length; i++) {
-          if (distToSegment(x, y, pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y) <= HIT_TOL) {
-            near = true;
-            break;
-          }
-        }
-        if (!near) {
-          const ts = worldToScreen(d.textPosition.n, d.textPosition.e, vp, size);
-          const w = Math.max(20, (d.text?.length ?? 0) * 7);
-          near = x >= ts.x - 2 && x <= ts.x + w && y >= ts.y - 12 && y <= ts.y + 4;
-        }
-        if (near) return { type: "dimension", id: d.id };
-      }
-
-      for (const h of model.hatches) {
-        if (!selectableLayer(h.layerId)) continue;
-        const outer = h.vertices.map((v) => worldToScreen(v.n, v.e, vp, size));
-        if (outer.length < 3) continue;
-        if (pointInPolygon(x, y, outer)) return { type: "hatch", id: h.id };
-        let near = false;
-        for (let i = 0; !near && i < outer.length; i++) {
-          const a = outer[i];
-          const b = outer[(i + 1) % outer.length];
-          if (distToSegment(x, y, a.x, a.y, b.x, b.y) <= HIT_TOL) near = true;
-        }
-        if (near) return { type: "hatch", id: h.id };
-      }
-
-      return { type: null, id: null };
+      const hit = pickEntityAt(
+        model,
+        visibleLayer,
+        selectableLayer,
+        (w) => worldToScreen(w.n, w.e, vp, size),
+        x,
+        y,
+      );
+      return hit ? { type: hit.type, id: hit.id } : { type: null, id: null };
     },
-    [model.points, model.linework, model.texts, model.arcs, model.circles, model.ellipses, model.dimensions, model.hatches, hitSurface, selectableLayer, vp, size, sampleArcScreen, sampleEllipseScreen],
+    [model, visibleLayer, selectableLayer, vp, size],
   );
 
   /**
@@ -642,142 +382,16 @@ const CadViewportComponent = memo(function CadViewport({
    * (entities that are enclosed OR cross the box). Returns every match.
    */
   const entitiesInRect = useCallback(
-    (x1: number, y1: number, x2: number, y2: number): SelectedItem[] => {
-      const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
-      const minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
-      const crossing = x2 < x1; // right-to-left drag → crossing
-      const items: SelectedItem[] = [];
-
-      const inBox = (sx: number, sy: number) =>
-        sx >= minX && sx <= maxX && sy >= minY && sy <= maxY;
-
-      // Segment-vs-rect intersection for crossing selection.
-      const segCrossesBox = (ax: number, ay: number, bx: number, by: number) => {
-        if (inBox(ax, ay) || inBox(bx, by)) return true;
-        // Clip test against the four box edges.
-        const edges: [number, number, number, number][] = [
-          [minX, minY, maxX, minY],
-          [maxX, minY, maxX, maxY],
-          [maxX, maxY, minX, maxY],
-          [minX, maxY, minX, minY],
-        ];
-        const segInt = (
-          p0x: number, p0y: number, p1x: number, p1y: number,
-          p2x: number, p2y: number, p3x: number, p3y: number,
-        ) => {
-          const d = (p1x - p0x) * (p3y - p2y) - (p1y - p0y) * (p3x - p2x);
-          if (Math.abs(d) < 1e-9) return false;
-          const t = ((p2x - p0x) * (p3y - p2y) - (p2y - p0y) * (p3x - p2x)) / d;
-          const u = ((p2x - p0x) * (p1y - p0y) - (p2y - p0y) * (p1x - p0x)) / d;
-          return t >= 0 && t <= 1 && u >= 0 && u <= 1;
-        };
-        return edges.some((e) => segInt(ax, ay, bx, by, e[0], e[1], e[2], e[3]));
-      };
-
-      for (const p of model.points) {
-        if (!selectableLayer(p.layerId)) continue;
-        const s = worldToScreen(p.n, p.e, vp, size);
-        if (inBox(s.x, s.y)) items.push({ type: "point", id: p.id });
-      }
-      for (const lw of model.linework) {
-        if (!selectableLayer(lw.layerId)) continue;
-        const pts = lw.vertices.map((v) => worldToScreen(v.n, v.e, vp, size));
-        if (!pts.length) continue;
-        const allIn = pts.every((s) => inBox(s.x, s.y));
-        let touches = allIn;
-        if (!touches && crossing) {
-          const segCount = lw.closed ? pts.length : pts.length - 1;
-          for (let i = 0; i < segCount && !touches; i++) {
-            const a = pts[i];
-            const b = pts[(i + 1) % pts.length];
-            if (segCrossesBox(a.x, a.y, b.x, b.y)) touches = true;
-          }
-        }
-        if (crossing ? touches : allIn) items.push({ type: "linework", id: lw.id });
-      }
-      for (const t of model.texts) {
-        if (!selectableLayer(t.layerId)) continue;
-        const s = worldToScreen(t.n, t.e, vp, size);
-        if (inBox(s.x, s.y)) items.push({ type: "text", id: t.id });
-      }
-      for (const srf of model.surfaces) {
-        if (!srf.visible) continue;
-        if (!selectableLayer(srf.layerId)) continue;
-        if (!Array.isArray(srf.points) || !Array.isArray(srf.triangles)) continue;
-        const screen = srf.points.map((v) => worldToScreen(v.n, v.e, vp, size));
-        if (!screen.length) continue;
-        const allIn = screen.every((s) => inBox(s.x, s.y));
-        let touches = allIn;
-        if (!touches && crossing) {
-          for (const t of srf.triangles) {
-            const a = screen[t.a];
-            const b = screen[t.b];
-            const c = screen[t.c];
-            if (!a || !b || !c) continue;
-            if (
-              segCrossesBox(a.x, a.y, b.x, b.y) ||
-              segCrossesBox(b.x, b.y, c.x, c.y) ||
-              segCrossesBox(c.x, c.y, a.x, a.y)
-            ) {
-              touches = true;
-              break;
-            }
-          }
-        }
-        if (crossing ? touches : allIn) items.push({ type: "surface", id: srf.id });
-      }
-
-      const polylineInBox = (pts: { x: number; y: number }[]) => {
-        if (!pts.length) return false;
-        const allIn = pts.every((s) => inBox(s.x, s.y));
-        if (!crossing) return allIn;
-        if (allIn) return true;
-        for (let i = 0; i < pts.length; i++) {
-          const a = pts[i];
-          const b = pts[(i + 1) % pts.length];
-          if (segCrossesBox(a.x, a.y, b.x, b.y)) return true;
-        }
-        return false;
-      };
-
-      for (const a of model.arcs) {
-        if (!selectableLayer(a.layerId)) continue;
-        const pts = sampleArcScreen(a.center, a.radius, a.startAngle, a.endAngle, 16);
-        if (polylineInBox(pts)) items.push({ type: "arc", id: a.id });
-      }
-      for (const c of model.circles) {
-        if (!selectableLayer(c.layerId)) continue;
-        const pts = sampleArcScreen(c.center, c.radius, 0, 360, 24);
-        if (polylineInBox(pts)) items.push({ type: "circle", id: c.id });
-      }
-      for (const el of model.ellipses) {
-        if (!selectableLayer(el.layerId)) continue;
-        const pts = sampleEllipseScreen(el, 24);
-        if (polylineInBox(pts)) items.push({ type: "ellipse", id: el.id });
-      }
-      for (const d of model.dimensions) {
-        if (!selectableLayer(d.layerId)) continue;
-        const pts = d.defPoints.map((v) => worldToScreen(v.n, v.e, vp, size));
-        if (polylineInBox(pts)) items.push({ type: "dimension", id: d.id });
-      }
-      for (const h of model.hatches) {
-        if (!selectableLayer(h.layerId)) continue;
-        const pts = h.vertices.map((v) => worldToScreen(v.n, v.e, vp, size));
-        if (pts.length < 3) continue;
-        const allIn = pts.every((s) => inBox(s.x, s.y));
-        let touches = allIn;
-        if (!touches && crossing) {
-          for (let i = 0; i < pts.length; i++) {
-            const a = pts[i];
-            const b = pts[(i + 1) % pts.length];
-            if (segCrossesBox(a.x, a.y, b.x, b.y)) { touches = true; break; }
-          }
-        }
-        if (crossing ? touches : allIn) items.push({ type: "hatch", id: h.id });
-      }
-      return items;
-    },
-    [model.points, model.linework, model.texts, model.surfaces, model.arcs, model.circles, model.ellipses, model.dimensions, model.hatches, selectableLayer, vp, size, sampleArcScreen, sampleEllipseScreen],
+    (x1: number, y1: number, x2: number, y2: number): SelectedItem[] =>
+      boxSelect(
+        model,
+        selectableLayer,
+        (w) => worldToScreen(w.n, w.e, vp, size),
+        { x: x1, y: y1 },
+        { x: x2, y: y2 },
+        x2 < x1, // right-to-left drag → crossing
+      ),
+    [model, selectableLayer, vp, size],
   );
 
   const handleMouseDown = (ev: React.MouseEvent) => {
