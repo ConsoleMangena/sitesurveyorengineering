@@ -52,14 +52,8 @@ import { buildSurveyReport, buildCutFillReport, openReportWindow } from "./cad/i
 import { modelFromGeoJson, toGeoModel } from "./cad/io/geojson.ts";
 import {
   modelToGeoJson,
-  convexHull,
-  simplify as simplifyLine,
   lastGeomBackend,
 } from "./cad/survey/geomBridge.ts";
-import { reproject, lastReprojectBackend } from "./cad/survey/reprojectBridge.ts";
-import { PROJECTION_PRESETS } from "./cad/survey/projection.ts";
-import { buildCodeTable } from "./cad/survey/featureCodes.ts";
-import { buildFeatureStrings } from "./cad/survey/fieldToFinish.ts";
 import { runBuildSurface, runBuildSurfaceWithBreaklines, runBuildBoundarySurface } from "./cad/analysis/surfaceWorkflows.ts";
 import { runBuildContours } from "./cad/analysis/contourWorkflows.ts";
 import { runVolumeToElevation, runVolumeBetween } from "./cad/analysis/volumeWorkflows.ts";
@@ -68,6 +62,8 @@ import { sampleZ } from "./cad/survey/surface.ts";
 import { forward, inverse, polygonArea, polylineLength, circularArcParams } from "./cad/survey/cogo.ts";
 import { runTerrainAnalysis } from "./cad/analysis/terrainWorkflows.ts";
 import { runExtractProfile } from "./cad/analysis/profileWorkflow.ts";
+import { runProcessLinework } from "./cad/analysis/fieldToFinishWorkflow.ts";
+import { runConvexHull, runReproject, runSimplifySelection } from "./cad/analysis/geomWorkflows.ts";
 import { fmtArea, fmtBearing, fmtCoord, fmtDistance, parseDistanceBearing } from "./cad/survey/format.ts";
 import { axisBadgeLabels } from "./cad/cadSettings.ts";
 
@@ -1513,131 +1509,22 @@ function CadWorkspaceContent({
 
   // ── Geometry (GeoRust geo) ─────────────────────────────────────────────────
 
-  const computeConvexHull = useCallback(async () => {
-    if (model.points.length < 3) {
-      log("Convex hull: need at least 3 points.", "error");
-      return;
-    }
-    const hull = await convexHull(model.points.map((p) => ({ n: p.n, e: p.e })));
-    if (hull.length < 3) {
-      log("Convex hull: degenerate point set.", "error");
-      return;
-    }
-    cad.ensureLayerById("BOUNDARY");
-    cad.addLinework({
-      kind: "boundary",
-      vertices: hull.map((v) => ({ n: v.n, e: v.e })),
-      closed: true,
-      layerId: "BOUNDARY",
-    });
-    log(`Convex hull: ${hull.length}-vertex boundary on the Boundary layer (${lastGeomBackend()}).`);
-  }, [model.points, cad, log]);
+  const computeConvexHull = useCallback(
+    () => runConvexHull(model, cad, cadServices),
+    [model, cad, cadServices],
+  );
 
-  const simplifySelection = useCallback(async () => {
-    const sel = cad.selection;
-    const id = sel.type === "linework" ? sel.id : null;
-    const target = id ? model.linework.find((l) => l.id === id) : undefined;
-    if (!target) {
-      log("Simplify: select a polyline/boundary first.", "error");
-      return;
-    }
-    const epsRaw = await dialog.prompt("Simplify tolerance (m):", "0.5");
-    if (epsRaw == null) return;
-    const eps = parseFloat(epsRaw);
-    if (!Number.isFinite(eps) || eps <= 0) {
-      log("Simplify: tolerance must be a positive number.", "error");
-      return;
-    }
-    const simplified = await simplifyLine(target.vertices.map((v) => ({ n: v.n, e: v.e })), eps);
-    cad.updateLinework(target.id, { vertices: simplified.map((v) => ({ n: v.n, e: v.e })) });
-    log(
-      `Simplified ${target.vertices.length} → ${simplified.length} vertices at ${eps} m (${lastGeomBackend()}).`,
-    );
-  }, [cad, dialog, model.linework, log]);
+  const simplifySelection = useCallback(
+    () => runSimplifySelection(model, cad.selection, cad, cadServices),
+    [model, cad, cadServices],
+  );
 
   // ── Reprojection (GeoRust proj on desktop, Karney fallback on web) ─────────
 
-  const reprojectDrawing = useCallback(async () => {
-    if (!model.points.length && !model.linework.length && !model.texts.length && !model.surfaces.length) {
-      log("Reproject: nothing to transform.", "error");
-      return;
-    }
-    // Build a "from → to" selection from the available CRS presets. Keep the
-    // prompt simple: a number for source and target from the preset list.
-    const menu = PROJECTION_PRESETS.map((p, i) => `${i + 1}. ${p.label}`).join("\n");
-    const fromRaw = await dialog.prompt(`Source CRS:\n${menu}`, "1");
-    if (fromRaw == null) return;
-    const toRaw = await dialog.prompt(`Target CRS:\n${menu}`, "6");
-    if (toRaw == null) return;
-    const fromIdx = parseInt(fromRaw, 10) - 1;
-    const toIdx = parseInt(toRaw, 10) - 1;
-    const from = PROJECTION_PRESETS[fromIdx];
-    const to = PROJECTION_PRESETS[toIdx];
-    if (!from || !to) {
-      log("Reproject: invalid CRS selection.", "error");
-      return;
-    }
-    if (from.id === to.id) {
-      log("Reproject: source and target CRS are the same.", "info");
-      return;
-    }
-
-    type ReprojTarget =
-      | { type: "point"; id: string }
-      | { type: "linework"; id: string; index: number }
-      | { type: "text"; id: string }
-      | { type: "surface"; id: string; index: number };
-
-    const input: { n: number; e: number; target: ReprojTarget }[] = [];
-    for (const p of model.points) input.push({ n: p.n, e: p.e, target: { type: "point", id: p.id } });
-    for (const lw of model.linework) {
-      lw.vertices.forEach((v, i) => input.push({ n: v.n, e: v.e, target: { type: "linework", id: lw.id, index: i } }));
-    }
-    for (const t of model.texts) input.push({ n: t.n, e: t.e, target: { type: "text", id: t.id } });
-    for (const s of model.surfaces) {
-      s.points.forEach((p, i) => input.push({ n: p.n, e: p.e, target: { type: "surface", id: s.id, index: i } }));
-    }
-
-    try {
-      const coords = input.map((x) => ({ n: x.n, e: x.e }));
-      const out = await reproject(from, to, coords);
-      // Buffer updates so each entity is written once.
-      const lineworkPatches = new Map<string, { n: number; e: number }[]>();
-      const surfacePatches = new Map<string, { n: number; e: number; z: number }[]>();
-      let count = 0;
-      out.forEach((v, i) => {
-        const t = input[i].target;
-        count += 1;
-        if (t.type === "point") {
-          cad.updatePoint(t.id, { n: v.n, e: v.e });
-        } else if (t.type === "linework") {
-          const verts = lineworkPatches.get(t.id) ?? [...model.linework.find((l) => l.id === t.id)!.vertices];
-          verts[t.index] = { n: v.n, e: v.e };
-          lineworkPatches.set(t.id, verts);
-        } else if (t.type === "text") {
-          cad.updateText(t.id, { n: v.n, e: v.e });
-        } else {
-          const pts = surfacePatches.get(t.id) ?? [...model.surfaces.find((s) => s.id === t.id)!.points];
-          pts[t.index] = { ...pts[t.index], n: v.n, e: v.e };
-          surfacePatches.set(t.id, pts);
-        }
-      });
-      for (const [id, vertices] of lineworkPatches) cad.updateLinework(id, { vertices });
-      for (const [id, points] of surfacePatches) cad.updateSurface(id, { points });
-      log(
-        `Reprojected ${count} vertex/entity(ies): ${from.label} → ${to.label} (${lastReprojectBackend()}).`,
-      );
-      if (lastReprojectBackend() === "karney") {
-        log(
-          "Used the in-app projection (no datum shift). Build the desktop app with PROJ for full datum transforms.",
-          "info",
-        );
-      }
-      fitExtents();
-    } catch (err) {
-      log(`Reproject failed: ${err instanceof Error ? err.message : String(err)}`, "error");
-    }
-  }, [model.points, model.linework, model.texts, model.surfaces, cad, dialog, log, fitExtents]);
+  const reprojectDrawing = useCallback(
+    () => runReproject(model, cad, cadServices),
+    [model, cad, cadServices],
+  );
 
   // ── Surface (TIN / contours / volumes) ─────────────────────────────────────
 
@@ -1647,30 +1534,10 @@ function CadWorkspaceContent({
   );
 
   // ── Field to finish: join coded points into linework strings ────────────────
-  const processLinework = useCallback(() => {
-    const table = buildCodeTable();
-    const { strings, strungPoints } = buildFeatureStrings(model.points, table);
-    if (strings.length === 0) {
-      log("Process linework: no stringable coded points found (e.g. FL, EK, WALL, BLDG).", "info");
-      return;
-    }
-    let drawn = 0;
-    for (const s of strings) {
-      cad.ensureLayerById(s.def.layerId);
-      cad.addLinework({
-        kind: s.closed ? "boundary" : "polyline",
-        vertices: s.vertices.map((v) => ({ n: v.n, e: v.e })),
-        closed: s.closed,
-        layerId: s.def.layerId,
-      });
-      drawn += 1;
-    }
-    fitExtents();
-    log(
-      `Field-to-finish: drew ${drawn} linework string(s) from ${strungPoints} coded point(s). ` +
-        `Breakline strings are honoured by Build TIN + Breaklines.`,
-    );
-  }, [model.points, cad, log, fitExtents]);
+  const processLinework = useCallback(
+    () => runProcessLinework(model, cad, cadServices),
+    [model, cad, cadServices],
+  );
 
   // ── Breakline- and boundary-constrained TIN ─────────────────────────────────
   const buildSurfaceWithBreaklines = useCallback(
