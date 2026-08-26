@@ -4,7 +4,7 @@ import type { HubProject } from "../../../pages/shared/ProjectHubPage.tsx";
 import "../../../styles/cad.css";
 import "../../../styles/cad-admin-theme.css";
 
-import type { CadSelection, CadToolId, SurveySurface } from "./cad/cadModel.ts";
+import type { CadSelection, CadToolId } from "./cad/cadModel.ts";
 import { CAD_COLORS } from "./cad/cadModel.ts";
 import { useCadModel } from "./cad/useCadModel.ts";
 import { useCadSettings } from "./cad/useCadSettings.ts";
@@ -59,19 +59,17 @@ import {
 import { reproject, lastReprojectBackend } from "./cad/survey/reprojectBridge.ts";
 import { PROJECTION_PRESETS } from "./cad/survey/projection.ts";
 import {
-  buildTin,
-  buildConstrainedTin,
   generateContours,
   volumeToElevation,
   volumeBetween,
   cutFillToElevation,
   cutFillBetween,
   lastBackend,
-  type SurfacePoint3,
-  type SurfaceConstraint,
 } from "./cad/survey/tinBridge.ts";
 import { buildCodeTable } from "./cad/survey/featureCodes.ts";
 import { buildFeatureStrings } from "./cad/survey/fieldToFinish.ts";
+import { runBuildSurface, runBuildSurfaceWithBreaklines, runBuildBoundarySurface } from "./cad/analysis/surfaceWorkflows.ts";
+import { pickSurface, type WorkflowServices } from "./cad/analysis/workflowCtx.ts";
 import { sampleZ } from "./cad/survey/surface.ts";
 import { analyseTerrain, terrainStats, slopeColor, lastTerrainBackend } from "./cad/survey/terrainBridge.ts";
 import { forward, inverse, polygonArea, polylineLength, circularArcParams } from "./cad/survey/cogo.ts";
@@ -100,26 +98,6 @@ interface CadWorkspaceProps {
   workspaceId: string;
   setProjectMobileMenuOpen: (v: boolean) => void;
   exitCadWorkspace: () => void;
-}
-
-interface DialogPrompts {
-  alert: (message: string) => Promise<void>;
-  confirm: (message: string) => Promise<boolean>;
-  prompt: (message: string, defaultValue?: string) => Promise<string | null>;
-  select: (message: string, options: string[]) => Promise<string | null>;
-}
-
-async function pickSurface(
-  surfaces: SurveySurface[],
-  dialog: DialogPrompts,
-  title: string,
-): Promise<SurveySurface | null> {
-  if (surfaces.length === 1) return surfaces[0];
-  const options = surfaces.map((s, i) => `${i + 1}. ${s.name}`);
-  const raw = await dialog.select(title, options);
-  if (raw == null) return null;
-  const idx = parseInt(raw, 10) - 1;
-  return surfaces[idx] ?? null;
 }
 
 /** Pick a sensible, round contour interval for a given elevation range. */
@@ -341,6 +319,20 @@ function CadWorkspaceContent({
   const fitExtents = useCallback(() => {
     setFitSignal((s) => s + 1);
   }, []);
+
+  const cadServices = useMemo<WorkflowServices>(
+    () => ({
+      dialog,
+      log,
+      fitExtents,
+      show3d: () => settingsApi.update({ view3d: true }),
+      openReport: openReportWindow,
+      downloadCsv: (filename, rows) =>
+        downloadText(filename, rows.map((r) => r.join(",")).join("\n"), "text/csv"),
+      projectName: activeProject.name,
+    }),
+    [dialog, log, fitExtents, settingsApi, activeProject.name],
+  );
 
   // The AI bridge can trigger zoom-extents from chat commands (e.g. "[CAD] zoom extents").
   useEffect(() => {
@@ -1662,34 +1654,10 @@ function CadWorkspaceContent({
 
   // ── Surface (TIN / contours / volumes) ─────────────────────────────────────
 
-  /** 3D points usable for a surface: those with an elevation. */
-  const surfacePoints = useCallback((): SurfacePoint3[] => {
-    return model.points
-      .filter((p) => p.z != null && Number.isFinite(p.z))
-      .map((p) => ({ n: p.n, e: p.e, z: p.z as number }));
-  }, [model.points]);
-
-  const buildSurface = useCallback(async () => {
-    const pts = surfacePoints();
-    if (pts.length < 3) {
-      log("Build TIN: need at least 3 points with elevations (Z).", "error");
-      return;
-    }
-    log("Building TIN surface…");
-    const tin = await buildTin(pts);
-    if (tin.triangles.length === 0) {
-      log("Build TIN: triangulation produced no triangles (collinear points?).", "error");
-      return;
-    }
-    // Replace any previous TOPO surface so repeated clicks do not pile triangles.
-    model.surfaces.filter((s) => s.layerId === "TOPO").forEach((s) => cad.deleteSurface(s.id));
-    const nonTopoCount = model.surfaces.filter((s) => s.layerId !== "TOPO").length;
-    const name = `Surface ${nonTopoCount + 1}`;
-    cad.ensureLayerById("TOPO");
-    cad.addSurface({ name, points: tin.points, triangles: tin.triangles, layerId: "TOPO" });
-    log(`${name}: ${tin.triangles.length} triangles from ${tin.points.length} points (${lastBackend()}).`);
-    fitExtents();
-  }, [surfacePoints, cad, model.surfaces, log, fitExtents]);
+  const buildSurface = useCallback(
+    () => runBuildSurface(model, cad, cadServices),
+    [model, cad, cadServices],
+  );
 
   // ── Field to finish: join coded points into linework strings ────────────────
   const processLinework = useCallback(() => {
@@ -1718,102 +1686,16 @@ function CadWorkspaceContent({
   }, [model.points, cad, log, fitExtents]);
 
   // ── Breakline- and boundary-constrained TIN ─────────────────────────────────
-  const buildSurfaceWithBreaklines = useCallback(async () => {
-    const pts = surfacePoints();
-    if (pts.length < 3) {
-      log("Build TIN + Breaklines: need at least 3 points with elevations (Z).", "error");
-      return;
-    }
-
-    // Breaklines come from coded stringable points and from any selected linework.
-    const table = buildCodeTable();
-    const { strings } = buildFeatureStrings(model.points, table);
-    const breaklines: SurfaceConstraint[] = strings
-      .filter((s) => s.breakline)
-      .map((s) => ({ vertices: s.vertices.map((v) => ({ n: v.n, e: v.e })) }));
-
-    // Selected linework can act as manual breaklines (and one closed ring as the clip boundary).
-    const sel = cad.selection;
-    const selectedLwIds = new Set(
-      (sel.items ?? [])
-        .filter((i) => i.type === "linework")
-        .map((i) => i.id)
-        .filter(Boolean) as string[],
-    );
-    if (sel.type === "linework" && sel.id) selectedLwIds.add(sel.id);
-    const selectedLws = model.linework.filter((l) => selectedLwIds.has(l.id));
-
-    // Prefer the first selected closed ring as the boundary; remaining selected linework becomes breaklines.
-    const boundaryLw = selectedLws.find((l) => l.closed && l.vertices.length >= 3);
-    const boundary: SurfaceConstraint | undefined = boundaryLw
-      ? { vertices: boundaryLw.vertices.map((v) => ({ n: v.n, e: v.e })) }
-      : undefined;
-    selectedLws
-      .filter((l) => l.id !== boundaryLw?.id)
-      .forEach((l) => {
-        if (l.vertices.length >= 2) {
-          breaklines.push({ vertices: l.vertices.map((v) => ({ n: v.n, e: v.e })) });
-        }
-      });
-
-    if (breaklines.length === 0 && !boundary) {
-      log(
-        "Build TIN + Breaklines: no breaklines selected and no coded breakline strings found. " +
-          "Process linework from coded points or select breakline linework first.",
-        "info",
-      );
-    }
-
-    log("Building constrained TIN surface…");
-    const tin = await buildConstrainedTin(pts, { breaklines, boundary });
-    if (tin.triangles.length === 0) {
-      log("Build TIN + Breaklines: no triangles produced (check points / boundary).", "error");
-      return;
-    }
-    // Replace any previous TOPO surface so repeated clicks do not pile triangles.
-    model.surfaces.filter((s) => s.layerId === "TOPO").forEach((s) => cad.deleteSurface(s.id));
-    const nonTopoCount = model.surfaces.filter((s) => s.layerId !== "TOPO").length;
-    const name = `Surface ${nonTopoCount + 1} (constrained)`;
-    cad.ensureLayerById("TOPO");
-    cad.addSurface({ name, points: tin.points, triangles: tin.triangles, layerId: "TOPO" });
-    log(
-      `${name}: ${tin.triangles.length} triangles, ${breaklines.length} breakline(s)` +
-        `${boundary ? ", clipped to selected boundary" : ""} (${lastBackend()}).`,
-    );
-    fitExtents();
-  }, [surfacePoints, model.points, model.linework, model.surfaces, cad, log, fitExtents]);
+  const buildSurfaceWithBreaklines = useCallback(
+    () => runBuildSurfaceWithBreaklines(model, cad.selection, cad, cadServices),
+    [model, cad, cadServices],
+  );
 
   /** TIN clipped to the currently selected closed boundary (no breaklines). */
-  const buildBoundarySurface = useCallback(async () => {
-    const pts = surfacePoints();
-    if (pts.length < 3) {
-      log("Boundary Surface: need at least 3 points with elevations (Z).", "error");
-      return;
-    }
-    const sel = cad.selection;
-    const selLw = sel.type === "linework" && sel.id
-      ? model.linework.find((l) => l.id === sel.id)
-      : undefined;
-    if (!selLw || !selLw.closed || selLw.vertices.length < 3) {
-      log("Boundary Surface: select a closed boundary (polyline or boundary) to clip the TIN.", "error");
-      return;
-    }
-    const boundary: SurfaceConstraint = { vertices: selLw.vertices.map((v) => ({ n: v.n, e: v.e })) };
-    log("Building boundary-clipped TIN surface…");
-    const tin = await buildConstrainedTin(pts, { breaklines: [], boundary });
-    if (tin.triangles.length === 0) {
-      log("Boundary Surface: no triangles produced (check points / boundary).", "error");
-      return;
-    }
-    // Replace any previous TOPO surface so repeated clicks do not pile triangles.
-    model.surfaces.filter((s) => s.layerId === "TOPO").forEach((s) => cad.deleteSurface(s.id));
-    const nonTopoCount = model.surfaces.filter((s) => s.layerId !== "TOPO").length;
-    const name = `Surface ${nonTopoCount + 1} (boundary)`;
-    cad.ensureLayerById("TOPO");
-    cad.addSurface({ name, points: tin.points, triangles: tin.triangles, layerId: "TOPO" });
-    log(`${name}: ${tin.triangles.length} triangles clipped to selected boundary (${lastBackend()}).`);
-    fitExtents();
-  }, [surfacePoints, model.linework, model.surfaces, cad, log, fitExtents]);
+  const buildBoundarySurface = useCallback(
+    () => runBuildBoundarySurface(model, cad.selection, cad, cadServices),
+    [model, cad, cadServices],
+  );
 
   const buildContours = useCallback(async () => {
     if (model.surfaces.length === 0) {
