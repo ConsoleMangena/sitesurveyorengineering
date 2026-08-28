@@ -33,14 +33,49 @@ export interface RunAgentOptions {
   workspaceId?: string;
   /** Project the user has open in the CAD workspace, if any. */
   projectId?: string;
+  /** Rolling conversation summary (notes about turns outside the history window). */
+  memoryNote?: string;
   /** Optional abort signal so callers can cancel an in-flight agent run. */
   signal?: AbortSignal;
+  /** Override the default LLM model sent to OpenRouter. */
+  model?: string;
 }
 
-const MODEL = "stealth/ox-alpha";
+const DEFAULT_MODEL = "openrouter/free";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MAX_TOOL_ROUNDS = 6;
-const MAX_HISTORY_TURNS = 24;
+const MAX_TOOL_ROUNDS = 8;
+/** Prior turns replayed to the model — every turn is re-sent on each round. */
+const MAX_HISTORY_TURNS = 16;
+/** Per-turn elision caps so one huge message cannot eat the whole window. */
+const HISTORY_TURN_CAP_CHARS = 1_800;
+const LIVE_MESSAGE_CAP_CHARS = 6_000;
+
+// Latency guards: every outbound call has a deadline so a stalled upstream
+// surfaces as an error instead of a frozen chat.
+const SUPABASE_TIMEOUT_MS = 15_000;
+const SCHEMA_TIMEOUT_MS = 10_000;
+/** Max silence between SSE chunks from OpenRouter before the round is aborted. */
+const LLM_IDLE_TIMEOUT_MS = 60_000;
+/** Hard cap for one model round (streaming included). */
+const LLM_ROUND_TIMEOUT_MS = 240_000;
+
+/** Inline CAD models above this size are summarised instead of returned whole. */
+const CAD_MODEL_CAP_CHARS = 48_000;
+const CAD_SAMPLE_IDS_PER_TYPE = 25;
+
+interface TimeoutHandle {
+  signal: AbortSignal;
+  done(): void;
+}
+
+function timeoutSignal(ms: number): TimeoutHandle {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return {
+    signal: controller.signal,
+    done: () => clearTimeout(timer),
+  };
+}
 
 /** Tables the agent may read. */
 const READ_TABLES = new Set([
@@ -443,9 +478,11 @@ function loadTableSchemas(
   if (cached) return cached;
   const promise = (async () => {
     const map = new Map<string, TableSchemaInfo>();
+    const t = timeoutSignal(SCHEMA_TIMEOUT_MS);
     try {
       const res = await fetch(`${supabaseUrl.replace(/\/$/, "")}/rest/v1/`, {
         headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+        signal: t.signal,
       });
       if (!res.ok) return map;
       const api = (await res.json()) as {
@@ -469,6 +506,8 @@ function loadTableSchemas(
       }
     } catch {
       // Schema awareness is best-effort.
+    } finally {
+      t.done();
     }
     return map;
   })();
@@ -517,11 +556,18 @@ async function supabaseFetch(
   };
   if (opts.preferCount) headers.Prefer = "count=exact";
   if (opts.method !== "GET") headers.Prefer = opts.preferCount ? headers.Prefer : "return=representation";
-  const res = await fetch(`${opts.supabaseUrl}/rest/v1/${opts.path}`, {
-    method: opts.method,
-    headers,
-    body: opts.body == null ? undefined : JSON.stringify(opts.body),
-  });
+  const t = timeoutSignal(SUPABASE_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${opts.supabaseUrl}/rest/v1/${opts.path}`, {
+      method: opts.method,
+      headers,
+      body: opts.body == null ? undefined : JSON.stringify(opts.body),
+      signal: t.signal,
+    });
+  } finally {
+    t.done();
+  }
   let json: unknown = null;
   const text = await res.text();
   try {
@@ -558,6 +604,16 @@ function buildQueryPath(
 function truncateRows(rows: unknown): string {
   const text = JSON.stringify(rows);
   return text.length > 12_000 ? text.slice(0, 12_000) + "...[truncated]" : text;
+}
+
+/** Head+tail elision so oversized turns cannot dominate the token budget. */
+function elide(text: string, capChars: number, headChars: number, tailChars: number): string {
+  if (text.length <= capChars) return text;
+  return (
+    text.slice(0, headChars) +
+    "\n…[middle elided]…" +
+    text.slice(-tailChars)
+  );
 }
 
 async function executeTool(
@@ -644,12 +700,42 @@ async function executeTool(
       return JSON.stringify({ error: "No drawing found for this project." });
     const row = rows[0] as { model?: unknown };
 
-    if (name === "get_cad_drawing") return JSON.stringify({ model: row.model });
-
     const model =
       row.model && typeof row.model === "object" ? (row.model as Record<string, unknown>) : {};
     const arr = (key: string): Record<string, unknown>[] =>
       Array.isArray(model[key]) ? (model[key] as Record<string, unknown>[]) : [];
+
+    if (name === "get_cad_drawing") {
+      const full = JSON.stringify(row.model ?? {});
+      if (full.length <= CAD_MODEL_CAP_CHARS) return JSON.stringify({ model: row.model });
+      // Too large to inline (it would be re-sent on every later round and
+      // stall the model). Summarise instead; the read tools drill down.
+      const counts: Record<string, number> = {};
+      const idSamples: Record<string, string[]> = {};
+      for (const [singular, plural] of Object.entries(CAD_ENTITY_ARRAYS)) {
+        const entities = arr(plural);
+        counts[singular] = entities.length;
+        idSamples[singular] = entities
+          .slice(0, CAD_SAMPLE_IDS_PER_TYPE)
+          .map((e) => String(e.id))
+          .filter((id) => id && id !== "undefined");
+      }
+      return JSON.stringify({
+        model_summary_only: true,
+        reason: `Full drawing is ${full.length} chars — too large to inline.`,
+        entity_counts: counts,
+        layers: arr("layers").map((layer) => ({
+          id: layer.id,
+          name: layer.name,
+          color: layer.color,
+          visible: layer.visible,
+          locked: layer.locked,
+        })),
+        sample_entity_ids: idSamples,
+        next_step:
+          "Use count_cad_entities / list_cad_layers for totals and inspect_cad_entity for individual entities. Never guess geometry you have not fetched.",
+      });
+    }
 
     if (name === "list_cad_layers") {
       const counts = new Map<string, number>();
@@ -854,6 +940,9 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
     systemPrompt(supabaseUrl) +
     "\n" +
     schemaSection(schemas) +
+    (opts.memoryNote?.trim()
+      ? `\n\nCONVERSATION MEMORY — notes about earlier in this chat:\n${opts.memoryNote.trim()}\nTreat as background context, not current state. If it records a pending write awaiting the user's yes/no, that confirmation is still open. Re-verify exact numbers and coordinates with tools when precision matters.`
+      : "") +
     (opts.workspaceId
       ? `\nWhen creating or updating business records, ALWAYS set workspace_id to "${opts.workspaceId}" unless the user explicitly names another workspace.`
       : "") +
@@ -863,45 +952,43 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
 
   const outbound: OutboundMessage[] = [
     { role: "system", content: system },
-    ...opts.history.slice(-MAX_HISTORY_TURNS),
-    { role: "user", content: opts.userMessage },
+    ...opts.history.slice(-MAX_HISTORY_TURNS).map((turn) => ({
+      role: turn.role,
+      content: elide(turn.content, HISTORY_TURN_CAP_CHARS, 1_200, 400),
+    })),
+    {
+      role: "user",
+      content: elide(opts.userMessage, LIVE_MESSAGE_CAP_CHARS, 4_500, 1_000),
+    },
   ];
 
   let round = 0;
   while (round < (opts.maxToolRounds ?? MAX_TOOL_ROUNDS)) {
     round += 1;
-    if (round === 1) yield { type: "status", phase: "thinking" };
-    let res: Response;
-    try {
-      res = await fetch(OPENROUTER_URL, {
-        method: "POST",
-        signal: opts.signal,
-        headers: {
-          Authorization: `Bearer ${opts.openrouterKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://sitesurveyor.app",
-          "X-Title": "SiteSurveyor AI",
-        },
-        body: JSON.stringify({
-          model: MODEL,
-          messages: outbound,
-          tools: TOOLS,
-          stream: true,
-        }),
-      });
-    } catch (err) {
-      yield { type: "error", message: `Could not reach OpenRouter: ${(err as Error).message}` };
-      return;
-    }
+    const maxRounds = opts.maxToolRounds ?? MAX_TOOL_ROUNDS;
+    yield {
+      type: "status",
+      phase:
+        round === 1 ? "thinking" : `working (step ${round}/${maxRounds})`,
+    };
 
-    if (!res.ok || !res.body) {
-      const detail = await res.text().catch(() => "");
-      yield {
-        type: "error",
-        message: `OpenRouter error ${res.status}: ${detail.slice(0, 300) || "no response"}`,
-      };
-      return;
-    }
+    // Watchdog: abort the upstream request when it stalls (no SSE traffic
+    // for LLM_IDLE_TIMEOUT_MS) or blows past LLM_ROUND_TIMEOUT_MS total.
+    const controller = new AbortController();
+    const onOuterAbort = () => controller.abort();
+    if (opts.signal?.aborted) controller.abort();
+    else opts.signal?.addEventListener("abort", onOuterAbort, { once: true });
+    const startedAt = Date.now();
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    let stalled = false;
+    const armIdle = () => {
+      if (idleTimer !== undefined) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        stalled = true;
+        controller.abort();
+      }, LLM_IDLE_TIMEOUT_MS);
+    };
+    armIdle();
 
     let content = "";
     const toolCalls = new Map<
@@ -911,34 +998,80 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
     let finishReason: string | null = null;
 
     try {
-      for await (const evt of sseEvents(res)) {
-        if (evt.data === "[DONE]") break;
-        let parsed: { choices?: UpstreamChoice[] };
-        try {
-          parsed = JSON.parse(evt.data) as { choices?: UpstreamChoice[] };
-        } catch {
-          continue;
+      let res: Response;
+      try {
+        res = await fetch(OPENROUTER_URL, {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            Authorization: `Bearer ${opts.openrouterKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://sitesurveyor.app",
+            "X-Title": "SiteSurveyor AI",
+          },
+          body: JSON.stringify({
+            model: opts.model || DEFAULT_MODEL,
+            messages: outbound,
+            tools: TOOLS,
+            stream: true,
+          }),
+        });
+      } catch (err) {
+        throw new Error(`Could not reach OpenRouter: ${(err as Error).message}`);
+      }
+
+      if (!res.ok || !res.body) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(
+          `OpenRouter error ${res.status}: ${detail.slice(0, 300) || "no response"}`,
+        );
+      }
+
+      try {
+        for await (const evt of sseEvents(res)) {
+          armIdle();
+          if (Date.now() - startedAt > LLM_ROUND_TIMEOUT_MS) {
+            stalled = true;
+            controller.abort();
+          }
+          if (evt.data === "[DONE]") break;
+          let parsed: { choices?: UpstreamChoice[] };
+          try {
+            parsed = JSON.parse(evt.data) as { choices?: UpstreamChoice[] };
+          } catch {
+            continue;
+          }
+          const choice = parsed.choices?.[0];
+          if (!choice) continue;
+          if (choice.delta?.content) {
+            content += choice.delta.content;
+            yield { type: "delta", text: choice.delta.content };
+          }
+          for (const tc of choice.delta?.tool_calls ?? []) {
+            const slot =
+              toolCalls.get(tc.index) ??
+              { id: "", name: "", arguments: "", index: tc.index };
+            if (tc.id) slot.id = tc.id;
+            if (tc.function?.name) slot.name = tc.function.name;
+            if (tc.function?.arguments) slot.arguments += tc.function.arguments;
+            toolCalls.set(tc.index, slot);
+          }
+          if (choice.finish_reason) finishReason = choice.finish_reason;
         }
-        const choice = parsed.choices?.[0];
-        if (!choice) continue;
-        if (choice.delta?.content) {
-          content += choice.delta.content;
-          yield { type: "delta", text: choice.delta.content };
-        }
-        for (const tc of choice.delta?.tool_calls ?? []) {
-          const slot =
-            toolCalls.get(tc.index) ??
-            { id: "", name: "", arguments: "", index: tc.index };
-          if (tc.id) slot.id = tc.id;
-          if (tc.function?.name) slot.name = tc.function.name;
-          if (tc.function?.arguments) slot.arguments += tc.function.arguments;
-          toolCalls.set(tc.index, slot);
-        }
-        if (choice.finish_reason) finishReason = choice.finish_reason;
+      } catch (err) {
+        throw new Error(`Stream failed: ${(err as Error).message}`);
       }
     } catch (err) {
-      yield { type: "error", message: `Stream failed: ${(err as Error).message}` };
+      yield {
+        type: "error",
+        message: stalled
+          ? `AI request timed out (no progress for ${Math.round(LLM_IDLE_TIMEOUT_MS / 1000)}s) — please try again.`
+          : (err as Error).message,
+      };
       return;
+    } finally {
+      if (idleTimer !== undefined) clearTimeout(idleTimer);
+      opts.signal?.removeEventListener("abort", onOuterAbort);
     }
 
     if (finishReason === "tool_calls" && toolCalls.size > 0) {
@@ -955,24 +1088,46 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
             }
           : {}),
       });
-      for (const [, tc] of [...toolCalls.entries()].sort((a, b) => a[0] - b[0])) {
-        yield { type: "tool", name: tc.name };
-        let result: string;
-        try {
-          result = await executeTool(tc.name, tc.arguments, ctx);
-        } catch (err) {
-          result = JSON.stringify({ error: `Tool crashed: ${(err as Error).message}` });
-        }
+      const ordered = [...toolCalls.entries()].sort((a, b) => a[0] - b[0]);
+      for (const [, tc] of ordered) yield { type: "tool", name: tc.name };
+      // Independent tools run concurrently; results are re-paired with their
+      // tool_call_ids in original order below.
+      const results = await Promise.all(
+        ordered.map(async ([, tc]) => {
+          try {
+            return await executeTool(tc.name, tc.arguments, ctx);
+          } catch (err) {
+            return JSON.stringify({ error: `Tool crashed: ${(err as Error).message}` });
+          }
+        }),
+      );
+      ordered.forEach(([, tc], i) => {
         outbound.push({
           role: "tool",
           tool_call_id: tc.id || `call_${tc.name}_${tc.index ?? 0}`,
-          content: result,
+          content: results[i],
         });
-      }
+      });
       continue; // next model round with tool results
     }
 
-    // Plain final answer.
+    // Plain final answer. Guard against silent-empty completions: a provider
+    // occasionally reports `stop` (or `tool_calls` with no parseable calls)
+    // while yielding no content — surface a retryable message instead of an
+    // empty reply, which the client would have to report as an error.
+    const dbg =
+      (globalThis as { process?: { env?: Record<string, string> } }).process?.env?.SS_AI_DEBUG;
+    if (dbg)
+      console.error(
+        `[ai-agent] round=${round} finish=${finishReason} contentLen=${content.length} tools=${toolCalls.size}`,
+      );
+    if (!content.trim()) {
+      yield {
+        type: "final",
+        text: "I couldn't complete that response — please send it again.",
+      };
+      return;
+    }
     yield { type: "final", text: content.trim() };
     return;
   }
@@ -981,4 +1136,74 @@ export async function* runAgent(opts: RunAgentOptions): AsyncGenerator<AgentEven
     type: "error",
     message: "The agent ran out of tool rounds before producing a final answer.",
   };
+}
+
+// ── Rolling conversation memory ───────────────────────────────────────────
+// Best-effort background compaction: folds turns that fell out of the
+// verbatim window into dense notes. Callers persist the result on
+// ai_conversations.summary / summary_through.
+
+const SUMMARY_SYSTEM = [
+  "You maintain the rolling memory of SiteSurveyor, an AI agent for a survey",
+  "operations platform. Merge PRIOR NOTES and NEW TURNS into one updated note",
+  "block (max ~250 words). Preserve exactly:",
+  "- decisions, preferences and constraints the user stated;",
+  "- record IDs, names, counts, money amounts and coordinates mentioned;",
+  "- open questions and stated assumptions;",
+  "- any pending WRITE PROPOSAL awaiting the user's yes/no — quote it",
+  "  precisely; it must survive until confirmed or explicitly cancelled.",
+  "Drop greetings, filler and resolved small talk. Output only the notes.",
+].join("\n");
+
+/**
+ * Folds older turns into a rolling summary. Returns null when the upstream
+ * call fails or yields nothing usable — summarisation is best-effort and
+ * simply retried on a later turn.
+ */
+export async function summarizeConversationTurns(opts: {
+  openrouterKey: string;
+  priorSummary: string;
+  turns: ChatTurn[];
+}): Promise<string | null> {
+  if (opts.turns.length === 0) return null;
+  const transcript = opts.turns
+    .map((t) => `${t.role}: ${elide(t.content, 2_000, 1_500, 300)}`)
+    .join("\n");
+  const t = timeoutSignal(30_000);
+  try {
+    const res = await fetch(OPENROUTER_URL, {
+      method: "POST",
+      signal: t.signal,
+      headers: {
+        Authorization: `Bearer ${opts.openrouterKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://sitesurveyor.app",
+        "X-Title": "SiteSurveyor AI",
+      },
+      body: JSON.stringify({
+        model: opts.model || DEFAULT_MODEL,
+        stream: false,
+        messages: [
+          { role: "system", content: SUMMARY_SYSTEM },
+          {
+            role: "user",
+            content:
+              `PRIOR NOTES:\n${opts.priorSummary.trim() || "(none)"}\n\n` +
+              `NEW TURNS:\n${transcript}\n\n` +
+              "Output the updated notes only.",
+          },
+        ],
+      }),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      choices?: { message?: { content?: string } }[];
+    };
+    const text = json.choices?.[0]?.message?.content?.trim();
+    return text ? text : null;
+  } catch {
+    return null;
+  } finally {
+    t.done();
+  }
 }

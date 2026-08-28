@@ -89,3 +89,50 @@ export async function deleteProfessional(id: string): Promise<void> {
     throw new Error(`Failed to delete professional: ${error.message}`)
   }
 }
+
+// ── Project showcase gallery ─────────────────────────────────────────────────
+
+export type PortfolioItemRow = Tables<'portfolio_items'>
+export type PortfolioItemInsert = TablesInsert<'portfolio_items'>
+
+export async function listPortfolioItems(
+  professionalId: string,
+): Promise<PortfolioItemRow[]> {
+  const { data, error } = await supabase
+    .from('portfolio_items')
+    .select('*')
+    .eq('professional_id', professionalId)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    throw new Error(`Failed to load showcase items: ${error.message}`)
+  }
+  return data ?? []
+}
+
+export async function createPortfolioItem(
+  payload: Omit<PortfolioItemInsert, 'id' | 'created_at'>,
+): Promise<PortfolioItemRow> {
+  const { data, error } = await supabase
+    .from('portfolio_items')
+    .insert(payload)
+    .select()
+    .single()
+
+  if (error) {
+    throw new Error(`Failed to add showcase item: ${error.message}`)
+  }
+  return data
+}
+
+export async function deletePortfolioItem(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('portfolio_items')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    throw new Error(`Failed to remove showcase item: ${error.message}`)
+  }
+}

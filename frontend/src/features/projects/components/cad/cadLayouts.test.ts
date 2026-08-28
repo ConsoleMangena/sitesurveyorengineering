@@ -28,6 +28,28 @@ describe("cadLayouts", () => {
     expect(s.layouts[0].options.titleBlock.datum).toBe("UTM 36S");
   });
 
+  it("keeps saved furniture offsets through normalization of old layouts", () => {
+    const stored = {
+      active: "lay1",
+      layouts: [
+        {
+          id: "lay1",
+          name: "Layout1",
+          options: {
+            paper: "A4",
+            titleBlock: { drawingTitle: "Old sheet" },
+            furnitureOffsets: { titleBlock: { dx: 10, dy: -20 } },
+          },
+        },
+      ],
+    };
+    const s = normalizeLayoutsState(
+      stored as unknown as Parameters<typeof normalizeLayoutsState>[0],
+      seed(),
+    );
+    expect(s.layouts[0].options.furnitureOffsets?.titleBlock).toEqual({ dx: 10, dy: -20 });
+  });
+
   it("adds a uniquely named layout and makes it active", () => {
     const s0 = defaultLayoutsState(seed());
     const s1 = addLayout(s0, seed());

@@ -1,31 +1,18 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "modal/consolemangena--ep-kimi-k3-server.us-west.modal.direct",
   "provider": {
-    "modal": {
+    "agentrouter": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Modal",
+      "name": "AgentRouter (OpenAI Compatible)",
       "options": {
-        "baseURL": "https://inference.us-west.modal.direct/v1",
-        "apiKey": "{env:MODAL_PROXY_TOKEN}"
+        "baseURL": "https://agentrouter.org/v1"
       },
       "models": {
-        "consolemangena--ep-kimi-k3-server.us-west.modal.direct": {
-          "name": "Kimi K3",
-          "attachment": false,
-          "reasoning": true,
-          "temperature": true,
-          "tool_call": true,
-          "modalities": {
-            "input": [
-              "text"
-            ],
-            "output": [
-              "text"
-            ]
-          }
+        "gpt-5.5": {
+          "name": "gpt-5.5"
         }
       }
     }
-  }
+  },
+  "model": "agentrouter/gpt-5.5"
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  Bot,
   Check,
   Loader2,
   MessageSquarePlus,
@@ -12,6 +13,13 @@ import {
 
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select.tsx";
 import PageLoader from "@/components/PageLoader.tsx";
 import { AiMessageText } from "./AiMessageText.tsx";
 import { parseAssistantBlocks } from "@/lib/assistantBlocks.ts";
@@ -50,6 +58,26 @@ let idCounter = 0;
 function nextId(prefix: string): string {
   idCounter += 1;
   return `${prefix}${Date.now()}-${idCounter}`;
+}
+
+/** Available AI models the user may choose from. */
+const AI_MODELS: { id: string; label: string; free: boolean }[] = [
+  { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash (Default)", free: false },
+  { id: "openrouter/free", label: "Auto (Free)", free: true },
+  { id: "deepseek/deepseek-chat-v3-0324:free", label: "DeepSeek V3", free: true },
+  { id: "qwen/qwen3-235b-a22b:free", label: "Qwen3 235B", free: true },
+  { id: "meta-llama/llama-4-maverick:free", label: "Llama 4 Maverick", free: true },
+  { id: "google/gemini-2.5-flash-preview:free", label: "Gemini 2.5 Flash", free: true },
+];
+const MODEL_STORAGE_KEY = "sitesurveyor-ai-model";
+const DEFAULT_MODEL_ID = AI_MODELS[0].id;
+
+function loadStoredModel(): string {
+  try {
+    const stored = localStorage.getItem(MODEL_STORAGE_KEY);
+    if (stored && AI_MODELS.some((m) => m.id === stored)) return stored;
+  } catch { /* ignore */ }
+  return DEFAULT_MODEL_ID;
 }
 
 /** Friendly labels for agent activity events (thinking / tool names). */
@@ -105,6 +133,12 @@ export default function AssistantPage({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [selectedModel, setSelectedModel] = useState(loadStoredModel);
+
+  const handleModelChange = useCallback((value: string) => {
+    setSelectedModel(value);
+    try { localStorage.setItem(MODEL_STORAGE_KEY, value); } catch { /* ignore */ }
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
@@ -254,6 +288,7 @@ export default function AssistantPage({
 
     await streamAiReply(conversationId, text, {
       projectId: contextProjectId,
+      model: selectedModel !== DEFAULT_MODEL_ID ? selectedModel : undefined,
       onDelta: (delta) => {
         setActivity(null);
         setMessages((prev) => {
@@ -590,6 +625,31 @@ export default function AssistantPage({
                   message.role === "assistant"
                     ? parseAssistantBlocks(message.text)
                     : null;
+                const hasCadRenderer =
+                  parsed != null &&
+                  parsed.cadBlocks.length > 0 &&
+                  renderCadCommands != null;
+                // A reply made only of [CAD]/[ASK] blocks has no prose; hide
+                // the bubble when its blocks render interactively, otherwise
+                // leave a note so the turn never looks like it vanished.
+                if (parsed && !parsed.clean && !parsed.ask && !hasCadRenderer) {
+                  return (
+                    <div key={message.id} className="flex justify-start">
+                      <p className={`italic text-muted-foreground ${embedded ? "text-[11px]" : "text-xs"}`}>
+                        {parsed.cadBlocks.length > 0
+                          ? "(drawing commands — open this chat in the CAD workspace to run them)"
+                          : "…"}
+                      </p>
+                    </div>
+                  );
+                }
+                if (parsed && !parsed.clean && !parsed.ask) {
+                  return (
+                    <div key={message.id} className="space-y-1.5">
+                      {renderCadCommands?.(message.text)}
+                    </div>
+                  );
+                }
                 return (
                   <div key={message.id} className="space-y-1.5">
                     <div
@@ -676,37 +736,66 @@ export default function AssistantPage({
           )}
         </div>
 
-        <form
-          className="flex shrink-0 items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void send();
-          }}
-        >
-          <Input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder={
-              streaming
-                ? "SiteSurveyor is thinking…"
-                : embedded && contextProjectId
-                  ? "Ask about this drawing…"
-                  : "Tell SiteSurveyor what to do…"
-            }
-            disabled={streaming}
-            className={`flex-1 ${embedded ? "h-9" : "h-11"}`}
-            aria-label="Message SiteSurveyor"
-          />
-          <Button
-            type="submit"
-            size="icon"
-            className={`shrink-0 ${embedded ? "size-9" : "size-11"}`}
-            disabled={!draft.trim() || streaming}
-            aria-label="Send message"
+        <div className="flex shrink-0 flex-col gap-1.5">
+          {/* Model selector row */}
+          <div className="flex items-center gap-1.5">
+            <Bot className="size-3.5 shrink-0 text-muted-foreground" />
+            <Select value={selectedModel} onValueChange={handleModelChange}>
+              <SelectTrigger
+                className={`w-auto min-w-[140px] gap-1.5 border-border/50 bg-muted/40 ${
+                  embedded ? "h-7 text-[11px]" : "h-8 text-xs"
+                }`}
+                aria-label="Select AI model"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {AI_MODELS.map((m) => (
+                  <SelectItem key={m.id} value={m.id} className="text-xs">
+                    {m.label}
+                    {m.free && (
+                      <span className="ml-1.5 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                        free
+                      </span>
+                    )}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void send();
+            }}
           >
-            <SendHorizontal className="size-4" />
-          </Button>
-        </form>
+            <Input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder={
+                streaming
+                  ? "SiteSurveyor is thinking…"
+                  : embedded && contextProjectId
+                    ? "Ask about this drawing…"
+                    : "Tell SiteSurveyor what to do…"
+              }
+              disabled={streaming}
+              className={`flex-1 ${embedded ? "h-9" : "h-11"}`}
+              aria-label="Message SiteSurveyor"
+            />
+            <Button
+              type="submit"
+              size="icon"
+              className={`shrink-0 ${embedded ? "size-9" : "size-11"}`}
+              disabled={!draft.trim() || streaming}
+              aria-label="Send message"
+            >
+              <SendHorizontal className="size-4" />
+            </Button>
+          </form>
+        </div>
       </section>
     </div>
   );

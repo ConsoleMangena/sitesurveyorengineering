@@ -95,6 +95,50 @@ export interface PlotOptions {
    * When omitted, the sheet auto-centres on the drawing extents.
    */
   view?: { offsetE: number; offsetN: number; zoom: number };
+  /**
+   * Manual repositioning of sheet furniture (dragged in the plot preview),
+   * as deltas in sheet millimetres from each element's default position.
+   * Missing keys render at their defaults.
+   */
+  furnitureOffsets?: Partial<Record<FurnitureKey, { dx: number; dy: number }>>;
+}
+
+/** Sheet elements that can be dragged around in the plot preview. */
+export type FurnitureKey =
+  | "northArrow"
+  | "scaleBar"
+  | "legend"
+  | "symbolLegend"
+  | "beaconTable"
+  | "approvalBlock"
+  | "titleBlock";
+
+export const FURNITURE_KEYS: FurnitureKey[] = [
+  "northArrow",
+  "scaleBar",
+  "legend",
+  "symbolLegend",
+  "beaconTable",
+  "approvalBlock",
+  "titleBlock",
+];
+
+/**
+ * The drawing frame rectangle (mm) for a sheet configuration — the area any
+ * furniture may occupy. Exported so the preview can clamp dragged elements.
+ */
+export function sheetFrame(opts: Pick<PlotOptions, "paper" | "orientation" | "marginMm">): {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+} {
+  const base = PAPER_MM[opts.paper];
+  const land = opts.orientation === "landscape";
+  const paperW = land ? base.w : base.h;
+  const paperH = land ? base.h : base.w;
+  const m = opts.marginMm;
+  return { x: m, y: m, w: paperW - 2 * m, h: paperH - 2 * m };
 }
 
 export const DEFAULT_TITLE_BLOCK = (
@@ -414,33 +458,57 @@ export function buildPlotSvg(model: CadModelState, opts: PlotOptions): PlotResul
   parts.push(`</g>`);
 
   // ── Sheet furniture ───────────────────────────────────────────────────────
+  // Each draggable element is wrapped in a group carrying data-furniture (the
+  // plot preview hit-tests on it) plus its saved manual offset, if any.
+  const furn = (key: FurnitureKey, svg: string): string => {
+    const off = opts.furnitureOffsets?.[key];
+    const dx = off?.dx ?? 0;
+    const dy = off?.dy ?? 0;
+    return (
+      `<g data-furniture="${key}"` +
+      (dx || dy ? ` transform="translate(${f(dx)},${f(dy)})"` : "") +
+      `>${svg}</g>`
+    );
+  };
+
   const parcel = parcelBoundary(model);
   const extentHa = parcel ? Math.abs(polygonArea(parcel.vertices)) / 10_000 : null;
 
-  if (opts.showNorthArrow) parts.push(renderNorthArrow(layout));
-  if (opts.showScaleBar) parts.push(renderScaleBar(layout, proj.denominator, proj.mmPerUnit));
-  if (opts.showLegend) parts.push(renderLegend(model, layout));
-  if (opts.showLegend) parts.push(renderSymbolLegend(model, layout));
+  if (opts.showNorthArrow) parts.push(furn("northArrow", renderNorthArrow(layout)));
+  if (opts.showScaleBar)
+    parts.push(furn("scaleBar", renderScaleBar(layout, proj.denominator, proj.mmPerUnit)));
+  if (opts.showLegend) parts.push(furn("legend", renderLegend(model, layout)));
+  if (opts.showLegend) parts.push(furn("symbolLegend", renderSymbolLegend(model, layout)));
 
   // Right-hand furniture stack above the title block: approval strip first,
-  // then the beacon schedule on top of it (bottom-up).
+  // then the beacon schedule on top of it (bottom-up). The stack anchors to
+  // the title block's *effective* position so dragged layouts keep the
+  // elements together; each element adds its own delta on top.
+  const effectiveTbY = layout.tb.y + (opts.furnitureOffsets?.titleBlock?.dy ?? 0);
   const stackW = Math.min(64, layout.tb.w);
   const stackX = layout.tb.x + layout.tb.w - stackW;
-  let stackBottom = layout.tb.y;
+  let stackBottom = effectiveTbY;
   if (opts.showBeaconTable && parcel) {
     const rows = beaconRows(model, parcel);
     const shown = Math.min(rows.length, 14);
     const schedH = 8 + (shown + (rows.length > shown ? 1 : 0)) * 4.6;
     const y = stackBottom - 4 - schedH;
-    parts.push(renderBeaconTable(model, parcel, { x: stackX, y, w: stackW }, opts.axisConvention ?? "yx"));
+    parts.push(
+      furn(
+        "beaconTable",
+        renderBeaconTable(model, parcel, { x: stackX, y, w: stackW }, opts.axisConvention ?? "yx"),
+      ),
+    );
     stackBottom = y;
   }
   if (opts.showApprovalBlock) {
     const y = stackBottom - 4 - 16;
-    parts.push(renderApprovalBlock({ x: stackX, y, w: stackW }, opts.titleBlock.checkedBy));
+    parts.push(
+      furn("approvalBlock", renderApprovalBlock({ x: stackX, y, w: stackW }, opts.titleBlock.checkedBy)),
+    );
     stackBottom = y;
   }
-  parts.push(renderTitleBlock(layout, opts, proj.denominator, extentHa));
+  parts.push(furn("titleBlock", renderTitleBlock(layout, opts, proj.denominator, extentHa)));
 
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${layout.paperW}mm" height="${layout.paperH}mm" ` +

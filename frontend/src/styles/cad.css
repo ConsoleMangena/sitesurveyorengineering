@@ -2260,6 +2260,13 @@
   height: 100%;
 }
 
+/* Draggable sheet furniture: whole bounding box is a grab target (SVG2
+   pointer-events value; unsupported browsers fall back to painted shapes). */
+.cad-plot-preview-sheet [data-furniture] {
+  pointer-events: bounding-box;
+  cursor: move;
+}
+
 .cad-plot-viewport-pad {
   display: grid;
   grid-template-columns: repeat(3, 32px);

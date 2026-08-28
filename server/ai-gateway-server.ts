@@ -63,7 +63,19 @@ for (const [name, value] of Object.entries({
   if (!value) console.warn(`[host] warning: ${name} is not set — /api/chat disabled.`);
 }
 
-const { runAgent } = await import(pathToFileURL(AGENT_CORE).href);
+const { runAgent, summarizeConversationTurns } = await import(
+  pathToFileURL(AGENT_CORE).href
+) as typeof import("../backend/supabase/functions/_shared/ai-agent.ts");
+
+/** Models users may select — anything outside this set falls back to the agent default. */
+const ALLOWED_MODELS = new Set([
+  "z-ai/glm-5.3-flash",
+  "openrouter/free",
+  "deepseek/deepseek-chat-v3-0324:free",
+  "qwen/qwen3-235b-a22b:free",
+  "meta-llama/llama-4-maverick:free",
+  "google/gemini-2.5-flash-preview:free",
+]);
 
 function json(res: http.ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { "Content-Type": "application/json" });
@@ -118,6 +130,8 @@ interface ConversationRow {
   id: string;
   user_id: string;
   title: string;
+  summary: string | null;
+  summary_through: string | null;
 }
 
 async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
@@ -127,13 +141,11 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
     });
   }
 
-  const userId = await authenticate(req);
-  if (!userId) return json(res, 401, { error: "Sign in to use the AI chat." });
-
   let payload: {
     conversation_id?: string;
     message?: string;
     project_id?: string;
+    model?: string;
   };
   try {
     const raw = await new Promise<string>((resolve) => {
@@ -156,18 +168,44 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
   const projectId = /^[0-9a-f-]{36}$/i.test(rawProjectId)
     ? rawProjectId
     : undefined;
+  // Validate model against allowlist; unknown values silently fall back.
+  const rawModel = typeof payload.model === "string" ? payload.model.trim() : "";
+  const model = ALLOWED_MODELS.has(rawModel) ? rawModel : undefined;
 
-  const convRes = await rest<ConversationRow[]>(
-    "GET",
-    `ai_conversations?id=eq.${conversationId}&select=id,user_id,title`,
-  );
+  // Auth and conversation lookup are independent — race them together.
+  const [userId, convRes] = await Promise.all([
+    authenticate(req),
+    rest<ConversationRow[]>(
+      "GET",
+      `ai_conversations?id=eq.${conversationId}&select=id,user_id,title,summary,summary_through`,
+    ),
+  ]);
+  if (!userId) return json(res, 401, { error: "Sign in to use the AI chat." });
   const conversation = convRes.json?.[0];
-  if (!convRes.ok || !conversation) {
-    return json(res, 404, { error: "Conversation not found." });
-  }
+   if (!convRes.ok || !conversation) {
+     console.error(`[host] conversation not found: id=${conversationId}, ok=${convRes.ok}, json=${JSON.stringify(convRes.json)}`);
+     return json(res, 404, { error: "Conversation not found." });
+   }
   if (conversation.user_id !== userId) {
     return json(res, 403, { error: "This chat belongs to another account." });
   }
+
+  // Workspace resolution is independent of the turn bookkeeping below.
+  const workspacePromise = (async () => {
+    const profileRes = await rest<{ default_workspace_id: string | null }[]>(
+      "GET",
+      `profiles?id=eq.${userId}&select=default_workspace_id`,
+    );
+    let wsId = profileRes.json?.[0]?.default_workspace_id ?? null;
+    if (!wsId) {
+      const memberRes = await rest<{ workspace_id: string }[]>(
+        "GET",
+        `workspace_members?user_id=eq.${userId}&status=eq.active&select=workspace_id&order=created_at.asc&limit=1`,
+      );
+      wsId = memberRes.json?.[0]?.workspace_id ?? null;
+    }
+    return wsId;
+  })();
 
   // Persist the user turn first (same contract as the Edge Function).
   await rest("POST", "ai_messages", {
@@ -176,35 +214,27 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
     role: "user",
     content: message,
   });
+
+  // Title/timestamp patch and history load are independent of each other
+  // (history only depends on the insert above). Fetch a few more than
+  // MAX_HISTORY_TURNS so the live turn can be sliced off.
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (conversation.title === "New chat") patch.title = message.slice(0, 60);
-  await rest("PATCH", `ai_conversations?id=eq.${conversation.id}`, patch);
-
-  const historyRes = await rest<
-    { role: "user" | "assistant"; content: string }[]
-  >(
-    "GET",
-    `ai_messages?conversation_id=eq.${conversation.id}&select=role,content&order=created_at.asc&limit=30`,
-  );
+  const [, historyRes] = await Promise.all([
+    rest("PATCH", `ai_conversations?id=eq.${conversation.id}`, patch),
+    rest<{ role: "user" | "assistant"; content: string }[]>(
+      "GET",
+      `ai_messages?conversation_id=eq.${conversation.id}&select=role,content&order=created_at.asc&limit=18`,
+    ),
+  ]);
   const priorRows = historyRes.json ?? [];
   const history = priorRows
     .slice(0, -1)
     .filter((row) => row.role === "user" || row.role === "assistant")
     .map((row) => ({ role: row.role, content: row.content }));
 
-  // Resolve the user's primary workspace so business writes are scoped.
-  const profileRes = await rest<{ default_workspace_id: string | null }>(
-    "GET",
-    `profiles?id=eq.${userId}&select=default_workspace_id`,
-  );
-  let workspaceId = profileRes.json?.[0]?.default_workspace_id ?? null;
-  if (!workspaceId) {
-    const memberRes = await rest<{ workspace_id: string }[]>(
-      "GET",
-      `workspace_members?user_id=eq.${userId}&status=eq.active&select=workspace_id&order=created_at.asc&limit=1`,
-    );
-    workspaceId = memberRes.json?.[0]?.workspace_id ?? null;
-  }
+  // By now the workspace lookup (started above) has long since resolved.
+  const workspaceId = await workspacePromise;
 
   res.writeHead(200, {
     "Content-Type": "application/x-ndjson; charset=utf-8",
@@ -223,6 +253,8 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
       serviceKey: SUPABASE_SERVICE_ROLE_KEY,
       workspaceId: workspaceId ?? undefined,
       projectId,
+      memoryNote: conversation.summary?.trim() || undefined,
+      model,
     })) {
       if (event.type === "final") finalText = event.text;
       send(event);
@@ -237,12 +269,51 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse) {
       await rest("PATCH", `ai_conversations?id=eq.${conversation.id}`, {
         updated_at: new Date().toISOString(),
       });
+      // Fold old turns into rolling memory without blocking the reply.
+      void refreshConversationSummary(
+        conversation.id,
+        conversation.summary ?? "",
+        conversation.summary_through ?? null,
+      ).catch(() => {});
     }
   } catch (err) {
     send({ type: "error", message: (err as Error).message });
   } finally {
     res.end();
   }
+}
+
+// ── Rolling conversation memory ───────────────────────────────────────────
+const SUMMARY_MIN_PENDING = 8; // don't spend a call on fewer new turns
+const SUMMARY_BATCH = 10; // oldest-first cap per refresh
+
+async function refreshConversationSummary(
+  conversationId: string,
+  currentSummary: string,
+  throughIso: string | null,
+): Promise<void> {
+  const path =
+    `ai_messages?conversation_id=eq.${conversationId}` +
+    (throughIso ? `&created_at=gt.${encodeURIComponent(throughIso)}` : "") +
+    `&select=role,content,created_at&order=created_at.asc&limit=${SUMMARY_BATCH}`;
+  const res = await rest<
+    { role: "user" | "assistant"; content: string; created_at: string }[]
+  >("GET", path);
+  const rows = (res.json ?? []).filter(
+    (r) => r.role === "user" || r.role === "assistant",
+  );
+  if (rows.length < SUMMARY_MIN_PENDING) return;
+  const batch = rows.slice(0, SUMMARY_BATCH);
+  const summary = await summarizeConversationTurns({
+    openrouterKey: OPENROUTER_API_KEY,
+    priorSummary: currentSummary,
+    turns: batch.map(({ role, content }) => ({ role, content })),
+  });
+  if (!summary) return; // best-effort; retried on a later turn
+  await rest("PATCH", `ai_conversations?id=eq.${conversationId}`, {
+    summary,
+    summary_through: batch[batch.length - 1].created_at,
+  });
 }
 
 // ── Static file serving ────────────────────────────────────────────────────

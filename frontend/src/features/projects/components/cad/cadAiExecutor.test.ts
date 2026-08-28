@@ -7,8 +7,21 @@ import {
 import type { UseCadModel } from "./useCadModel.ts";
 
 function mockCad() {
+  const deletable = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: `e${i}`, layerId: "L1" }));
   return {
-    model: {} as never,
+    model: {
+      layers: [{ id: "L1", name: "Project Coordinates", color: "#000000", visible: true, locked: false }],
+      points: deletable(3),
+      linework: [],
+      texts: [],
+      circles: [],
+      arcs: [],
+      ellipses: [],
+      hatches: [],
+      dimensions: [],
+      surfaces: [],
+    },
     selection: {} as never,
     addPoint: vi.fn((p: Record<string, unknown>) => ({ id: "pt-id", layerId: "0", ...p })),
     addLinework: vi.fn((l: Record<string, unknown>) => ({ id: "lw-id", layerId: "0", ...l })),
@@ -26,6 +39,16 @@ function mockCad() {
     nextPointNo: vi.fn(() => "1001"),
     beginTransaction: vi.fn(),
     endTransaction: vi.fn(),
+    clearAll: vi.fn(),
+    deletePoint: vi.fn(),
+    deleteLinework: vi.fn(),
+    deleteText: vi.fn(),
+    deleteCircle: vi.fn(),
+    deleteArc: vi.fn(),
+    deleteEllipse: vi.fn(),
+    deleteHatch: vi.fn(),
+    deleteDimension: vi.fn(),
+    deleteSurface: vi.fn(),
   };
 }
 
@@ -231,5 +254,70 @@ describe("executeAiCadCommands", () => {
     const results = executeAiCadCommands("point 1 2", cad as unknown as UseCadModel);
     expect(results[0].ok).toBe(true);
     expect(cad.addPoint).toHaveBeenCalledWith(expect.objectContaining({ n: 1, e: 2 }));
+  });
+});
+
+describe("ERASE commands", () => {
+  it("ERASE ALL clears the drawing and reports the count", () => {
+    const cad = mockCad();
+    const results = executeAiCadCommands("ERASE ALL", cad as unknown as UseCadModel);
+    expect(results[0].ok).toBe(true);
+    expect(cad.clearAll).toHaveBeenCalledOnce();
+    expect(results[0].detail).toContain("3 entities");
+  });
+
+  it("ERASE LAYER matches by name (case-insensitive) and deletes per type", () => {
+    const cad = mockCad();
+    const results = executeAiCadCommands(
+      "ERASE LAYER project coordinates",
+      cad as unknown as UseCadModel,
+    );
+    expect(results[0].ok).toBe(true);
+    expect(cad.deletePoint).toHaveBeenCalledTimes(3);
+    expect(results[0].detail).toContain('layer "Project Coordinates"');
+  });
+
+  it("ERASE LAYER matches by id too", () => {
+    const cad = mockCad();
+    const results = executeAiCadCommands("ERASE LAYER L1", cad as unknown as UseCadModel);
+    expect(results[0].ok).toBe(true);
+    expect(cad.deletePoint).toHaveBeenCalledTimes(3);
+  });
+
+  it("ERASE LAYER with an unknown layer fails without deleting", () => {
+    const cad = mockCad();
+    const results = executeAiCadCommands("ERASE LAYER NOPE", cad as unknown as UseCadModel);
+    expect(results[0].ok).toBe(false);
+    expect(cad.deletePoint).not.toHaveBeenCalled();
+  });
+
+  it("ERASE TYPE point deletes only that entity kind", () => {
+    const cad = mockCad();
+    const results = executeAiCadCommands("ERASE TYPE point", cad as unknown as UseCadModel);
+    expect(results[0].ok).toBe(true);
+    expect(cad.deletePoint).toHaveBeenCalledTimes(3);
+    expect(cad.deleteLinework).not.toHaveBeenCalled();
+  });
+
+  it("ERASE TYPE accepts plurals and rejects unknown types", () => {
+    const cad = mockCad();
+    expect(executeAiCadCommands("ERASE TYPE points", cad as unknown as UseCadModel)[0].ok).toBe(true);
+    const bad = executeAiCadCommands("ERASE TYPE vehicle", cad as unknown as UseCadModel);
+    expect(bad[0].ok).toBe(false);
+  });
+
+  it("DELETE is accepted as an alias of ERASE; bare ERASE fails cleanly", () => {
+    const cad = mockCad();
+    expect(executeAiCadCommands("DELETE ALL", cad as unknown as UseCadModel)[0].ok).toBe(true);
+    const bare = executeAiCadCommands("ERASE", cad as unknown as UseCadModel);
+    expect(bare[0].ok).toBe(false);
+    expect(bare[0].detail).toContain("ERASE expects");
+  });
+
+  it("an erase batch still runs in one undoable transaction", () => {
+    const cad = mockCad();
+    executeAiCadCommands("ERASE ALL", cad as unknown as UseCadModel);
+    expect(cad.beginTransaction).toHaveBeenCalledOnce();
+    expect(cad.endTransaction).toHaveBeenCalledOnce();
   });
 });

@@ -58,16 +58,28 @@ export function CadCommandBridge({ messageText, cad, onExecuted }: CadCommandBri
         const results = executed[index];
         const done = results !== undefined;
         const hasErrors = results !== undefined && results.some((r) => !r.ok);
+        const destructive = commands.some((c) => /^(ERASE|DELETE)\b/i.test(c));
 
         return (
           <section
             key={index}
             aria-label={`CAD command block ${index + 1}`}
-            className="space-y-2 rounded-md border border-border/60 bg-muted/40 p-3"
+            className={`space-y-2 rounded-md border p-3 ${
+              destructive
+                ? "border-amber-500/50 bg-amber-500/5"
+                : "border-border/60 bg-muted/40"
+            }`}
           >
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-card-foreground">
-                CAD {commands.length === 1 ? "Command" : "Commands"} ({commands.length})
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-xs font-semibold text-card-foreground">
+                  CAD {commands.length === 1 ? "Command" : "Commands"} ({commands.length})
+                </span>
+                {destructive && (
+                  <span className="inline-flex shrink-0 items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                    Destructive
+                  </span>
+                )}
               </span>
               {done ? (
                 <span className="flex shrink-0 items-center gap-1">

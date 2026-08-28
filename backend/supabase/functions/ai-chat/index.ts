@@ -6,11 +6,21 @@
 // is off; the host-server /api/chat route is the offline fallback with the
 // same request/response contract.
 
-import { runAgent, type ChatTurn } from "../_shared/ai-agent.ts";
+import { runAgent, summarizeConversationTurns, type ChatTurn } from "../_shared/ai-agent.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")!;
+
+/** Models users may select — anything outside this set falls back to the agent default. */
+const ALLOWED_MODELS = new Set([
+  "z-ai/glm-5.3-flash",
+  "openrouter/free",
+  "deepseek/deepseek-chat-v3-0324:free",
+  "qwen/qwen3-235b-a22b:free",
+  "meta-llama/llama-4-maverick:free",
+  "google/gemini-2.5-flash-preview:free",
+]);
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -50,6 +60,8 @@ interface ConversationRow {
   user_id: string;
   title: string;
   session_key: string;
+  summary: string | null;
+  summary_through: string | null;
 }
 
 async function rest<T>(
@@ -73,7 +85,53 @@ async function rest<T>(
   } catch {
     json = null;
   }
-  return { ok: res.ok, status: res.status, json };
+  return { ok: res.ok, status: res.status, json: json as T | null };
+}
+
+// ── Rolling conversation memory ───────────────────────────────────────────
+const SUMMARY_MIN_PENDING = 8; // don't spend a call on fewer new turns
+const SUMMARY_BATCH = 10; // oldest-first cap per refresh
+
+async function refreshConversationSummary(
+  conversationId: string,
+  currentSummary: string,
+  throughIso: string | null,
+): Promise<void> {
+  const path =
+    `ai_messages?conversation_id=eq.${conversationId}` +
+    (throughIso ? `&created_at=gt.${encodeURIComponent(throughIso)}` : "") +
+    `&select=role,content,created_at&order=created_at.asc&limit=${SUMMARY_BATCH}`;
+  const res = await rest<
+    { role: "user" | "assistant"; content: string; created_at: string }[]
+  >("GET", path);
+  const rows = (res.json ?? []).filter(
+    (r) => r.role === "user" || r.role === "assistant",
+  );
+  if (rows.length < SUMMARY_MIN_PENDING) return;
+  const batch = rows.slice(0, SUMMARY_BATCH);
+  const summary = await summarizeConversationTurns({
+    openrouterKey: OPENROUTER_API_KEY,
+    priorSummary: currentSummary,
+    turns: batch.map(({ role, content }) => ({ role, content })),
+  });
+  if (!summary) return; // best-effort; retried on a later turn
+  await rest("PATCH", `ai_conversations?id=eq.${conversationId}`, {
+    summary,
+    summary_through: batch[batch.length - 1].created_at,
+  });
+}
+
+function scheduleSummaryRefresh(
+  conversationId: string,
+  currentSummary: string,
+  throughIso: string | null,
+): void {
+  const task = refreshConversationSummary(conversationId, currentSummary, throughIso);
+  const runtime = (
+    globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }
+  ).EdgeRuntime;
+  if (runtime?.waitUntil) runtime.waitUntil(task);
+  else void task.catch(() => {});
 }
 
 Deno.serve(async (req) => {
@@ -84,23 +142,23 @@ Deno.serve(async (req) => {
     return json(405, { error: "Use POST." });
   }
 
-  const user = await authenticate(req);
-  if (!user) return json(401, { error: "Sign in to use the AI chat." });
-
   let body: {
     conversation_id?: string;
     message?: string;
     project_id?: string;
+    model?: string;
   };
   try {
     body = (await req.json()) as {
       conversation_id?: string;
       message?: string;
       project_id?: string;
+      model?: string;
     };
   } catch {
     return json(400, { error: "Invalid JSON body." });
   }
+
   const conversationId = String(body.conversation_id ?? "");
   const message = String(body.message ?? "").trim();
   if (!conversationId || !message) {
@@ -113,12 +171,19 @@ Deno.serve(async (req) => {
   const projectId = /^[0-9a-f-]{36}$/i.test(rawProjectId)
     ? rawProjectId
     : undefined;
+  // Validate model against allowlist; unknown values silently fall back.
+  const rawModel = typeof body.model === "string" ? body.model.trim() : "";
+  const model = ALLOWED_MODELS.has(rawModel) ? rawModel : undefined;
 
-  // Ownership check + conversation load.
-  const convRes = await rest<ConversationRow[]>(
-    "GET",
-    `ai_conversations?id=eq.${conversationId}&select=id,user_id,title,session_key`,
-  );
+  // Auth and conversation lookup are independent — race them together.
+  const [user, convRes] = await Promise.all([
+    authenticate(req),
+    rest<ConversationRow[]>(
+      "GET",
+      `ai_conversations?id=eq.${conversationId}&select=id,user_id,title,session_key,summary,summary_through`,
+    ),
+  ]);
+  if (!user) return json(401, { error: "Sign in to use the AI chat." });
   const conversation = convRes.json?.[0];
   if (!convRes.ok || !conversation) {
     return json(convRes.status === 401 ? 401 : 404, {
@@ -129,6 +194,23 @@ Deno.serve(async (req) => {
     return json(403, { error: "This chat belongs to another account." });
   }
 
+  // Workspace resolution is independent of the turn bookkeeping below.
+  const workspacePromise = (async () => {
+    const profileRes = await rest<{ default_workspace_id: string | null }[]>(
+      "GET",
+      `profiles?id=eq.${user.id}&select=default_workspace_id`,
+    );
+    let wsId = profileRes.json?.[0]?.default_workspace_id ?? null;
+    if (!wsId) {
+      const memberRes = await rest<{ workspace_id: string }[]>(
+        "GET",
+        `workspace_members?user_id=eq.${user.id}&status=eq.active&select=workspace_id&order=created_at.asc&limit=1`,
+      );
+      wsId = memberRes.json?.[0]?.workspace_id ?? null;
+    }
+    return wsId;
+  })();
+
   // Persist the user turn first so history survives any failure below.
   await rest("POST", "ai_messages", {
     conversation_id: conversation.id,
@@ -137,21 +219,22 @@ Deno.serve(async (req) => {
     content: message,
   });
 
+  // Title/timestamp patch and history load are independent of each other
+  // (history only depends on the insert above). Fetch a few more than
+  // MAX_HISTORY_TURNS so the live turn can be sliced off.
   const patch: Record<string, unknown> = {
     updated_at: new Date().toISOString(),
   };
   if (conversation.title === "New chat") {
     patch.title = message.slice(0, 60);
   }
-  await rest("PATCH", `ai_conversations?id=eq.${conversation.id}`, patch);
-
-  // Load prior turns for context.
-  const historyRes = await rest<
-    { role: "user" | "assistant"; content: string }[]
-  >(
-    "GET",
-    `ai_messages?conversation_id=eq.${conversation.id}&select=role,content&order=created_at.asc&limit=30`,
-  );
+  const [, historyRes] = await Promise.all([
+    rest("PATCH", `ai_conversations?id=eq.${conversation.id}`, patch),
+    rest<{ role: "user" | "assistant"; content: string }[]>(
+      "GET",
+      `ai_messages?conversation_id=eq.${conversation.id}&select=role,content&order=created_at.asc&limit=18`,
+    ),
+  ]);
   const priorRows = historyRes.json ?? [];
   // Drop the row we just inserted from history (it is the live turn).
   const history: ChatTurn[] = priorRows
@@ -159,19 +242,8 @@ Deno.serve(async (req) => {
     .filter((row) => row.role === "user" || row.role === "assistant")
     .map((row) => ({ role: row.role, content: row.content }));
 
-  // Resolve the user's primary workspace so business writes are scoped.
-  const profileRes = await rest<{ default_workspace_id: string | null }[]>(
-    "GET",
-    `profiles?id=eq.${user.id}&select=default_workspace_id`,
-  );
-  let workspaceId = profileRes.json?.[0]?.default_workspace_id ?? null;
-  if (!workspaceId) {
-    const memberRes = await rest<{ workspace_id: string }[]>(
-      "GET",
-      `workspace_members?user_id=eq.${user.id}&status=eq.active&select=workspace_id&order=created_at.asc&limit=1`,
-    );
-    workspaceId = memberRes.json?.[0]?.workspace_id ?? null;
-  }
+  // By now the workspace lookup (started above) has long since resolved.
+  const workspaceId = await workspacePromise;
 
   // Stream agent events as NDJSON lines.
   const encoder = new TextEncoder();
@@ -190,6 +262,8 @@ Deno.serve(async (req) => {
           serviceKey: SERVICE_ROLE_KEY,
           workspaceId: workspaceId ?? undefined,
           projectId,
+          memoryNote: conversation.summary?.trim() || undefined,
+          model,
         })) {
           if (event.type === "final") finalText = event.text;
           send(event);
@@ -205,6 +279,12 @@ Deno.serve(async (req) => {
             "PATCH",
             `ai_conversations?id=eq.${conversation.id}`,
             { updated_at: new Date().toISOString() },
+          );
+          // Fold old turns into rolling memory without blocking the reply.
+          scheduleSummaryRefresh(
+            conversation.id,
+            conversation.summary ?? "",
+            conversation.summary_through ?? null,
           );
         }
       } catch (err) {

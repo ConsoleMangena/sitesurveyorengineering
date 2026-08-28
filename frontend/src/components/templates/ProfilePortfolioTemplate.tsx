@@ -1,8 +1,11 @@
+import { useState } from "react";
 import {
   Award,
+  BadgeCheck,
   Briefcase,
   Clock,
   DollarSign,
+  Images,
   Mail,
   MapPin,
   Phone,
@@ -13,8 +16,22 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+
+/** One project-showcase entry on the public portfolio. */
+export interface PortfolioShowcaseItem {
+  id: string;
+  title: string;
+  description?: string | null;
+  year?: string | null;
+  imageUrl: string | null;
+}
 
 export interface ProfilePortfolioData {
   name: string;
@@ -34,6 +51,10 @@ export interface ProfilePortfolioData {
   phone?: string | null;
   rating?: number | null;
   reviews?: number | null;
+  avatarUrl?: string | null;
+  bannerUrl?: string | null;
+  verified?: boolean;
+  showcase?: PortfolioShowcaseItem[];
   fallbackInitials?: string;
 }
 
@@ -55,6 +76,7 @@ export function ProfilePortfolioTemplate({
   profile,
   className,
 }: ProfilePortfolioTemplateProps) {
+  const [preview, setPreview] = useState<PortfolioShowcaseItem | null>(null);
   const {
     name,
     title,
@@ -73,6 +95,10 @@ export function ProfilePortfolioTemplate({
     phone,
     rating,
     reviews,
+    avatarUrl,
+    bannerUrl,
+    verified,
+    showcase = [],
     fallbackInitials,
   } = profile;
 
@@ -89,11 +115,19 @@ export function ProfilePortfolioTemplate({
         className
       )}
     >
-      <div className="h-24 bg-gradient-to-r from-primary/80 to-primary/40" />
+      <div className="relative h-24 bg-gradient-to-r from-primary/80 to-primary/40">
+        {bannerUrl && (
+          <img
+            src={bannerUrl}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        )}
+      </div>
       <CardContent className="relative px-5 pb-5 pt-0">
         <div className="-mt-10 mb-4 flex items-end justify-between">
           <Avatar className="h-20 w-20 border-4 border-background shadow-md">
-            <AvatarImage alt={name} />
+            <AvatarImage src={avatarUrl ?? undefined} alt={name} />
             <AvatarFallback className="bg-primary text-primary-foreground text-xl font-semibold">
               {getInitials(name || fallbackInitials || "U")}
             </AvatarFallback>
@@ -104,8 +138,16 @@ export function ProfilePortfolioTemplate({
         </div>
 
         <div className="space-y-1">
-          <h3 className="text-xl font-bold tracking-tight">
-            {name.trim() || "Your Name"}
+          <h3 className="flex items-center gap-1.5 text-xl font-bold tracking-tight">
+            <span className="truncate">
+              {name.trim() || "Your Name"}
+            </span>
+            {verified && (
+              <BadgeCheck
+                className="size-5 shrink-0 text-emerald-600"
+                aria-label="Verified professional"
+              />
+            )}
           </h3>
           <p className="text-sm text-muted-foreground">
             {[title, discipline].filter(Boolean).join(" · ") || "Professional title"}
@@ -187,6 +229,42 @@ export function ProfilePortfolioTemplate({
           </div>
         )}
 
+        {showcase.length > 0 && (
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <Images size={12} /> Project Showcase
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {showcase.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setPreview(item)}
+                  className="group relative aspect-[4/3] overflow-hidden rounded-lg border bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={`View project ${item.title}`}
+                >
+                  {item.imageUrl ? (
+                    <img
+                      src={item.imageUrl}
+                      alt={item.title}
+                      loading="lazy"
+                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    />
+                  ) : (
+                    <span className="flex h-full w-full items-center justify-center text-muted-foreground">
+                      <Images size={18} />
+                    </span>
+                  )}
+                  <span className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/70 to-transparent p-1.5 text-left text-[10px] font-medium text-white">
+                    {item.title}
+                    {item.year ? ` · ${item.year}` : ""}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {email && (
           <div className="mt-4 flex justify-end">
             <Button size="sm" variant="outline" className="gap-2" asChild>
@@ -197,6 +275,29 @@ export function ProfilePortfolioTemplate({
           </div>
         )}
       </CardContent>
+
+      <Dialog open={preview !== null} onOpenChange={(open) => !open && setPreview(null)}>
+        <DialogContent className="max-w-lg p-3 sm:max-w-xl">
+          {preview?.imageUrl ? (
+            <img
+              src={preview.imageUrl}
+              alt={preview.title}
+              className="max-h-[70vh] w-full rounded-lg object-contain"
+            />
+          ) : null}
+          <div className="space-y-1 px-1 pb-1">
+            <DialogTitle className="text-sm font-semibold">
+              {preview?.title}
+              {preview?.year ? ` (${preview.year})` : ""}
+            </DialogTitle>
+            {preview?.description ? (
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                {preview.description}
+              </p>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

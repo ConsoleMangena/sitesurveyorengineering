@@ -13,6 +13,8 @@ export interface AiStreamHandlers {
   onActivity?: (label: string | null) => void;
   /** Project open in the CAD workspace, forwarded to the agent. */
   projectId?: string;
+  /** Override the default LLM model (must be in the server allowlist). */
+  model?: string;
 }
 
 /**
@@ -41,15 +43,21 @@ export async function streamAiReply(
     `${SUPABASE_URL}/functions/v1/ai-chat`,
     "/api/chat",
   ];
+  const SUPABASE_KEY =
+    (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ??
+    (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
+    "";
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
+    ...(SUPABASE_KEY ? { apikey: SUPABASE_KEY } : {}),
   };
-  const { projectId } = handlers;
+  const { projectId, model } = handlers;
   const body = JSON.stringify({
     conversation_id: conversationId,
     message,
     ...(projectId ? { project_id: projectId } : {}),
+    ...(model ? { model } : {}),
   });
 
   let res: Response | null = null;

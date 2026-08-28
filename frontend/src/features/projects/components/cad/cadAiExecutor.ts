@@ -194,6 +194,78 @@ function execLayer(tokens: string[], command: string, cad: UseCadModel): CadExec
   return { ok: true, command, detail: `Layer "${layer.name}" created.` };
 }
 
+/** Entity arrays with their matching delete methods, for ERASE sweeps. */
+const ERASE_TARGETS: {
+  types: string[];
+  list: (m: UseCadModel["model"]) => { id: string }[];
+  del: (cad: UseCadModel, id: string) => void;
+}[] = [
+  { types: ["point", "points"], list: (m) => m.points, del: (c, id) => c.deletePoint(id) },
+  { types: ["linework", "line", "polyline", "boundary"], list: (m) => m.linework, del: (c, id) => c.deleteLinework(id) },
+  { types: ["text", "texts"], list: (m) => m.texts, del: (c, id) => c.deleteText(id) },
+  { types: ["circle", "circles"], list: (m) => m.circles, del: (c, id) => c.deleteCircle(id) },
+  { types: ["arc", "arcs"], list: (m) => m.arcs, del: (c, id) => c.deleteArc(id) },
+  { types: ["ellipse", "ellipses"], list: (m) => m.ellipses, del: (c, id) => c.deleteEllipse(id) },
+  { types: ["hatch", "hatches"], list: (m) => m.hatches, del: (c, id) => c.deleteHatch(id) },
+  { types: ["dimension", "dimensions"], list: (m) => m.dimensions, del: (c, id) => c.deleteDimension(id) },
+  { types: ["surface", "surfaces"], list: (m) => m.surfaces, del: (c, id) => c.deleteSurface(id) },
+];
+
+function execErase(tokens: string[], command: string, cad: UseCadModel): CadExecResult {
+  const sub = (tokens[1] ?? "").toUpperCase();
+
+  if (sub === "ALL") {
+    const before =
+      cad.model.points.length +
+      cad.model.linework.length +
+      cad.model.texts.length +
+      cad.model.circles.length +
+      cad.model.arcs.length +
+      cad.model.ellipses.length +
+      cad.model.hatches.length +
+      cad.model.dimensions.length +
+      cad.model.surfaces.length;
+    cad.clearAll();
+    return { ok: true, command, detail: `Drawing cleared (${before} entities erased).` };
+  }
+
+  if (sub === "LAYER") {
+    const raw = tokens.slice(2).join(" ").trim();
+    if (!raw) return { ok: false, command, detail: "ERASE LAYER requires a layer name or id." };
+    const needle = raw.toLowerCase();
+    const layer = cad.model.layers.find(
+      (l) => l.id.toLowerCase() === needle || l.name.toLowerCase() === needle,
+    );
+    if (!layer) return { ok: false, command, detail: `Layer not found: ${raw}` };
+    let count = 0;
+    for (const target of ERASE_TARGETS) {
+      for (const entity of [...target.list(cad.model)]) {
+        if ((entity as { layerId?: string }).layerId === layer.id) {
+          target.del(cad, entity.id);
+          count += 1;
+        }
+      }
+    }
+    return { ok: true, command, detail: `Erased ${count} entities on layer "${layer.name}".` };
+  }
+
+  if (sub === "TYPE") {
+    const raw = (tokens[2] ?? "").toLowerCase();
+    const target = ERASE_TARGETS.find((t) => t.types.includes(raw));
+    if (!target)
+      return {
+        ok: false,
+        command,
+        detail: `ERASE TYPE expects one of: ${ERASE_TARGETS.map((t) => t.types[0]).join(", ")}.`,
+      };
+    const entities = [...target.list(cad.model)];
+    for (const entity of entities) target.del(cad, entity.id);
+    return { ok: true, command, detail: `Erased ${entities.length} ${target.types[0]}${entities.length === 1 ? "" : "s"}.` };
+  }
+
+  return { ok: false, command, detail: "ERASE expects ALL, LAYER <name>, or TYPE <type>." };
+}
+
 function execCommand(command: string, cad: UseCadModel): CadExecResult {
   const tokens = command.split(/\s+/).filter(Boolean);
   const verb = (tokens[0] ?? "").toUpperCase();
@@ -213,6 +285,9 @@ function execCommand(command: string, cad: UseCadModel): CadExecResult {
       return execArc(tokens, command, cad);
     case "LAYER":
       return execLayer(tokens, command, cad);
+    case "ERASE":
+    case "DELETE":
+      return execErase(tokens, command, cad);
     case "ZOOM":
       return { ok: true, command, detail: "Zoom extents requested." };
     default:

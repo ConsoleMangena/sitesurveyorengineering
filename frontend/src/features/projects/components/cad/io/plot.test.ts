@@ -52,6 +52,34 @@ describe("buildPlotSvg", () => {
     expect(res.svg).toContain("SURVEY PLAN");
   });
 
+  it("wraps every enabled furniture element in a data-furniture group", () => {
+    const res = buildPlotSvg(sampleModel(), opts());
+    for (const key of [
+      "northArrow",
+      "scaleBar",
+      "legend",
+      "symbolLegend",
+      "beaconTable",
+      "approvalBlock",
+      "titleBlock",
+    ]) {
+      expect(res.svg).toContain(`data-furniture="${key}"`);
+    }
+  });
+
+  it("applies saved furniture offsets as translate transforms", () => {
+    const res = buildPlotSvg(sampleModel(), opts({
+      furnitureOffsets: {
+        titleBlock: { dx: 12.5, dy: -30 },
+        northArrow: { dx: 0, dy: 8 },
+      },
+    }));
+    expect(res.svg).toContain('data-furniture="titleBlock" transform="translate(12.5,-30)"');
+    expect(res.svg).toContain('data-furniture="northArrow" transform="translate(0,8)"');
+    // Untouched elements carry no transform attribute.
+    expect(res.svg).not.toContain('data-furniture="scaleBar" transform=');
+  });
+
   it("renders the north arrow, scale bar and legend when enabled", () => {
     const res = buildPlotSvg(sampleModel(), opts());
     expect(res.svg).toContain(">N<"); // north arrow label

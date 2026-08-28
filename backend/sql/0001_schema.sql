@@ -4186,9 +4186,15 @@ create table if not exists public.ai_conversations (
   user_id uuid not null references auth.users (id) on delete cascade,
   title text not null default 'New chat',
   session_key text not null unique,
+  summary text not null default '',
+  summary_through timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Rolling memory columns for databases created before the migration.
+alter table public.ai_conversations add column if not exists summary text not null default '';
+alter table public.ai_conversations add column if not exists summary_through timestamptz;
 
 create table if not exists public.ai_messages (
   id uuid primary key default gen_random_uuid(),

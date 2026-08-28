@@ -52,8 +52,21 @@ if (import.meta.env.VITE_MOBILE_BUILD === 'true') {
   document.documentElement.classList.add('mobile-build')
 }
 
+// Dev-only: ?plotrepro mounts a standalone plot dialog for layout-fit debugging.
+const plotRepro = new URLSearchParams(window.location.search).has('plotrepro')
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    {plotRepro ? (
+      // Lazy import keeps the harness out of production bundles' initial path.
+      <PlotFitReproLazy />
+    ) : (
+      <App />
+    )}
   </StrictMode>,
 )
+
+import { PlotFitRepro } from './dev/PlotFitRepro.tsx'
+function PlotFitReproLazy() {
+  return <PlotFitRepro />
+}

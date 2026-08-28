@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CadModelState } from "./cadModel.ts";
 import type { BearingFormat } from "./survey/format.ts";
 import type { AxisConvention } from "./cadSettings.ts";
 import {
   buildPlotSvg,
   openPlotWindow,
+  sheetFrame,
+  type FurnitureKey,
   type PaperSize,
   type PaperOrientation,
   type PlotOptions,
@@ -159,6 +161,19 @@ export function CadPlotDialog({
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
 
+  // Active furniture drag (title block / north arrow / …). Kept in a ref so
+  // mousemove stays cheap; `draggingElement` mirrors it for cursors/Esc.
+  const furnitureDragRef = useRef<{
+    el: SVGGElement;
+    key: FurnitureKey;
+    startPx: { x: number; y: number };
+    base: { dx: number; dy: number };
+    bbox: { x: number; y: number; width: number; height: number };
+    scale: number;
+    live: { tx: number; ty: number } | null;
+  } | null>(null);
+  const [draggingElement, setDraggingElement] = useState(false);
+
   // Recenter paper sheet view whenever sheet paper size or orientation changes.
   useEffect(() => {
     setSheetPan({ x: 0, y: 0 });
@@ -167,16 +182,23 @@ export function CadPlotDialog({
 
   // Measure the preview pane so the sheet can be sized to the largest fit.
   const [paneSize, setPaneSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
-  useEffect(() => {
-    const wrap = previewWrapRef.current;
-    if (!wrap) return;
+  // Register the observer in the ref callback, not a mount effect: the dialog
+  // content is portaled, so the pane may attach *after* mount effects run —
+  // an effect here raced that and left paneSize at zero forever (sheet never
+  // fitted its pane, cropping the title block).
+  const attachPreviewPane = useCallback((node: HTMLDivElement | null) => {
+    previewWrapRef.current = node;
+    resizeObserverRef.current?.disconnect();
+    resizeObserverRef.current = null;
+    if (!node) return;
     const observer = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
       if (rect) setPaneSize({ w: rect.width, h: rect.height });
     });
-    observer.observe(wrap);
-    return () => observer.disconnect();
+    observer.observe(node);
+    resizeObserverRef.current = observer;
   }, []);
 
   const PREVIEW_PAD = 40; // px breathing room around the sheet
@@ -194,12 +216,61 @@ export function CadPlotDialog({
 
   const handlePreviewMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
+    // Smart hit-test: pressing on a furniture element moves that element;
+    // pressing anywhere else pans the sheet (existing behaviour).
+    const furnEl = (e.target as Element).closest?.("[data-furniture]") as SVGGElement | null;
+    if (furnEl && fitScale > 0) {
+      e.preventDefault();
+      try {
+        const bbox = furnEl.getBBox();
+        furnitureDragRef.current = {
+          el: furnEl,
+          key: furnEl.getAttribute("data-furniture") as FurnitureKey,
+          startPx: { x: e.clientX, y: e.clientY },
+          base: opts.furnitureOffsets?.[furnEl.getAttribute("data-furniture") as FurnitureKey] ?? { dx: 0, dy: 0 },
+          bbox,
+          scale: fitScale * sheetZoom,
+          live: null,
+        };
+        setDraggingElement(true);
+        return;
+      } catch {
+        // getBBox can fail if the node is not rendered — fall through to pan.
+      }
+    }
     e.preventDefault();
     dragStart.current = { x: e.clientX, y: e.clientY, panX: sheetPan.x, panY: sheetPan.y };
     setDragging(true);
   };
 
+  /** Keep a dragged element's bbox inside the drawing frame (sheet mm). */
+  const clampFurnitureDelta = (
+    fd: NonNullable<typeof furnitureDragRef.current>,
+    tx: number,
+    ty: number,
+  ): { tx: number; ty: number } => {
+    const frame = sheetFrame(opts);
+    const minTx = frame.x - fd.bbox.x;
+    const maxTx = frame.x + frame.w - (fd.bbox.x + fd.bbox.width);
+    const minTy = frame.y - fd.bbox.y;
+    const maxTy = frame.y + frame.h - (fd.bbox.y + fd.bbox.height);
+    return {
+      tx: Math.min(maxTx, Math.max(minTx, tx)),
+      ty: Math.min(maxTy, Math.max(minTy, ty)),
+    };
+  };
+
   const handlePreviewMouseMove = (e: React.MouseEvent) => {
+    // Live furniture drag: cheap direct-DOM transform, committed on release.
+    const fd = furnitureDragRef.current;
+    if (fd) {
+      const rawTx = fd.base.dx + (e.clientX - fd.startPx.x) / fd.scale;
+      const rawTy = fd.base.dy + (e.clientY - fd.startPx.y) / fd.scale;
+      const clamped = clampFurnitureDelta(fd, rawTx, rawTy);
+      fd.live = clamped;
+      fd.el.style.transform = `translate(${clamped.tx}mm, ${clamped.ty}mm)`;
+      return;
+    }
     if (!dragStart.current) return;
     const dx = e.clientX - dragStart.current.x;
     const dy = e.clientY - dragStart.current.y;
@@ -209,7 +280,39 @@ export function CadPlotDialog({
     });
   };
 
+  /** Commit the in-progress furniture drag into PlotOptions (WYSIWYG). */
+  const endFurnitureDrag = (commit: boolean) => {
+    const fd = furnitureDragRef.current;
+    if (!fd) return;
+    furnitureDragRef.current = null;
+    setDraggingElement(false);
+    // Clear the live style; committing triggers an SVG rebuild with the
+    // offset baked in, cancelling simply reverts to the previous position.
+    fd.el.style.transform = "";
+    if (!commit || !fd.live) return;
+    const round = (v: number) => Math.round(v * 2) / 2; // snap to 0.5 mm
+    setOpts((o) => ({
+      ...o,
+      furnitureOffsets: {
+        ...o.furnitureOffsets,
+        [fd.key]: { dx: round(fd.live!.tx), dy: round(fd.live!.ty) },
+      },
+    }));
+  };
+
+  // Esc cancels an active furniture drag.
+  useEffect(() => {
+    if (!draggingElement) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") endFurnitureDrag(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draggingElement]);
+
   const endPreviewDrag = () => {
+    endFurnitureDrag(true); // no-op unless an element drag is active
     dragStart.current = null;
     setDragging(false);
   };
@@ -391,6 +494,17 @@ export function CadPlotDialog({
               <Toggle label="Bearings & distances" checked={opts.showSegmentLabels} onChange={(v) => set("showSegmentLabels", v)} />
               <Toggle label="Beacon schedule" checked={opts.showBeaconTable} onChange={(v) => set("showBeaconTable", v)} />
               <Toggle label="SG approval block" checked={opts.showApprovalBlock} onChange={(v) => set("showApprovalBlock", v)} />
+              {opts.furnitureOffsets && Object.keys(opts.furnitureOffsets).length > 0 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-full text-xs gap-1"
+                  onClick={() => set("furnitureOffsets", undefined)}
+                >
+                  <RotateCcw size={12} /> Reset element positions
+                </Button>
+              )}
             </ControlSection>
 
             <ControlSection title="Title block">
@@ -414,7 +528,7 @@ export function CadPlotDialog({
         {/* ── Live preview ─────────────────────────────────────────── */}
         <div className="flex-1 relative bg-[#0c0e12] flex flex-col min-w-0">
           <div
-            ref={previewWrapRef}
+            ref={attachPreviewPane}
             className={`absolute inset-0 flex items-center justify-center overflow-hidden select-none ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
             onMouseDown={handlePreviewMouseDown}
             onMouseMove={handlePreviewMouseMove}
